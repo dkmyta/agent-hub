@@ -26,9 +26,11 @@ jobs:
           1. Create a new branch named agent/${{ github.event.client_payload.ticket_key }}.
           2. Make the smallest reasonable change to satisfy the task.
           3. Commit the change with a clear message.
-          4. Push the branch and open a DRAFT pull request against main,
-             titled '[${{ github.event.client_payload.ticket_key }}] <short summary>',
-             using: gh pr create --draft --base main" \
+          4. Push the branch, then open a DRAFT pull request against main. This
+             runs non-interactively, so you must pass --title and --body
+             explicitly to gh pr create — do not rely on interactive prompts,
+             since none are available. Example:
+             gh pr create --draft --base main --title '[${{ github.event.client_payload.ticket_key }}] <short summary>' --body 'Automated change for ${{ github.event.client_payload.ticket_key }}.'" \
             --permission-mode dontAsk \
             --permission-prompts none \
             --allowedTools "Read,Edit,Bash(git *),Bash(gh *)"
@@ -38,6 +40,10 @@ jobs:
       - name: Report PR back to Jira
         run: |
           PR_URL=$(gh pr list --head "agent/${{ github.event.client_payload.ticket_key }}" --json url -q '.[0].url')
+          if [ -z "$PR_URL" ]; then
+            echo "No PR found for branch agent/${{ github.event.client_payload.ticket_key }} — failing instead of silently reporting success."
+            exit 1
+          fi
           curl -s -X POST "https://${{ secrets.JIRA_DOMAIN }}/rest/api/3/issue/${{ github.event.client_payload.ticket_key }}/comment" \
             -u "${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
             -H "Content-Type: application/json" \
