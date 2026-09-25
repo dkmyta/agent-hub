@@ -30,7 +30,6 @@ jobs:
              titled '[${{ github.event.client_payload.ticket_key }}] <short summary>',
              using: gh pr create --draft --base main" \
             --permission-mode dontAsk \
-            --permission-prompts none \
             --allowedTools "Read,Edit,Bash(git *),Bash(gh *)"
         env:
           GH_TOKEN: ${{ github.token }}
