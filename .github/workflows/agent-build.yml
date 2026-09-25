@@ -1,0 +1,46 @@
+name: Agent Build (Jira-triggered, self-hosted)
+on:
+  repository_dispatch:
+    types: [jira-plan-approved]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Confirm which identity is active (remove once verified)
+        run: gh auth status
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Run Claude Code (Pro login on this runner)
+        run: |
+          claude -p "Task from Jira ticket ${{ github.event.client_payload.ticket_key }}:
+          ${{ github.event.client_payload.description }}
+
+          1. Create a new branch named agent/${{ github.event.client_payload.ticket_key }}.
+          2. Make the smallest reasonable change to satisfy the task.
+          3. Commit the change with a clear message.
+          4. Push the branch and open a DRAFT pull request against main,
+             titled '[${{ github.event.client_payload.ticket_key }}] <short summary>',
+             using: gh pr create --draft --base main" \
+            --permission-mode dontAsk \
+            --permission-prompts none \
+            --allowedTools "Read,Edit,Bash(git *),Bash(gh *)"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Report PR back to Jira
+        run: |
+          PR_URL=$(gh pr list --head "agent/${{ github.event.client_payload.ticket_key }}" --json url -q '.[0].url')
+          curl -s -X POST "https://${{ secrets.JIRA_DOMAIN }}/rest/api/3/issue/${{ github.event.client_payload.ticket_key }}/comment" \
+            -u "${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\":{\"type\":\"doc\",\"version\":1,\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"PR opened: $PR_URL\"}]}]}}"
+        env:
+          GH_TOKEN: ${{ github.token }}
