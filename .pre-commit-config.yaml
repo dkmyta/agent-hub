@@ -9,19 +9,30 @@ default_stages: [pre-commit]
 exclude: ^tests/(vendor/|.*/expected/)
 
 repos:
+  # Several of these declare pre-push as well, which would override
+  # default_stages; pin them to commit so push only runs the tests.
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
+        stages: [pre-commit]
       - id: end-of-file-fixer
+        stages: [pre-commit]
       - id: mixed-line-ending
         args: [--fix=lf]
+        stages: [pre-commit]
       - id: check-merge-conflict
+        stages: [pre-commit]
       - id: check-yaml
+        stages: [pre-commit]
       - id: check-json
+        stages: [pre-commit]
       - id: check-added-large-files
+        stages: [pre-commit]
       - id: check-executables-have-shebangs
+        stages: [pre-commit]
       - id: check-shebang-scripts-are-executable
+        stages: [pre-commit]
 
   # Workflows, including the shell scripts inside their `run:` steps.
   - repo: https://github.com/Mateusz-Grzelinski/actionlint-py
