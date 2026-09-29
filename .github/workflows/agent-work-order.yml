@@ -23,10 +23,11 @@ jobs:
           request — not blank, not just placeholder text like 'TBD'.
 
           If it does NOT contain enough to work with:
-          Set status to 'needs-details', set missing to a comment for the
-          ticket that names each missing or unclear part of the request and
-          asks the specific questions the requester needs to answer, and omit
-          work_order.
+          Set status to 'needs-details', set missing to what's missing — it is
+          shown on the ticket after a 'What's missing:' label, below a
+          standard needs-details message. Name each missing or unclear part
+          of the request and ask the specific questions the requester needs
+          to answer. Omit work_order.
 
           If it DOES contain enough to work with:
           Prepare the work order the way an experienced delivery lead would
@@ -199,20 +200,62 @@ jobs:
                     h4("Testing Instructions"), para("Pending — added once implementation is complete."),
                     h4("Pull Request"), para("Pending — added once implementation begins.")
                 ]}}}' "$OUTPUT" > "$RUNNER_TEMP/description.json"
+
+            # Preserve the original request as a comment before overwriting
+            # it. Read it fresh from Jira so formatting survives and any edits
+            # made during the run are captured.
+            jira "$ISSUE_URL?fields=description" > "$RUNNER_TEMP/original-request.json"
+            if jq -e '.fields.description.content | length > 0' "$RUNNER_TEMP/original-request.json" > /dev/null; then
+              jq '{body: {type: "doc", version: 1, content: ([
+                    {type: "paragraph", content: [
+                      {type: "text", text: "Original Request", marks: [{type: "strong"}]},
+                      {type: "text", text: " — captured before the work order replaced the description."}]},
+                    {type: "rule"}] + .fields.description.content)}}' "$RUNNER_TEMP/original-request.json" \
+                | jira -X POST "$ISSUE_URL/comment" -d @- > /dev/null
+            else
+              echo "Description is empty — no original request to preserve."
+            fi
+
             jira -X PUT "$ISSUE_URL" -d @"$RUNNER_TEMP/description.json"
+
+            # Mark earlier "Needs details" comments (from the Jira rule or a
+            # previous Claude review) as resolved. Changing their text also
+            # lets the rule's comment-once action post again on a future bounce.
+            jira "$ISSUE_URL/comment?maxResults=100" \
+              | jq -c '.comments[]
+                  | select(.body.content[0].content[0].text == "Needs details")
+                  | {id, body: {type: "doc", version: 1, content: ([
+                      {type: "paragraph", content: [
+                        {type: "text", text: "Resolved", marks: [{type: "strong"}]},
+                        {type: "text", text: " — details were added and the work order was generated."}]}]
+                      + .body.content)}}' > "$RUNNER_TEMP/resolved-comments.jsonl"
+            while read -r COMMENT; do
+              jq -c '{body}' <<< "$COMMENT" \
+                | jira -X PUT "$ISSUE_URL/comment/$(jq -r '.id' <<< "$COMMENT")" -d @- > /dev/null
+            done < "$RUNNER_TEMP/resolved-comments.jsonl"
+            echo "Marked $(wc -l < "$RUNNER_TEMP/resolved-comments.jsonl" | tr -d ' ') needs-details comment(s) as resolved."
             exit 0
           fi
 
           # needs-details: explain what's missing, label it, and move it back
-          # to Inbox (Jira moved it to Work Order RFR before this ran).
+          # to Intake (Jira moved it to Work Order before this ran).
+          # Same standard message as the Jira rule's no-details comment, plus
+          # the source and Claude's specifics.
           jq '{body: {type: "doc", version: 1, content: [
-                {type: "paragraph", content: [{type: "text", text: .structured_output.missing}]}]}}' "$OUTPUT" \
+                {type: "paragraph", content: [
+                  {type: "text", text: "Needs details", marks: [{type: "strong"}]},
+                  {type: "text", text: " — flagged by Claude (work order review)."}]},
+                {type: "paragraph", content: [
+                  {type: "text", text: "This ticket doesn’t have enough detail to generate a work order, so it’s in Intake until more is added. Update the description to resubmit it automatically."}]},
+                {type: "paragraph", content: [
+                  {type: "text", text: "What’s missing: ", marks: [{type: "strong"}]},
+                  {type: "text", text: .structured_output.missing}]}]}}' "$OUTPUT" \
             | jira -X POST "$ISSUE_URL/comment" -d @- > /dev/null
           jira -X PUT "$ISSUE_URL" -d '{"update":{"labels":[{"add":"needs-details"}]}}'
           TRANSITION_ID=$(jira "$ISSUE_URL/transitions" \
-            | jq -r '[.transitions[] | select(.to.name == "Inbox")][0].id // empty')
+            | jq -r '[.transitions[] | select(.to.name == "Intake")][0].id // empty')
           if [ -z "$TRANSITION_ID" ]; then
-            echo "No transition to Inbox available for $TICKET_KEY — failing instead of silently leaving it in Work Order RFR."
+            echo "No transition to Intake available for $TICKET_KEY — failing instead of silently leaving it in Work Order."
             exit 1
           fi
           jira -X POST "$ISSUE_URL/transitions" -d "{\"transition\":{\"id\":\"$TRANSITION_ID\"}}"
