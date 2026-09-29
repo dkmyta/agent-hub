@@ -1,0 +1,1 @@
+Hi team — contributors keep asking how to run the automation tests before opening a PR. Could we add a short CONTRIBUTING.md that explains how to install what the tests need and run them locally, and how to update snapshots when a change is intended? It should link to the existing test runner rather than duplicate it. Nothing needs to change in the tests themselves.

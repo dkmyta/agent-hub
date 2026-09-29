@@ -1,0 +1,69 @@
+name: Tests
+
+# The gate for every pull request: the same checks as the local hooks
+# (.pre-commit-config.yaml), which contributors can skip, plus the test suite
+# on both jq versions. Runs on GitHub-hosted runners with no Jira, Claude or
+# self-hosted runner involved, so it's safe for pull requests from forks.
+# See CONTRIBUTING.md and tests/README.md.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      # Runs the commit-stage hooks; the tests (a push-stage hook) run below.
+      - name: pre-commit (formatting, actionlint, shellcheck)
+        run: pipx run --spec pre-commit==4.6.2 pre-commit run --all-files --show-diff-on-failure
+
+  test:
+    name: Test (jq ${{ matrix.jq }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.6 matches the self-hosted runner; 1.7 is what it will get on upgrade.
+        jq: ["1.6", "1.7.1"]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+
+      - name: Install jq ${{ matrix.jq }}
+        env:
+          JQ_VERSION: ${{ matrix.jq }}
+        run: |
+          case "$JQ_VERSION" in
+            1.6) url=https://github.com/jqlang/jq/releases/download/jq-1.6/jq-linux64 ;;
+            *) url=https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL -o "$RUNNER_TEMP/bin/jq" "$url"
+          chmod +x "$RUNNER_TEMP/bin/jq"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - run: npm ci --prefix tests
+
+      - run: npm test --prefix tests

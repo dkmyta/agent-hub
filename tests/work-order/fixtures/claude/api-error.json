@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "error_during_execution",
+  "is_error": true,
+  "duration_ms": 3000,
+  "num_turns": 1,
+  "total_cost_usd": 0.01,
+  "result": "API Error: 529 Overloaded"
+}

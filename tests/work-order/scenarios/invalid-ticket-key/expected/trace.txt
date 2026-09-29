@@ -1,0 +1,7 @@
+Fetch ticket: failure
+Generate work order: skipped
+Apply work order: skipped
+Return to Intake: skipped
+Clear progress comment: skipped
+Report failure: failure
+--- Jira calls

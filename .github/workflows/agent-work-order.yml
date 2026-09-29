@@ -33,21 +33,40 @@ env:
   AGENTS_DIR: .github/agents
   AGENT_DIR: .github/agents/work-order
   CLAUDE_MODEL: claude-sonnet-5
-  # Jira names this workflow depends on. Keep in sync with the Jira workflow
-  # and the "Create Work Order" automation rule.
+  # Used automatically when CLAUDE_MODEL is overloaded.
+  CLAUDE_FALLBACK_MODEL: claude-opus-5-5
+  # Stops a runaway run; exceeding it fails the run with the failure comment.
+  # Measured in API-equivalent dollars (typical work orders: $0.10–0.80). On
+  # the current subscription login nothing is billed, but runs draw on the
+  # plan's usage limits, so this protects those; with an API key it caps spend.
+  CLAUDE_MAX_BUDGET_USD: "2.00"
+  # The only sites Claude may fetch pages from (web search is unrestricted), so
+  # a malicious ticket can't get repository content sent to an arbitrary URL.
+  CLAUDE_FETCH_DOMAINS: >-
+    docs.github.com developer.atlassian.com support.atlassian.com
+    docs.anthropic.com docs.claude.com developer.mozilla.org nodejs.org docs.npmjs.com
+  # Jira names and text this workflow depends on. Keep in sync with the Jira
+  # workflow and the "Work Order Requested" automation rule.
   WORK_ORDER_STATUS: Work Order
   INTAKE_STATUS: Intake
   NEEDS_DETAILS_LABEL: needs-details
   NEEDS_DETAILS_TITLE: Needs details
   NEEDS_DETAILS_MESSAGE: "This ticket doesn’t have enough detail to generate a work order, so it’s in Intake until more is added. Update the description to resubmit it automatically."
+  # Closes the Original Request comment; also how a re-run recognises it.
+  ORIGINAL_REQUEST_NOTE: Captured from the original intake form before the work order replaced the description.
   # "false" suppresses watcher notifications for the description update
   # (requires Jira admin permission for the API user).
   JIRA_NOTIFY_USERS: "true"
 
 jobs:
   work-order:
+    # Current setup: a self-hosted runner where Claude Code is logged in with a
+    # Claude subscription. To use the Claude API instead, see docs/runners.md.
     runs-on: [self-hosted, claude]
-    timeout-minutes: 25
+    # Every step has its own limit and together they fit within this one, so a
+    # slow step fails (and is reported on the ticket) instead of the whole job
+    # being cancelled.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
         with:
@@ -55,6 +74,7 @@ jobs:
 
       - name: Fetch ticket
         id: start
+        timeout-minutes: 3
         env: &jira-env
           JIRA_DOMAIN: ${{ secrets.JIRA_DOMAIN }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
@@ -90,15 +110,21 @@ jobs:
         run: |
           OUTPUT="$RUNNER_TEMP/claude-output.json"
           PROMPT=$(printf 'Prepare the work order for this Jira ticket.\n\n<ticket>\n%s\n</ticket>' "$(cat "$RUNNER_TEMP/ticket.md")")
+          # Read-only and scoped to the repository; page fetches only from
+          # CLAUDE_FETCH_DOMAINS.
+          TOOLS="Read(./**),Grep(./**),Glob(./**),WebSearch"
+          for DOMAIN in $CLAUDE_FETCH_DOMAINS; do TOOLS="$TOOLS,WebFetch(domain:$DOMAIN)"; done
 
           echo "::group::Claude output"
           claude -p "$PROMPT" \
             --model "$CLAUDE_MODEL" \
+            --fallback-model "$CLAUDE_FALLBACK_MODEL" \
+            --max-budget-usd "$CLAUDE_MAX_BUDGET_USD" \
             --append-system-prompt-file "$AGENT_DIR/prompt.md" \
             --json-schema "$(jq -c . "$AGENT_DIR/schema.json")" \
             --output-format json \
             --permission-mode dontAsk \
-            --allowedTools "Read(./**),Grep(./**),Glob(./**),WebSearch,WebFetch" \
+            --allowedTools "$TOOLS" \
             < /dev/null > "$OUTPUT" || true
           jq '.structured_output' "$OUTPUT" 2>/dev/null || cat "$OUTPUT"
           echo "::endgroup::"
@@ -109,20 +135,28 @@ jobs:
                 (.structured_output.status == "needs-details" and (.structured_output.missing // "") != ""))' \
                 "$OUTPUT" > /dev/null 2>&1; then
             echo "::error::Claude returned no usable result."
-            jq '{is_error, subtype, result}' "$OUTPUT" 2>/dev/null || echo "(no JSON output — see the Claude output group above)"
+            # subtype explains it, e.g. error_max_budget_usd.
+            jq '{is_error, subtype, errors, result}' "$OUTPUT" 2>/dev/null || echo "(no JSON output — see the Claude output group above)"
             exit 1
           fi
 
           jq -r '"status=\(.structured_output.status)"' "$OUTPUT" >> "$GITHUB_OUTPUT"
+          # Models that did the work (5%+ of the cost; Claude Code also uses a
+          # small model internally): the fallback model shows up if it was needed.
           jq -r --arg model "$CLAUDE_MODEL" '
-            "### Work order: \(env.TICKET_KEY)\n",
-            "| Result | Model | Duration | Turns | Cost |",
-            "|---|---|---|---|---|",
-            "| \(.structured_output.status) | \($model) | \(.duration_ms / 1000 | floor)s | \(.num_turns) | $\(.total_cost_usd // 0 | . * 100 | round / 100) |"' \
+            (.total_cost_usd // 0) as $total
+            | ([.modelUsage // {} | to_entries[] | select(.value.costUSD >= $total * 0.05) | .key]
+               | join(", ") | if . == "" then $model else . end) as $models
+            | "### Work order: \(env.TICKET_KEY)\n",
+              "| Result | Models | Duration | Turns | Cost (API-equivalent) |",
+              "|---|---|---|---|---|",
+              "| \(.structured_output.status) | \($models) | \(.duration_ms / 1000 | floor)s | \(.num_turns) | $\($total * 100 | round / 100) |",
+              ""' \
             "$OUTPUT" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Apply work order to ticket
         if: steps.claude.outputs.status == 'ready'
+        timeout-minutes: 3
         env: *jira-env
         run: |
           source "$AGENTS_DIR/lib/jira.sh"
@@ -130,15 +164,24 @@ jobs:
 
           jq '.structured_output.work_order' "$RUNNER_TEMP/claude-output.json" \
             | jq -L "$AGENTS_DIR/lib" -f "$AGENT_DIR/render.jq" > "$RUNNER_TEMP/description.json"
+          jira_comments > "$RUNNER_TEMP/comments.json"
 
           # Preserve the original request as a comment before overwriting it.
           # Read fresh so formatting survives and edits made during the run
-          # are captured; if the comment fails, nothing is overwritten.
+          # are captured; if the comment fails, nothing is overwritten. Skipped
+          # if this exact request was already captured (a re-run after a failed
+          # description update).
           jira_issue description > "$RUNNER_TEMP/original-request.json"
-          if jq -e '.fields.description.content | length > 0' "$RUNNER_TEMP/original-request.json" > /dev/null; then
-            jq -L "$AGENTS_DIR/lib" 'include "adf";
-              doc(.fields.description.content + [divider,
-                para([em("Captured from the original intake form before the work order replaced the description.")])])' \
+          ALREADY_CAPTURED=$(jq -L "$AGENTS_DIR/lib" --arg note "$ORIGINAL_REQUEST_NOTE" \
+            --slurpfile issue "$RUNNER_TEMP/original-request.json" 'include "adf";
+            ($issue[0].fields.description | to_markdown) as $current
+            | [.comments[].body | select([.. | objects | select(.type == "text") | .text] | last == $note)
+               | {content: .content[:-2]} | to_markdown] | any(. == $current)' "$RUNNER_TEMP/comments.json")
+          if [ "$ALREADY_CAPTURED" = true ]; then
+            echo "::notice::Original request already captured on $TICKET_KEY — not posting it again."
+          elif jq -e '.fields.description.content | length > 0' "$RUNNER_TEMP/original-request.json" > /dev/null; then
+            jq -L "$AGENTS_DIR/lib" --arg note "$ORIGINAL_REQUEST_NOTE" 'include "adf";
+              doc(.fields.description.content + [divider, para([em($note)])])' \
               "$RUNNER_TEMP/original-request.json" | jira_comment > /dev/null
           fi
 
@@ -147,11 +190,11 @@ jobs:
           # Mark earlier needs-details comments (from the Jira rule or Claude)
           # as resolved. Changing their text also lets the rule's comment-once
           # action post again if the ticket bounces later.
-          jira_comments | jq -c -L "$AGENTS_DIR/lib" --arg title "$NEEDS_DETAILS_TITLE" 'include "adf";
+          jq -c -L "$AGENTS_DIR/lib" --arg title "$NEEDS_DETAILS_TITLE" 'include "adf";
             .comments[] | select(.body | first_text == $title)
             | {id, body: doc([para([strong("✅ Resolved"),
                 text(" — details were added and the work order was generated.")])]
-                + (.body.content | strike_all))}' > "$RUNNER_TEMP/resolved-comments.jsonl"
+                + (.body.content | strike_all))}' "$RUNNER_TEMP/comments.json" > "$RUNNER_TEMP/resolved-comments.jsonl"
           while read -r COMMENT; do
             jq -c '.body' <<< "$COMMENT" | jira_update_comment "$(jq -r '.id' <<< "$COMMENT")"
           done < "$RUNNER_TEMP/resolved-comments.jsonl"
@@ -160,6 +203,7 @@ jobs:
 
       - name: Return ticket to Intake
         if: steps.claude.outputs.status == 'needs-details'
+        timeout-minutes: 3
         env: *jira-env
         run: |
           source "$AGENTS_DIR/lib/jira.sh"
@@ -174,7 +218,8 @@ jobs:
           fi
 
           # Same standard message as the Jira rule's no-details comment, plus
-          # the source and Claude's specifics.
+          # the source and Claude's specifics. (Curly apostrophes intended.)
+          # shellcheck disable=SC1112
           jq -L "$AGENTS_DIR/lib" --arg title "$NEEDS_DETAILS_TITLE" --arg message "$NEEDS_DETAILS_MESSAGE" 'include "adf";
             doc([para([strong($title), text(" — flagged by Claude (work order review).")]),
                  para($message),
@@ -185,15 +230,20 @@ jobs:
 
           echo "[$TICKET_KEY]($TICKET_URL) returned to $INTAKE_STATUS as $NEEDS_DETAILS_LABEL." >> "$GITHUB_STEP_SUMMARY"
 
+      # Runs on success and on cancellation (a newer request for the ticket
+      # superseded this run), so no "⏳ Generating" comment is left behind.
       - name: Clear progress comment
-        if: ${{ !failure() && steps.start.outputs.proceed == 'true' }}
+        if: success() || cancelled()
+        timeout-minutes: 2
         env: *jira-env
         run: |
+          [ -s "$RUNNER_TEMP/progress-comment-id" ] || exit 0
           source "$AGENTS_DIR/lib/jira.sh"
           jira_delete_comment "$(cat "$RUNNER_TEMP/progress-comment-id")"
 
       - name: Report failure on ticket
         if: failure()
+        timeout-minutes: 2
         env: *jira-env
         run: |
           source "$AGENTS_DIR/lib/jira.sh"

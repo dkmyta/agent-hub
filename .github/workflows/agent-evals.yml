@@ -1,0 +1,41 @@
+name: Agent Evals
+
+# Runs the agents against sample tickets with the real Claude Code CLI (Jira
+# mocked) to check their decisions, not just the plumbing — see tests/evals.
+# Uses Claude usage, so it only runs on demand. Deliberately never triggered
+# by pull requests: this is a public repo and the job runs on a self-hosted
+# runner.
+
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: Space-separated case names (blank runs all)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-evals
+
+jobs:
+  work-order:
+    runs-on: [self-hosted, claude]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - run: npm ci --prefix tests
+
+      - name: Work order evals
+        env:
+          CASES: ${{ inputs.cases }}
+        run: |
+          # Test names start with "<case>:", so filter on the listed cases.
+          filter=()
+          if [ -n "$CASES" ]; then filter=(--filter "^($(echo "$CASES" | xargs | tr ' ' '|')):"); fi
+          npm run evals --prefix tests -- "${filter[@]}"

@@ -1,0 +1,143 @@
+[
+  {
+    "method": "GET",
+    "path": "?fields=summary,description,status",
+    "body": null
+  },
+  {
+    "method": "POST",
+    "path": "/comment",
+    "body": {
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "⏳ Generating work order",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " — usually takes 1–2 minutes. Refresh the page to see the result. "
+              },
+              {
+                "type": "text",
+                "text": "Follow progress in GitHub Actions",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://github.com/example/repo/actions/runs/1000"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "?fields=status",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/transitions",
+    "body": null
+  },
+  {
+    "method": "POST",
+    "path": "/comment",
+    "body": {
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Needs details",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " — flagged by Claude (work order review)."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "This ticket doesn’t have enough detail to generate a work order, so it’s in Intake until more is added. Update the description to resubmit it automatically."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "What’s missing: ",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "This ticket has no actual request yet — every field is still a placeholder (TBD or blank). To prepare a work order, the requester needs to fill in: Original Request (what prompted this — a message, an observation, a problem noticed), What's Needed (the specific change, feature, or fix being asked for), and Why / Context (the goal or problem this solves, and for whom). If relevant, also add Workstream (which team or area owns this), Known Constraints (deadlines, systems that must not break, technical limits), and Source / Email Thread (a link to the original conversation, if any)."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "",
+    "body": {
+      "update": {
+        "labels": [
+          {
+            "add": "needs-details"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/transitions",
+    "body": {
+      "transition": {
+        "id": "11"
+      }
+    }
+  },
+  {
+    "method": "DELETE",
+    "path": "/comment/5001",
+    "body": null
+  }
+]

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Jira Cloud REST helpers shared by the agent workflows.
 #
 # Source from a workflow step:  source "$AGENTS_DIR/lib/jira.sh"
@@ -12,7 +13,9 @@ set -o pipefail
 }
 
 ISSUE_URL="https://$JIRA_DOMAIN/rest/api/3/issue/$TICKET_KEY"
+# shellcheck disable=SC2034 # used by the workflow steps that source this file
 TICKET_URL="https://$JIRA_DOMAIN/browse/$TICKET_KEY"
+# shellcheck disable=SC2034
 RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
 jira() {

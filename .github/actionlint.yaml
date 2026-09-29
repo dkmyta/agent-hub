@@ -1,0 +1,4 @@
+# actionlint config: labels of this repo's self-hosted runners.
+self-hosted-runner:
+  labels:
+    - claude
