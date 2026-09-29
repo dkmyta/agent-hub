@@ -1,0 +1,49 @@
+# Local checks, defined once and reused by CI (see CONTRIBUTING.md):
+# - on commit: fast formatting and lint (also CI's Lint job)
+# - on push: the test suite (also CI's Test job)
+# Local hooks give early feedback but can be skipped; CI is the gate.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+# Snapshots and vendored files must stay byte-for-byte as generated.
+exclude: ^tests/(vendor/|.*/expected/)
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+
+  # Workflows, including the shell scripts inside their `run:` steps.
+  - repo: https://github.com/Mateusz-Grzelinski/actionlint-py
+    rev: v1.7.12.25
+    hooks:
+      - id: actionlint
+        additional_dependencies: [shellcheck-py==0.11.0.1]
+
+  # Shared libraries, test helpers and bats suites.
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        args: [--severity=warning, --external-sources]
+        files: ^(\.github/agents/.*\.sh|tests/.*\.(bash|bats)|tests/lib/bin/claude)$
+
+  - repo: local
+    hooks:
+      - id: tests
+        name: agent workflow tests (npm test --prefix tests)
+        entry: npm test --prefix tests
+        language: system
+        pass_filenames: false
+        files: ^(\.github/|tests/)
+        stages: [pre-push]

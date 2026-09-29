@@ -1,0 +1,13 @@
+{"comments": [
+  {"id": "301", "body": {"type": "doc", "version": 1, "content": [
+    {"type": "paragraph", "content": [{"type": "text", "text": "Needs details", "marks": [{"type": "strong"}]}, {"type": "text", "text": " — flagged by Jira automation."}]},
+    {"type": "paragraph", "content": [{"type": "text", "text": "This ticket doesn’t have enough detail to generate a work order, so it’s in Intake until more is added. Update the description to resubmit it automatically."}]}]}},
+  {"id": "302", "body": {"type": "doc", "version": 1, "content": [
+    {"type": "paragraph", "content": [{"type": "text", "text": "Needs details", "marks": [{"type": "strong"}]}, {"type": "text", "text": " — flagged by Claude (work order review)."}]},
+    {"type": "paragraph", "content": [{"type": "text", "text": "What’s missing: ", "marks": [{"type": "strong"}]}, {"type": "text", "text": "Which file? e.g. "}, {"type": "text", "text": "README.md", "marks": [{"type": "code"}]}]}]}},
+  {"id": "303", "body": {"type": "doc", "version": 1, "content": [
+    {"type": "paragraph", "content": [{"type": "text", "text": "✅ Resolved", "marks": [{"type": "strong"}]}, {"type": "text", "text": " — details were added and the work order was generated."}]},
+    {"type": "paragraph", "content": [{"type": "text", "text": "Needs details", "marks": [{"type": "strong"}, {"type": "strike"}]}]}]}},
+  {"id": "304", "body": {"type": "doc", "version": 1, "content": [
+    {"type": "paragraph", "content": [{"type": "text", "text": "Needs details on the rollout plan too, please."}]}]}}
+]}

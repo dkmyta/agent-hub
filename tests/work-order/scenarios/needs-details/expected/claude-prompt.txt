@@ -1,0 +1,19 @@
+Prepare the work order for this Jira ticket.
+
+<ticket>
+Key: SCRUM-99
+Title: New request
+
+Description:
+Original Request: TBD
+
+What's Needed: TBD
+
+Why / Context: TBD
+
+Workstream:
+
+Known Constraints:
+
+Source / Email Thread:
+</ticket>

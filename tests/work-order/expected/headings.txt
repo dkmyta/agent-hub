@@ -1,0 +1,18 @@
+h3 Overview
+h4 Clarifications
+h4 Important Details
+h3 Scope
+h4 Acceptance Criteria
+h4 Out of Scope
+h3 Developer Notes
+h4 Where Things Are in the Codebase
+h4 Resources & Background
+h4 Getting Started
+h3 Risk & Open Questions
+h4 Confidence / Risk
+h4 Contains Customer Data (Y/N)
+h4 Open Questions / Assumptions
+h3 Delivery
+h4 Implementation Plan
+h4 Testing Instructions
+h4 Pull Request

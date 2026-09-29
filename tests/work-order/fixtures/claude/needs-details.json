@@ -1,0 +1,20 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 4287,
+  "num_turns": 2,
+  "total_cost_usd": 0.0826042,
+  "structured_output": {
+    "status": "needs-details",
+    "missing": "This ticket has no actual request yet — every field is still a placeholder (TBD or blank). To prepare a work order, the requester needs to fill in: Original Request (what prompted this — a message, an observation, a problem noticed), What's Needed (the specific change, feature, or fix being asked for), and Why / Context (the goal or problem this solves, and for whom). If relevant, also add Workstream (which team or area owns this), Known Constraints (deadlines, systems that must not break, technical limits), and Source / Email Thread (a link to the original conversation, if any)."
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "costUSD": 0.000682
+    },
+    "claude-sonnet-5": {
+      "costUSD": 0.0819222
+    }
+  }
+}

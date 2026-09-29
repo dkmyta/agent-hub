@@ -1,0 +1,14 @@
+{
+  "type": "result",
+  "subtype": "error_max_budget_usd",
+  "is_error": true,
+  "duration_ms": 3683,
+  "num_turns": 1,
+  "total_cost_usd": 2.03,
+  "errors": [
+    "Reached maximum budget ($2)"
+  ],
+  "modelUsage": {
+    "claude-sonnet-5": {}
+  }
+}

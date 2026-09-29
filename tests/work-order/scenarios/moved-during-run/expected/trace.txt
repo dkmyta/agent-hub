@@ -1,0 +1,11 @@
+Fetch ticket: success
+Generate work order: success
+Apply work order: success
+Return to Intake: skipped
+Clear progress comment: success
+Report failure: skipped
+--- Jira calls
+GET ?fields=summary,description,status
+POST /comment — comment: ⏳ Generating work order
+GET ?fields=status
+DELETE /comment/5001

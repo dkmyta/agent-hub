@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stand-in for the Claude Code CLI. Records its arguments (one per line) and
+# the prompt, then prints $CLAUDE_FIXTURE (a recorded `claude --output-format
+# json` result), or nothing if CLAUDE_FIXTURE is "none". Exits $CLAUDE_EXIT.
+printf '%s\n' "$@" > "$RUNNER_TEMP/claude-args.txt"
+while [ $# -gt 0 ]; do
+  [ "$1" = -p ] && { printf '%s' "$2" > "$RUNNER_TEMP/claude-prompt.txt"; break; }
+  shift
+done
+[ "$CLAUDE_FIXTURE" = none ] || cat "$CLAUDE_FIXTURE"
+exit "${CLAUDE_EXIT:-0}"
