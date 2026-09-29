@@ -1,0 +1,68 @@
+name: Generate Work Order (Jira-triggered, self-hosted)
+on:
+  repository_dispatch:
+    types: [jira-ticket-created]
+
+jobs:
+  work-order:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Generate work order and update Jira ticket
+        run: |
+          echo "=== Claude summary ==="
+          claude -p "Jira ticket ${{ github.event.client_payload.ticket_key }} needs its work order generated.
+          Current content: ${{ github.event.client_payload.description }}
+
+          FIRST: check whether this actually contains a real, substantive
+          request — not blank, not just placeholder text like 'TBD'.
+
+          If it does NOT contain enough to work with:
+          1. Add a comment to the ticket (via the Jira REST API) explaining
+             specifically what's missing.
+          2. Add the label 'needs-details' to the ticket.
+          3. Transition the ticket back to the Inbox status (via the Jira
+             REST API's transitions endpoint) — it was moved to Work Order
+             RFR automatically before this check ran, so it needs to move
+             back since it isn't actually ready.
+          4. Stop here — do not modify the description further.
+
+          If it DOES contain enough to work with:
+          You have read-only access to this repository, checked out in the
+          current directory. Briefly look around the codebase — search for
+          relevant existing files, features, or conventions related to this
+          request, to ground your Acceptance Criteria and Out of Scope in
+          what's actually there. Do not design the implementation — that's
+          the next stage's job.
+
+          Update the ticket's description field via the Jira REST API with
+          this structure:
+
+          Task Summary:
+          Acceptance Criteria:
+          Explicitly Out of Scope:
+          Confidence / Risk: <Low, Medium, or High>
+          Contains Customer Data (Y/N):
+          Open Questions / Assumptions:
+          Implementation Plan: 'Pending — added once the plan is approved.'
+          Testing Instructions: 'Pending — added once implementation is complete.'
+          Pull Request: 'Pending — added once implementation begins.'
+
+          The Jira domain, email, and API token are available as the
+          environment variables \$JIRA_DOMAIN, \$JIRA_EMAIL, \$JIRA_API_TOKEN
+          — reference them by name, never hardcode their values. Write JSON
+          request bodies to a temp file first (e.g. payload.json) and send
+          with curl -d @payload.json. Do not modify any files in the
+          repository. Do not transition the ticket in this success case —
+          it's already in the correct column." \
+            --permission-mode dontAsk \
+            --allowedTools "Read,Grep,Glob,Bash(curl *)"
+          echo "======================="
+        env:
+          JIRA_DOMAIN: ${{ secrets.JIRA_DOMAIN }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
