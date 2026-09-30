@@ -1,7 +1,7 @@
 Prepare the work order for this Jira ticket.
 
 <ticket>
-Key: SCRUM-99
+Key: PROJ-99
 Title: New request
 
 Description:

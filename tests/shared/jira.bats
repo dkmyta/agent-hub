@@ -13,14 +13,14 @@ with_jira() {
 }
 
 @test "accepts valid ticket keys" {
-  for key in SCRUM-1 ABC-123 A1_B-9; do
+  for key in PROJ-1 ABC-123 A1_B-9; do
     run with_jira "$key" 'echo reached'
     assert_output reached
   done
 }
 
 @test "rejects anything that isn't a ticket key, before any request" {
-  for key in "" scrum-1 SCRUM 'SCRUM-1; rm -rf /' 'SCRUM-1/../x' -1; do
+  for key in "" proj-1 PROJ 'PROJ-1; rm -rf /' 'PROJ-1/../x' -1; do
     run with_jira "$key" 'echo reached'
     assert_failure
     refute_output --partial reached
@@ -29,25 +29,51 @@ with_jira() {
 }
 
 @test "jira_require_status: succeeds in the expected status, returns 1 otherwise" {
-  run with_jira SCRUM-1 'jira_require_status "Work Order" && echo ok'
+  run with_jira PROJ-1 'jira_require_status "Work Order" && echo ok'
   assert_output ok
-  run with_jira SCRUM-1 'jira_require_status Intake > /dev/null || echo skipped'
+  run with_jira PROJ-1 'jira_require_status Intake > /dev/null || echo skipped'
   assert_output skipped
 }
 
 @test "jira_require_status: an API failure exits instead of reading as a mismatch" {
-  MOCK_FAIL="GET ?fields=status" run with_jira SCRUM-1 'jira_require_status "Work Order" || echo mismatch'
+  MOCK_FAIL="GET ?fields=status" run with_jira PROJ-1 'jira_require_status "Work Order" || echo mismatch'
   assert_failure
   assert_output --partial "Could not read"
   refute_output --partial mismatch
 }
 
 @test "request bodies" {
-  run with_jira SCRUM-1 'jira_add_label needs-details; jira_transition 11; echo "{\"type\":\"doc\"}" | jira_comment; jq -c .body "$CALLS"'
+  run with_jira PROJ-1 'jira_add_label needs-details; jira_transition 11; echo "{\"type\":\"doc\"}" | jira_comment; jq -c .body "$CALLS"'
   assert_output $'5001\n{"update":{"labels":[{"add":"needs-details"}]}}\n{"transition":{"id":"11"}}\n{"body":{"type":"doc"}}'
 }
 
+# The real jira() with a fake curl that records its arguments and the config
+# file it was given (no mock-jira here).
+@test "credentials reach curl through a private file, never its command line" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat > "$BATS_TEST_TMPDIR/bin/curl" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$BATS_TEST_TMPDIR/curl-args"
+while [ \$# -gt 0 ]; do [ "\$1" = --config ] && { cp "\$2" "$BATS_TEST_TMPDIR/curl-config"; stat -c %a "\$2" 2>/dev/null || stat -f %Lp "\$2"; }; shift; done > "$BATS_TEST_TMPDIR/config-mode"
+echo '{}'
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/curl"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" TICKET_KEY=PROJ-1 JIRA_API_TOKEN='tok"en\1' \
+    bash -c "source '$AGENTS_LIB/jira.sh'; jira_issue status > /dev/null"
+
+  run cat "$BATS_TEST_TMPDIR/curl-args"
+  refute_output --partial 'tok"en'
+  refute_output --partial "$JIRA_EMAIL"
+  assert_equal "$(cat "$BATS_TEST_TMPDIR/config-mode")" 600
+  assert_equal "$(cat "$BATS_TEST_TMPDIR/curl-config")" "user = \"$JIRA_EMAIL:tok\\\"en\\\\1\""
+}
+
+@test "the credentials file is removed when the step ends" {
+  TICKET_KEY=PROJ-1 bash -c "source '$AGENTS_LIB/jira.sh'; echo \"\$JIRA_CURL_CONFIG\" > '$BATS_TEST_TMPDIR/path'"
+  assert [ ! -e "$(cat "$BATS_TEST_TMPDIR/path")" ]
+}
+
 @test "a failed request fails the calling pipeline" {
-  MOCK_FAIL="PUT " run with_jira SCRUM-1 'jira_add_label x > /dev/null || echo failed'
+  MOCK_FAIL="PUT " run with_jira PROJ-1 'jira_add_label x > /dev/null || echo failed'
   assert_output failed
 }

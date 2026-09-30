@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "bats --timing shared work-order",
-    "evals": "bats --timing work-order/evals",
+    "evals": "RUN_EVALS=1 bats --timing work-order/evals",
     "update-snapshots": "UPDATE_SNAPSHOTS=1 bats shared work-order"
   },
   "devDependencies": {

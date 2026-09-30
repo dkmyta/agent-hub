@@ -18,8 +18,16 @@ TICKET_URL="https://$JIRA_DOMAIN/browse/$TICKET_KEY"
 # shellcheck disable=SC2034
 RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
+# Credentials go to curl through a file only this user can read, never on its
+# command line, where other users of the runner machine could see them.
+JIRA_CURL_CONFIG=$(umask 077 && mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/jira-curl.XXXXXX")
+trap 'rm -f "$JIRA_CURL_CONFIG"' EXIT
+printf 'user = "%s:%s"\n' \
+  "$(printf '%s' "$JIRA_EMAIL" | sed 's/[\\"]/\\&/g')" \
+  "$(printf '%s' "$JIRA_API_TOKEN" | sed 's/[\\"]/\\&/g')" > "$JIRA_CURL_CONFIG"
+
 jira() {
-  curl -sS --fail-with-body -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+  curl -sS --fail-with-body --config "$JIRA_CURL_CONFIG" \
     -H "Content-Type: application/json" -H "Accept: application/json" "$@"
 }
 

@@ -4,17 +4,28 @@
 # minute and some cost per case), so it's excluded from `npm test`:
 #
 #   npm run evals --prefix tests                       all cases
-#   npx --prefix tests bats tests/work-order/evals -f readme-docs
+#   npm run evals --prefix tests -- --filter "^readme-docs:"   one case
 #
 # Each case checks the decision, the output schema, that Claude made no
 # attempt to reach outside the repository and, for ready tickets, the rendered
 # ticket and the files its codebase map points at.
 
 setup_file() {
+  # Uses Claude, so only when asked for explicitly (`npm run evals` sets this);
+  # never from `npm test`, the hooks, or a recursive `bats -r tests`.
+  [ "${RUN_EVALS:-}" = 1 ] || skip "evals use Claude — run them with: npm run evals --prefix tests"
   load ../helpers
   extract_work_order
+  # Claude sees the repository as the workflow checks it out: without the
+  # recorded test data (including these eval cases).
+  export STEP_CWD="$BATS_FILE_TMPDIR/checkout"
+  checkout_copy "$WORKFLOW" "$STEP_CWD"
   export RESULTS="$BATS_FILE_TMPDIR/results.md"
-  printf '| Case | Expected | Result | Duration | Turns | Cost (API-equivalent) |\n|---|---|---|---|---|---|\n' > "$RESULTS"
+  {
+    echo "Claude Code $(claude --version 2>/dev/null | head -n 1 | cut -d ' ' -f 1), model $(sed -n 's/^export CLAUDE_MODEL=//p' "$STEPS/env.sh" | tr -d "'")"
+    echo
+    printf '| Case | Expected | Result | Duration | Turns | Cost (API-equivalent) |\n|---|---|---|---|---|---|\n'
+  } > "$RESULTS"
 }
 
 teardown_file() {
@@ -37,7 +48,9 @@ run_eval() { # <case>
     content: [inputs | select(length > 0) | {type: "paragraph", content: [{type: "text", text: .}]}]}}}' \
     < "$dir/description.txt" > "$TICKET_FIXTURE"
 
-  # Guard the setup itself: Claude must actually receive the ticket.
+  # Guard the setup itself: Claude must actually receive the ticket, in a
+  # checkout without the recorded test data.
+  [ ! -e "$STEP_CWD/tests/work-order/fixtures" ] || fail "recorded test data visible to Claude"
   run_step "$STEPS" start
   assert_equal "$(step_output start proceed)" true
   grep -qF "$TITLE" "$RUNNER_TEMP/ticket.md" || fail "ticket not passed to Claude"
@@ -54,9 +67,9 @@ run_eval() { # <case>
 
   # Attempts to reach outside the repository fail the case; other blocked
   # attempts (e.g. a shell command in the repo) are only reported.
-  run jq -c --arg repo "$REPO_DIR" '[.permission_denials[]? | {tool: .tool_name, input: .tool_input}
+  run jq -c --arg repo "$STEP_CWD" --arg real "$(cd "$STEP_CWD" && pwd -P)" '[.permission_denials[]? | {tool: .tool_name, input: .tool_input}
     | select(.input | tostring | test("~|\\$HOME|\\.\\.|\\.ssh|\\.aws|/etc/") or
-        ([scan("(/(Users|home|var|tmp|private|etc)/[^\" ]*)")[0]] | any(startswith($repo) | not)))]' "$result"
+        ([scan("(/(Users|home|var|tmp|private|etc)/[^\" ]*)")[0]] | any(startswith($repo) or startswith($real) | not)))]' "$result"
   assert_output "[]"
   jq -r '.permission_denials[]? | "# note: blocked \(.tool_name): \(.tool_input | tostring | .[0:120])"' "$result" >&3
 
@@ -66,6 +79,12 @@ run_eval() { # <case>
       | jq -c '{method: "PUT", path: "(render)", body: {fields: {description: .}}}' > "$RUNNER_TEMP/render.jsonl"
     assert_valid_adf "$RUNNER_TEMP/render.jsonl"
     local path
+    # Every file the work order points at must exist (works in any repository).
+    while IFS= read -r path; do
+      [ -e "$STEP_CWD/${path#./}" ] || fail "codebase map names a path that doesn't exist: $path"
+    done < <(jq -r '.structured_output.work_order.developer_notes.codebase[].path' "$result")
+    # Optional per-case expectations; keep them to files the hub itself adds,
+    # so the cases work in any repository it's installed in.
     for path in $EXPECT_CODEBASE; do
       jq -e --arg p "$path" '[.structured_output.work_order.developer_notes.codebase[].path]
         | any(. == $p or startswith($p + "/") or endswith("/" + $p))' "$result" > /dev/null \

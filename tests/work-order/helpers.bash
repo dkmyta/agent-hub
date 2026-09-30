@@ -25,6 +25,9 @@ run_work_order() {
   skip() { echo "$1: skipped"; }
   succeeding() { [ $failed = 0 ] && [ $cancelled = 0 ]; }  # success()
 
+  # The tests run as a self-hosted runner, where Claude Code is preinstalled.
+  skip "Install Claude Code"
+
   step "Fetch ticket" start
   proceed=$(step_output start proceed)
 
@@ -53,7 +56,7 @@ run_work_order() {
 # must be valid ADF.
 run_scenario() {
   local full=${2:-} dir="$TESTS_DIR/work-order/scenarios/$1" var
-  export TICKET_KEY=SCRUM-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" CLAUDE_FIXTURE=none CANCEL_AFTER=""
+  export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" CLAUDE_FIXTURE=none CANCEL_AFTER=""
   export TICKET_FIXTURE=tickets/ready.json COMMENTS_FIXTURE=comments-none.json
   export TRANSITIONS_FIXTURE=transitions-with-intake.json
   set -a  # scenario.env overrides the defaults above

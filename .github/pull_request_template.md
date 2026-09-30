@@ -7,7 +7,7 @@
 - [ ] Lint and tests pass locally (`pre-commit run --all-files`, `npm test --prefix tests`)
 - [ ] Snapshot changes reviewed — or none
 - [ ] New behaviour has a test (scenario or unit test)
-- [ ] Prompt, schema or model changed → **Agent Evals** run and passing — or not applicable
+- [ ] Prompt, schema, Claude setting or Claude Code version changed → **Agent Evals** run and passing ([when and why](../docs/evals.md)) — or not applicable
 - [ ] Workflow docs updated (`docs/workflows/…`, known gaps, edge cases) — or not applicable
 
 ## Deployment steps

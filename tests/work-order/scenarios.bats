@@ -17,6 +17,19 @@ setup() {
   assert_snapshot "$TESTS_DIR/work-order/workflow-shape.txt" "$BATS_TEST_TMPDIR/shape.txt"
 }
 
+@test "checkout leaves no credentials and hides recorded test data from Claude" {
+  run node "$TESTS_DIR/lib/workflow.mjs" checkout "$WORKFLOW"
+  assert_equal "$(jq -r '."persist-credentials"' <<< "$output")" false
+  checkout_copy "$WORKFLOW" "$BATS_TEST_TMPDIR/checkout"
+  cd "$BATS_TEST_TMPDIR/checkout" || return 1
+  # Recorded outputs, snapshots and eval tickets are gone...
+  run find tests -type d \( -name fixtures -o -name scenarios -o -name evals -o -name expected \)
+  assert_output ""
+  # ...while the code, prompts and test suites are still there to explore.
+  assert [ -f .github/agents/work-order/prompt.md ]
+  assert [ -f tests/work-order/scenarios.bats ]
+}
+
 # A step that hits its own limit fails and is reported on the ticket; if the
 # job limit were hit first, the run would be cancelled without a report.
 @test "every step has a timeout, and together they fit within the job's" {

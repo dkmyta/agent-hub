@@ -42,19 +42,35 @@ use_run_env() {
   : > "$CALLS"
 }
 
+# checkout_copy <workflow> <dir>: copies the working tree to <dir> as the
+# workflow's checkout would see it, leaving out what its sparse checkout does.
+checkout_copy() {
+  local excludes=(--exclude .git --exclude node_modules) pattern
+  while read -r pattern; do excludes+=(--exclude "$pattern"); done \
+    < <(node "$TESTS_DIR/lib/workflow.mjs" excludes "$1")
+  rsync -a "${excludes[@]}" "$REPO_DIR/" "$2/"
+}
+
 # run_step <steps dir> <step id>: runs one extracted step like a runner would,
 # recording its outputs under $STEP_OUTPUTS/<id>. Returns the step's exit code.
+# Runs in the repository, or in $STEP_CWD if set (e.g. a checkout_copy).
 run_step() {
   local steps=$1 id=$2
   [ -f "$steps/$id.sh" ] || { echo "no step '$id' in $steps" >&2; return 99; }
   : > "$RUNNER_TEMP/github-output"
   local rc=0
   (
-    cd "$REPO_DIR" || exit 1
+    cd "${STEP_CWD:-$REPO_DIR}" || exit 1
     # shellcheck source=/dev/null
     source "$steps/env.sh"
     export GITHUB_OUTPUT="$RUNNER_TEMP/github-output" GITHUB_STEP_SUMMARY="$RUNNER_TEMP/summary.md"
-    [ "${REAL_CLAUDE:-}" = 1 ] || export PATH="$TESTS_DIR/lib/bin:$PATH"
+    # Never reach the real Claude Code CLI (and its login) unless an eval asks
+    # for it: refuse to run if the stub isn't what `claude` resolves to.
+    if [ "${REAL_CLAUDE:-}" != 1 ]; then
+      export PATH="$TESTS_DIR/lib/bin:$PATH"
+      [ "$(command -v claude)" = "$TESTS_DIR/lib/bin/claude" ] \
+        || { echo "Refusing to run: 'claude' doesn't resolve to the test stub" >&2; exit 97; }
+    fi
     bash -e "$steps/$id.sh"
   ) >> "$RUNNER_TEMP/log.txt" 2>&1 || rc=$?
   cp "$RUNNER_TEMP/github-output" "$STEP_OUTPUTS/$id"

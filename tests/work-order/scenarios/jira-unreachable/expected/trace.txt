@@ -1,3 +1,4 @@
+Install Claude Code: skipped
 Fetch ticket: failure
 Generate work order: skipped
 Apply work order: skipped

@@ -1,13 +1,17 @@
 name: Agent — Work Order
 run-name: "Work order: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}"
 
-# Stage 1 of the Jira → GitHub agent pipeline. The Jira "Create Work Order"
+# Stage 1 of the Jira → GitHub agent pipeline. The Jira "Work Order Requested"
 # rule moves a ticket to Work Order and dispatches `work-order-requested` with
 # only the ticket key; everything else is read from Jira. Claude reviews the
 # ticket read-only and returns structured output; the Jira steps apply it.
 #
 # Agent files live in .github/agents: lib/ is shared by every stage,
 # work-order/ holds this stage's prompt, output schema and ticket layout.
+#
+# Per-repository settings come from repository variables (Settings → Secrets
+# and variables → Actions → Variables); each has a default below, so a repo
+# only sets what differs. See docs/setup.md.
 
 on:
   repository_dispatch:
@@ -32,45 +36,68 @@ env:
   TICKET_KEY: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
   AGENTS_DIR: .github/agents
   AGENT_DIR: .github/agents/work-order
-  CLAUDE_MODEL: claude-sonnet-5
+  CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-5' }}
   # Used automatically when CLAUDE_MODEL is overloaded.
-  CLAUDE_FALLBACK_MODEL: claude-opus-5-5
+  CLAUDE_FALLBACK_MODEL: ${{ vars.CLAUDE_FALLBACK_MODEL || 'claude-opus-5-5' }}
   # Stops a runaway run; exceeding it fails the run with the failure comment.
-  # Measured in API-equivalent dollars (typical work orders: $0.10–0.80). On
-  # the current subscription login nothing is billed, but runs draw on the
-  # plan's usage limits, so this protects those; with an API key it caps spend.
-  CLAUDE_MAX_BUDGET_USD: "2.00"
+  # API-equivalent dollars (typical costs: docs/claude-usage.md). With a Claude
+  # subscription nothing is billed but runs use the plan's limits, so this
+  # protects those; with an API key it caps spend.
+  CLAUDE_MAX_BUDGET_USD: ${{ vars.CLAUDE_MAX_BUDGET_USD || '2.00' }}
   # The only sites Claude may fetch pages from (web search is unrestricted), so
   # a malicious ticket can't get repository content sent to an arbitrary URL.
+  # Space-separated.
   CLAUDE_FETCH_DOMAINS: >-
-    docs.github.com developer.atlassian.com support.atlassian.com
-    docs.anthropic.com docs.claude.com developer.mozilla.org nodejs.org docs.npmjs.com
-  # Jira names and text this workflow depends on. Keep in sync with the Jira
-  # workflow and the "Work Order Requested" automation rule.
-  WORK_ORDER_STATUS: Work Order
-  INTAKE_STATUS: Intake
-  NEEDS_DETAILS_LABEL: needs-details
+    ${{ vars.CLAUDE_FETCH_DOMAINS || 'docs.github.com developer.atlassian.com support.atlassian.com docs.anthropic.com docs.claude.com developer.mozilla.org nodejs.org docs.npmjs.com' }}
+  # Jira names this workflow depends on; must match the Jira project's workflow
+  # and the "Work Order Requested" automation rule.
+  WORK_ORDER_STATUS: ${{ vars.JIRA_WORK_ORDER_STATUS || 'Work Order' }}
+  INTAKE_STATUS: ${{ vars.JIRA_INTAKE_STATUS || 'Intake' }}
+  NEEDS_DETAILS_LABEL: ${{ vars.JIRA_NEEDS_DETAILS_LABEL || 'needs-details' }}
+  # Comment text: the rule's Needs details comment must use the same title and
+  # message, so both are recognised when resolving them.
   NEEDS_DETAILS_TITLE: Needs details
   NEEDS_DETAILS_MESSAGE: "This ticket doesn’t have enough detail to generate a work order, so it’s in Intake until more is added. Update the description to resubmit it automatically."
   # Closes the Original Request comment; also how a re-run recognises it.
   ORIGINAL_REQUEST_NOTE: Captured from the original intake form before the work order replaced the description.
   # "false" suppresses watcher notifications for the description update
   # (requires Jira admin permission for the API user).
-  JIRA_NOTIFY_USERS: "true"
+  JIRA_NOTIFY_USERS: ${{ vars.JIRA_NOTIFY_USERS || 'true' }}
 
 jobs:
   work-order:
-    # Current setup: a self-hosted runner where Claude Code is logged in with a
-    # Claude subscription. To use the Claude API instead, see docs/runners.md.
-    runs-on: [self-hosted, claude]
+    # Default: a self-hosted runner labelled `claude`, where Claude Code is
+    # logged in with a Claude subscription. Set AGENT_RUNS_ON (a JSON label
+    # list, e.g. ["ubuntu-latest"]) plus the ANTHROPIC_API_KEY secret to use
+    # the Claude API instead. See docs/runners.md.
+    runs-on: ${{ fromJSON(vars.AGENT_RUNS_ON || '["self-hosted", "claude"]') }}
     # Every step has its own limit and together they fit within this one, so a
     # slow step fails (and is reported on the ticket) instead of the whole job
     # being cancelled.
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
+      # Leaves out recorded test data (past Claude outputs, snapshots, eval
+      # tickets) so Claude works from the ticket and the code, not from a
+      # recorded answer. The evals mirror these patterns.
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/tests/*/fixtures/
+            !/tests/*/scenarios/
+            !/tests/*/evals/
+            !/tests/*/expected/
+
+      # GitHub-hosted runners don't have Claude Code; self-hosted runners have
+      # it installed (see docs/runners.md).
+      - name: Install Claude Code
+        if: runner.environment == 'github-hosted'
+        timeout-minutes: 3
+        env:
+          CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION || 'latest' }}
+        run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
 
       - name: Fetch ticket
         id: start
@@ -107,6 +134,10 @@ jobs:
         id: claude
         if: steps.start.outputs.proceed == 'true'
         timeout-minutes: 20
+        env:
+          # Only used when set, and only where Claude Code has no login (a
+          # subscription login on the runner takes precedence). Empty is fine.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           OUTPUT="$RUNNER_TEMP/claude-output.json"
           PROMPT=$(printf 'Prepare the work order for this Jira ticket.\n\n<ticket>\n%s\n</ticket>' "$(cat "$RUNNER_TEMP/ticket.md")")
@@ -114,8 +145,12 @@ jobs:
           # CLAUDE_FETCH_DOMAINS.
           TOOLS="Read(./**),Grep(./**),Glob(./**),WebSearch"
           for DOMAIN in $CLAUDE_FETCH_DOMAINS; do TOOLS="$TOOLS,WebFetch(domain:$DOMAIN)"; done
+          # Claude Code can update itself on the runner; record which version ran.
+          CLAUDE_VERSION=$(claude --version 2>/dev/null | head -n 1 | cut -d ' ' -f 1)
 
-          echo "::group::Claude output"
+          # Claude's answer holds ticket content, and run logs can be public
+          # (they are in public repositories), so it's never printed: the log
+          # shows only the outcome. The content is on the ticket.
           claude -p "$PROMPT" \
             --model "$CLAUDE_MODEL" \
             --fallback-model "$CLAUDE_FALLBACK_MODEL" \
@@ -126,31 +161,32 @@ jobs:
             --permission-mode dontAsk \
             --allowedTools "$TOOLS" \
             < /dev/null > "$OUTPUT" || true
-          jq '.structured_output' "$OUTPUT" 2>/dev/null || cat "$OUTPUT"
-          echo "::endgroup::"
 
-          # jq 1.6 exits 0 on empty input, so check for output explicitly.
+          # Some jq versions (1.6) exit 0 on empty input, so check for output explicitly.
           if [ ! -s "$OUTPUT" ] || ! jq -e '.is_error == false and (
                 (.structured_output.status == "ready" and .structured_output.work_order != null) or
                 (.structured_output.status == "needs-details" and (.structured_output.missing // "") != ""))' \
                 "$OUTPUT" > /dev/null 2>&1; then
             echo "::error::Claude returned no usable result."
-            # subtype explains it, e.g. error_max_budget_usd.
-            jq '{is_error, subtype, errors, result}' "$OUTPUT" 2>/dev/null || echo "(no JSON output — see the Claude output group above)"
+            # The error type and messages only (e.g. error_max_budget_usd) —
+            # never `result`, which can quote the ticket.
+            jq -c '{is_error, subtype, errors, status: .structured_output.status}' "$OUTPUT" 2>/dev/null \
+              || echo "Claude Code produced no JSON output ($(wc -c < "$OUTPUT" | tr -d ' ') bytes)."
             exit 1
           fi
 
+          jq -r '"Claude returned \(.structured_output.status) in \(.num_turns) turns."' "$OUTPUT"
           jq -r '"status=\(.structured_output.status)"' "$OUTPUT" >> "$GITHUB_OUTPUT"
           # Models that did the work (5%+ of the cost; Claude Code also uses a
           # small model internally): the fallback model shows up if it was needed.
-          jq -r --arg model "$CLAUDE_MODEL" '
+          jq -r --arg model "$CLAUDE_MODEL" --arg version "${CLAUDE_VERSION:-unknown}" '
             (.total_cost_usd // 0) as $total
             | ([.modelUsage // {} | to_entries[] | select(.value.costUSD >= $total * 0.05) | .key]
                | join(", ") | if . == "" then $model else . end) as $models
             | "### Work order: \(env.TICKET_KEY)\n",
-              "| Result | Models | Duration | Turns | Cost (API-equivalent) |",
-              "|---|---|---|---|---|",
-              "| \(.structured_output.status) | \($models) | \(.duration_ms / 1000 | floor)s | \(.num_turns) | $\($total * 100 | round / 100) |",
+              "| Result | Models | Claude Code | Duration | Turns | Cost (API-equivalent) |",
+              "|---|---|---|---|---|---|",
+              "| \(.structured_output.status) | \($models) | \($version) | \(.duration_ms / 1000 | floor)s | \(.num_turns) | $\($total * 100 | round / 100) |",
               ""' \
             "$OUTPUT" >> "$GITHUB_STEP_SUMMARY"
 

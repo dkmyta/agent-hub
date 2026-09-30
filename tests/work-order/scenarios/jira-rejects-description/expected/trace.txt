@@ -1,3 +1,4 @@
+Install Claude Code: skipped
 Fetch ticket: success
 Generate work order: success
 Apply work order: failure

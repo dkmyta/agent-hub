@@ -1,6 +1,7 @@
 actions/checkout@v6 | id: - | if: - | env: -
+Install Claude Code | id: - | if: runner.environment == 'github-hosted' | env: CLAUDE_CODE_VERSION
 Fetch ticket | id: start | if: - | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
-Generate work order (Claude Code) | id: claude | if: steps.start.outputs.proceed == 'true' | env: -
+Generate work order (Claude Code) | id: claude | if: steps.start.outputs.proceed == 'true' | env: ANTHROPIC_API_KEY
 Apply work order to ticket | id: - | if: steps.claude.outputs.status == 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
 Return ticket to Intake | id: - | if: steps.claude.outputs.status == 'needs-details' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
 Clear progress comment | id: - | if: success() || cancelled() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
