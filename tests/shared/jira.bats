@@ -54,7 +54,7 @@ with_jira() {
   cat > "$BATS_TEST_TMPDIR/bin/curl" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$@" > "$BATS_TEST_TMPDIR/curl-args"
-while [ \$# -gt 0 ]; do [ "\$1" = --config ] && { cp "\$2" "$BATS_TEST_TMPDIR/curl-config"; stat -f %Lp "\$2" 2>/dev/null || stat -c %a "\$2"; }; shift; done > "$BATS_TEST_TMPDIR/config-mode"
+while [ \$# -gt 0 ]; do [ "\$1" = --config ] && { cp "\$2" "$BATS_TEST_TMPDIR/curl-config"; stat -c %a "\$2" 2>/dev/null || stat -f %Lp "\$2"; }; shift; done > "$BATS_TEST_TMPDIR/config-mode"
 echo '{}'
 EOF
   chmod +x "$BATS_TEST_TMPDIR/bin/curl"
