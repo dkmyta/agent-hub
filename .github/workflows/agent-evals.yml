@@ -1,10 +1,10 @@
 name: Agent Evals
 
 # Runs the agents against sample tickets with the real Claude Code CLI (Jira
-# mocked) to check their decisions, not just the plumbing — see tests/evals.
-# Uses Claude usage, so it only runs on demand. Deliberately never triggered
-# by pull requests: this is a public repo and the job runs on a self-hosted
-# runner.
+# mocked) to check their decisions, not just the plumbing — see tests/README.md.
+# Uses Claude, so it only runs when started by hand. Never triggered by pull
+# requests: the job can run on a self-hosted runner, and code from forks must
+# never run there.
 
 on:
   workflow_dispatch:
@@ -22,18 +22,27 @@ concurrency:
 
 jobs:
   work-order:
-    runs-on: [self-hosted, claude]
+    # Same runner and Claude account as the agent workflows (see docs/runners.md).
+    runs-on: ${{ fromJSON(vars.AGENT_RUNS_ON || '["self-hosted", "claude"]') }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      - run: npm ci --prefix tests
+      - name: Install Claude Code
+        if: runner.environment == 'github-hosted'
+        timeout-minutes: 3
+        env:
+          CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION || 'latest' }}
+        run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+
+      - run: npm ci --prefix tests --ignore-scripts
 
       - name: Work order evals
         env:
           CASES: ${{ inputs.cases }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           # Test names start with "<case>:", so filter on the listed cases.
           filter=()

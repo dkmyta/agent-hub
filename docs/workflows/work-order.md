@@ -7,8 +7,8 @@ enough to work with.
 | | |
 |---|---|
 | Trigger | `repository_dispatch` `work-order-requested` (Jira), or **Run workflow** with a ticket key |
-| Runs on | `[self-hosted, claude]` — see [runners.md](../runners.md) |
-| Model | `claude-sonnet-5` (`CLAUDE_MODEL`), falling back to `claude-opus-5-5` when overloaded; capped at $2 API-equivalent per run |
+| Runs on | `AGENT_RUNS_ON` (default `[self-hosted, claude]`) — see [runners.md](../runners.md) |
+| Model | `CLAUDE_MODEL` (default `claude-sonnet-5`), falling back to `CLAUDE_FALLBACK_MODEL` when overloaded; capped by `CLAUDE_MAX_BUDGET_USD` |
 | Agent files | `.github/agents/work-order/` (prompt, schema, ticket layout) |
 | Tests | `tests/work-order/` — see [Testing](#testing) |
 
@@ -63,23 +63,27 @@ The token is a fine-grained GitHub token for this repository with
 **Contents: Read and write**.
 
 ### Statuses, labels and text the workflow depends on
-Set in the workflow's `env:`; keep them in sync with Jira:
+Status and label names are repository variables (defaults below; see
+[setup.md](../setup.md#4-set-variables-only-what-differs-from-the-defaults)).
+The comment text is fixed in the workflow and must match the rule's comment.
 
 | Setting | Value | Used for |
 |---|---|---|
-| `WORK_ORDER_STATUS` | Work Order | The run only acts on tickets in this status |
-| `INTAKE_STATUS` | Intake | Where needs-details tickets go (needs a Work Order → Intake transition) |
-| `NEEDS_DETAILS_LABEL` | needs-details | Added on bounce; removed by the rule on resubmit |
+| `JIRA_WORK_ORDER_STATUS` (variable) | Work Order | The run only acts on tickets in this status |
+| `JIRA_INTAKE_STATUS` (variable) | Intake | Where needs-details tickets go (needs a Work Order → Intake transition) |
+| `JIRA_NEEDS_DETAILS_LABEL` (variable) | needs-details | Added on bounce; removed by the rule on resubmit |
 | `NEEDS_DETAILS_TITLE` | Needs details | How needs-details comments are recognised to resolve them — must match the rule's comment |
 | `NEEDS_DETAILS_MESSAGE` | *(standard message)* | Must match the rule's comment text |
 | `ORIGINAL_REQUEST_NOTE` | *(closing line of the Original Request comment)* | How a re-run recognises an already-captured request |
-| `JIRA_NOTIFY_USERS` | true | `false` silences watcher notifications for the description update (needs Jira admin) |
+| `JIRA_NOTIFY_USERS` (variable) | true | `false` silences watcher notifications for the description update (needs Jira admin) |
 
 ### Claude settings
-| Setting | Value | Used for |
+All repository variables; defaults shown.
+
+| Variable | Default | Used for |
 |---|---|---|
 | `CLAUDE_MODEL` / `CLAUDE_FALLBACK_MODEL` | claude-sonnet-5 / claude-opus-5-5 | The fallback is used automatically when the main model is overloaded |
-| `CLAUDE_MAX_BUDGET_USD` | 2.00 | Stops a runaway run (API-equivalent dollars; typical work orders $0.10–0.80). On the current subscription it protects the plan's usage limits; with an API key it caps spend — see [runners.md](../runners.md) |
+| `CLAUDE_MAX_BUDGET_USD` | 2.00 | Stops a runaway run (API-equivalent dollars; typical costs in [claude-usage.md](../claude-usage.md)). On the current subscription it protects the plan's usage limits; with an API key it caps spend — see [runners.md](../runners.md) |
 | `CLAUDE_FETCH_DOMAINS` | official docs sites | The only sites Claude can fetch pages from (search is unrestricted). Add a domain when work orders need its docs |
 
 ### Secrets and permissions
@@ -115,11 +119,14 @@ Set in the workflow's `env:`; keep them in sync with Jira:
 - **Description size.** Jira limits the description (~32k characters); an
   unusually long work order fails and reports it.
 - **No automatic retries** for transient Jira or Claude errors — re-run.
+- **Expired credentials fail quietly.** An expired Jira token also stops the
+  failure comment, so tickets just sit in Work Order; an expired GitHub token
+  in the rule means no run starts. See
+  [setup.md](../setup.md#6-plan-for-credential-expiry) for ownership, renewal
+  and alerts.
 - **Posts as a person.** The automation acts as the `JIRA_EMAIL` user; a
   dedicated service account would make its actions distinguishable and allow
   a rule condition to ignore them.
-- **Claude can read recorded test fixtures** (`tests/work-order/fixtures`),
-  including a past work order, which could influence similar tickets.
 - **Evals are non-deterministic**: a passing run is evidence, not proof.
 
 ## Testing

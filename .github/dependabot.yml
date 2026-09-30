@@ -1,0 +1,21 @@
+# Opens pull requests to keep the workflows' actions and the test tooling up
+# to date. Updates are grouped per ecosystem to keep the number of PRs down;
+# CI runs on each. Pre-commit hook versions are updated with
+# `pre-commit autoupdate` (see CONTRIBUTING.md).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /tests
+    schedule:
+      interval: monthly
+    groups:
+      test-dependencies:
+        patterns: ["*"]

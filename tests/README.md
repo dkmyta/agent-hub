@@ -5,19 +5,21 @@ shared code (`.github/agents/`), written with
 [bats-core](https://bats-core.readthedocs.io) and
 [bats-assert](https://github.com/bats-core/bats-assert). They run the
 workflows' **real step scripts**, read straight from the workflow files, with
-Jira mocked and Claude stubbed — no network, no Jira, no Claude usage.
+Jira mocked and Claude stubbed — no network, no Jira, no Claude usage. A step
+refuses to run if `claude` doesn't resolve to the stub, so a test can never
+reach a real Claude login.
 
 ## Running
 
 ```sh
-npm ci --prefix tests                  # once
+npm ci --prefix tests --ignore-scripts  # once
 npm test --prefix tests                # everything (~20s on macOS, faster on Linux)
 npx --prefix tests bats tests/shared   # one folder or file
 npm run update-snapshots --prefix tests
 ```
 
 Needs `bash`, `jq` and Node 22. The pre-push hook and CI run the same suite;
-CI runs it on jq 1.6 and 1.7.
+CI runs it on jq 1.7 (GitHub-hosted runners) and 1.8 (the self-hosted runner).
 
 ## Layout
 
@@ -45,9 +47,11 @@ tests/
 |---|---|
 | `shared/adf.bats` | ADF builders, comment helpers, ADF → Markdown |
 | `shared/jira.bats` | Ticket-key validation, status checks, request bodies, failure handling |
+| `shared/claude-usage.bats` | Claude is only used on demand: Claude-using workflows only run on Jira requests or manual runs; `npm test` excludes the evals; evals refuse to run without `RUN_EVALS=1` |
+| `shared/behaviour-changes.bats` | Which changes trigger CI's eval reminder (`.github/scripts/agent-behaviour-changes.sh`) |
 | `work-order/schema.bats` | Schema works as a Claude Code `--json-schema`; recorded outputs match it; ticket headings; valid ADF |
 | `work-order/claude-step.bats` | Only usable Claude output continues (5 kinds of bad output); ticket passed as data; read-only, repo-scoped tools; no Jira credentials |
-| `work-order/scenarios.bats` | 11 paths: ready, ready without description, needs details, not in Work Order, moved during run/review, no Intake transition, Claude fails, Jira rejects the description, Jira unreachable, invalid key |
+| `work-order/scenarios.bats` | The checkout hides recorded test data from Claude; step time limits fit the job's; 13 paths: ready (and without a description, and re-run after a failed update), needs details, not in Work Order, moved during run/review, cancelled by a newer request, no Intake transition, Claude fails, Jira rejects the description, Jira unreachable, invalid key |
 
 Every scenario snapshots a **trace** — each step's result and every Jira call
 — and checks every document sent to Jira against Atlassian's ADF schema. The
@@ -77,11 +81,15 @@ that snapshot changes, update the runner to match.
 
 ## Live evals
 
+Why and when to run them: [docs/evals.md](../docs/evals.md).
+
 `work-order/evals/evals.bats` runs the Claude step with the **real** Claude
-Code CLI against sample tickets, and checks the decision, the output schema,
+Code CLI against sample tickets, in a copy of the repository without the
+recorded test data (as the workflow's checkout sees it), and checks the decision, the output schema,
 that Claude made no attempt to reach outside the repository, and — for ready
 tickets — the rendered ticket and its codebase map. It uses Claude usage
-(about $0.10–0.70 per case), so it isn't part of `npm test`:
+(typical costs: [docs/claude-usage.md](../docs/claude-usage.md)), so it isn't part of `npm test`
+and refuses to run unless `RUN_EVALS=1` (which `npm run evals` sets):
 
 ```sh
 npm run evals --prefix tests

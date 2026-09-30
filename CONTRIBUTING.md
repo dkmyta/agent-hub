@@ -6,7 +6,7 @@ You need `bash`, `jq`, Node 22 and [pre-commit](https://pre-commit.com).
 
 ```sh
 brew install pre-commit jq     # or: pipx install pre-commit
-npm ci --prefix tests          # test dependencies (pinned)
+npm ci --prefix tests --ignore-scripts   # test dependencies (pinned)
 pre-commit install             # lint on commit, tests on push
 ```
 
@@ -19,8 +19,9 @@ places:
   seconds), the test suite on every push (~20s). These can be skipped
   (`--no-verify`), so they're a convenience, not the gate.
 - **In CI, as the gate**: `.github/workflows/tests.yml` runs the same checks on
-  every pull request, and the tests on jq 1.6 and 1.7. These are the required
-  status checks for merging.
+  every pull request, and the tests on jq 1.7 and 1.8. The required status
+  checks for merging are **Lint** and **Test** (which passes only if every jq
+  version passed).
 
 | Check | When | What it catches |
 |---|---|---|
@@ -32,6 +33,16 @@ places:
 Run them by hand with `pre-commit run --all-files` (lint) and
 `npm test --prefix tests` (tests).
 
+## Keeping tools up to date
+
+- **Dependabot** opens monthly pull requests for the workflows' actions and the
+  test dependencies (`.github/dependabot.yml`); CI checks each one.
+- **Pre-commit hooks**: run `pre-commit autoupdate` now and then, and commit
+  the updated `.pre-commit-config.yaml`.
+- **Pinned downloads**: CI verifies the jq binaries it downloads against pinned
+  checksums (`.github/workflows/tests.yml`); update the checksum with the
+  version.
+
 ## Definition of done for workflow changes
 
 A change to an agent workflow, prompt, schema or shared library is done when:
@@ -41,9 +52,11 @@ A change to an agent workflow, prompt, schema or shared library is done when:
    tickets, comments and Jira calls change.
 2. **New behaviour has a test**: a scenario for a new path through the
    workflow, a unit test for a new library function.
-3. **Evals pass** if a prompt, schema or model changed: run **Agent Evals** from
-   the Actions tab (or `npm run evals --prefix tests`), and add an eval case for
-   any new kind of ticket the agent must handle.
+3. **Evals pass** if a prompt, schema or Claude setting changed (CI's **Eval
+   reminder** flags these) or Claude Code was upgraded on the runner: run
+   **Agent Evals** from the Actions tab on the branch (or `npm run evals
+   --prefix tests`), and add an eval case for any new kind of ticket the agent
+   must handle. See [docs/evals.md](docs/evals.md).
 4. **Docs are updated**: the workflow's page in `docs/workflows/` (usage,
    configuration, edge cases, known gaps) and anything in
    `docs/architecture.md` the change affects.

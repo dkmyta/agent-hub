@@ -49,8 +49,16 @@ sequenceDiagram
   (`id: claude`) → one **Apply** step per outcome (`if:` on
   `steps.claude.outputs.status`) → **Clear progress comment** → **Report
   failure on ticket** (`if: failure()`).
-- Everything Jira-specific that must match Jira (status names, labels, comment
-  titles, standard messages) lives in the workflow's top-level `env:`.
+- Everything a repository might need to change (runner labels, Claude model
+  and limits, Jira status and label names) is a **repository variable** read
+  in the workflow's top-level `env:` as `${{ vars.NAME || 'default' }}`, so
+  installing in a new repository needs no workflow edits. Text that must match
+  a Jira rule's comment is fixed in `env:`.
+- `runs-on` comes from `AGENT_RUNS_ON`; a `runner.environment == 'github-hosted'`
+  step installs Claude Code; the Claude step gets `ANTHROPIC_API_KEY` (empty
+  unless set) — so the same workflow runs with a subscription login or the API.
+- Claude runs only on `repository_dispatch` / `workflow_dispatch`, never on
+  push, pull request or schedule (enforced by `tests/shared/claude-usage.bats`).
 - Agent files live in `.github/agents/<stage>/`: `prompt.md` (instructions,
   passed with `--append-system-prompt-file`), `schema.json` (output schema),
   `render.jq` (output → ticket layout). Shared code lives in
@@ -69,7 +77,17 @@ sequenceDiagram
   so a failure can't leave a half-processed ticket.
 - Ticket data reaches scripts through `env:`, never `${{ }}` inside `run:`.
 - Jira secrets only on the steps that call Jira — never on the Claude step.
-- `actions/checkout` with `persist-credentials: false`.
+- **Never log ticket content.** Run logs are public in public repositories, and
+  Claude's answer quotes the ticket: log only outcomes (status, turns, error
+  type). The content belongs on the ticket. A test enforces this.
+- **Credentials never go on a command line**: `jira.sh` hands them to `curl`
+  through a file only the runner's user can read, removed when the step ends.
+- **Downloads are pinned**: third-party binaries are checked against pinned
+  checksums, `npm ci` runs with `--ignore-scripts`, and Dependabot keeps actions
+  and packages current.
+- `actions/checkout` with `persist-credentials: false`, and a sparse checkout
+  that leaves out recorded test data (`tests/*/fixtures`, `scenarios`, `evals`,
+  `expected`), so Claude can't copy a past answer. The evals mirror it.
 - Claude: `--permission-mode dontAsk`, tools limited to
   `Read(./**),Grep(./**),Glob(./**),WebSearch` plus `WebFetch(domain:…)` for an
   allowlist of documentation sites (no fetching arbitrary URLs, so ticket text
@@ -79,12 +97,16 @@ sequenceDiagram
   carries a fixed marker from `env:`, so re-runs are idempotent.
   The prompt treats ticket text and web pages as data, never instructions.
 - The Claude step fails unless the output is complete and valid for its
-  status (jq 1.6 treats empty input as success — check for output explicitly).
+  status (some jq versions treat empty input as success — check for output explicitly).
 
 ### Visibility
 - A progress comment ("⏳ …" with a link to the run) while the run is active,
   deleted when it ends, or turned into "❌ … failed" with the run link.
-- A run summary (`$GITHUB_STEP_SUMMARY`): result, model, duration, turns, cost.
+- A run summary (`$GITHUB_STEP_SUMMARY`): result, models, Claude Code
+  version, duration, turns, API-equivalent cost.
+- CI flags pull requests that change a prompt, schema or Claude setting
+  (`.github/scripts/agent-behaviour-changes.sh`) with a reminder to run the
+  evals.
 
 ### Jira document format
 - Build all ticket content with `adf.jq` helpers; never hand-write ADF.
