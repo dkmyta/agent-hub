@@ -1,8 +1,8 @@
 Install Claude Code: skipped
 Fetch ticket: failure
-Generate work order: skipped
-Apply work order: skipped
-Return to Intake: skipped
+Claude: skipped
+Apply: skipped
+Return: skipped
 Clear progress comment: skipped
 Report failure: failure
 --- Jira calls

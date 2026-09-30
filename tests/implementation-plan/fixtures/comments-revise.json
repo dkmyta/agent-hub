@@ -1,0 +1,50 @@
+{
+  "comments": [
+    {
+      "id": "511",
+      "author": {
+        "accountType": "atlassian",
+        "displayName": "Dana Lead"
+      },
+      "created": "2026-09-30T10:00:00.000+0000",
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "/revise Keep the README change to a single short section, and add a manual check that every link resolves."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "512",
+      "author": {
+        "accountType": "atlassian",
+        "displayName": "Sam Dev"
+      },
+      "created": "2026-09-30T10:05:00.000+0000",
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Agree with Dana."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

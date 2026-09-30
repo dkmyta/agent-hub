@@ -77,3 +77,14 @@ EOF
   MOCK_FAIL="PUT " run with_jira PROJ-1 'jira_add_label x > /dev/null || echo failed'
   assert_output failed
 }
+
+@test "attachments: uploads go through the mockable request, with Jira's upload header" {
+  echo "# plan" > "$BATS_TEST_TMPDIR/PROJ-1-implementation-plan.md"
+  run with_jira PROJ-1 "jira_attach '$BATS_TEST_TMPDIR/PROJ-1-implementation-plan.md'; jq -c '[.method, .path, .body]' \"\$CALLS\""
+  assert_output $'9001\n["POST","/attachments",{"upload":"PROJ-1-implementation-plan.md"}]'
+}
+
+@test "attachments: deleting uses the attachment API, not the ticket's" {
+  run with_jira PROJ-1 'jira_delete_attachment 8001; jq -r "[.method, .path] | join(\" \")" "$CALLS"'
+  assert_output "DELETE /attachment/8001"
+}

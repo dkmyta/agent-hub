@@ -1,7 +1,9 @@
 // Schema checks for the agent workflows.
 //
 //   node validate.mjs claude-schema <schema.json>             usable as a --json-schema?
-//   node validate.mjs output <schema.json> <claude-output>    output matches the schema?
+//   node validate.mjs output <schema.json> <claude-output> [payload] [bounce field]
+//        output matches the schema, and has its stage's payload (default: work_order,
+//        or the bounce field, default: missing)?
 //   node validate.mjs adf <calls.jsonl>                       every ADF sent to Jira valid?
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -27,12 +29,15 @@ if (command === "claude-schema") {
   }
 } else if (command === "output") {
   const validate = new Ajv({ strict: false, allErrors: true }).compile(readJson(args[0]));
+  const [, , payload = "work_order", bounceField = "missing"] = args;
   const output = readJson(args[1]).structured_output;
   if (!validate(output)) {
     for (const e of validate.errors) problems.push(`${e.instancePath || "/"} ${e.message}`);
   }
-  if (output?.status === "ready" && !output.work_order) problems.push("ready without work_order");
-  if (output?.status === "needs-details" && !output.missing) problems.push("needs-details without missing");
+  if (output?.status === "ready" && !output[payload]) problems.push(`ready without ${payload}`);
+  if (output?.status && output.status !== "ready" && !output[bounceField]?.length) {
+    problems.push(`${output.status} without ${bounceField}`);
+  }
 } else if (command === "adf") {
   const adfSchema = readJson(fileURLToPath(new URL("../vendor/adf-schema-57.6.16.json", import.meta.url)));
   const validate = new AjvDraft04({ strict: false, allErrors: true }).compile(adfSchema);

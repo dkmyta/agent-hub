@@ -1,0 +1,12 @@
+{"comments": [
+  {"id": "501", "author": {"accountType": "atlassian", "displayName": "Dana Lead"}, "created": "2026-09-30T10:00:00.000+0000",
+   "body": {"type": "doc", "version": 1, "content": [
+     {"type": "paragraph", "content": [{"type": "text", "text": "Needs clarification", "marks": [{"type": "strong"}]}, {"type": "text", "text": " — flagged by Claude (implementation plan review)."}]},
+     {"type": "bulletList", "content": [{"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Should the README cover the evals workflow too?"}]}]}]}]}},
+  {"id": "502", "author": {"accountType": "atlassian", "displayName": "Dana Lead"}, "created": "2026-09-30T11:00:00.000+0000",
+   "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Yes — cover all three workflows, briefly."}]}]}},
+  {"id": "503", "author": {"accountType": "atlassian", "displayName": "Dana Lead"}, "created": "2026-09-30T11:05:00.000+0000",
+   "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "⏳ Generating work order", "marks": [{"type": "strong"}]}]}]}},
+  {"id": "504", "author": {"accountType": "app", "displayName": "Automation for Jira"}, "created": "2026-09-29T09:00:00.000+0000",
+   "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Needs details", "marks": [{"type": "strong"}]}, {"type": "text", "text": " — flagged by Jira automation."}]}]}}
+]}

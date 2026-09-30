@@ -5,6 +5,11 @@
     "body": null
   },
   {
+    "method": "GET",
+    "path": "/comment?maxResults=100",
+    "body": null
+  },
+  {
     "method": "POST",
     "path": "/comment",
     "body": {
@@ -153,6 +158,20 @@
           "type": "doc",
           "version": 1,
           "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Expert review: Verified the draft against the code; no changes needed.",
+                  "marks": [
+                    {
+                      "type": "em"
+                    }
+                  ]
+                }
+              ]
+            },
             {
               "type": "heading",
               "attrs": {
@@ -1045,6 +1064,19 @@
             }
           ]
         }
+      }
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "",
+    "body": {
+      "update": {
+        "labels": [
+          {
+            "add": "needs-human"
+          }
+        ]
       }
     }
   },

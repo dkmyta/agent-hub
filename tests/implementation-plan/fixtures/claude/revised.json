@@ -1,0 +1,51 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 490900,
+  "num_turns": 26,
+  "total_cost_usd": 1.7483670000000002,
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "costUSD": 0.002898
+    },
+    "claude-sonnet-5": {
+      "costUSD": 1.7454690000000002
+    }
+  },
+  "structured_output": {
+    "status": "ready",
+    "revision_responses": [
+      {
+        "request": "Keep the README change to one short section",
+        "response": "Merged the steps into a single README section."
+      },
+      {
+        "request": "Manual check that every link resolves",
+        "response": "Added a manual check to Testing."
+      }
+    ],
+    "updates": {
+      "testing": {
+        "automated": [
+          "None \u2014 this is a documentation-only change and adds no code, so no new automated tests are needed. The repository's local pre-push hook (`npm test --prefix tests`) only triggers on changes under .github/ or tests/ (see .pre-commit-config.yaml line 59), which this change doesn't touch."
+        ],
+        "commands": [
+          "pre-commit run --all-files (formatting/whitespace/EOF checks on the touched Markdown files; actionlint/shellcheck/tests hooks won't fire since no .github/ or tests/ file changed)"
+        ],
+        "manual": [
+          "Render README.md (e.g. GitHub's preview or a local Markdown/Mermaid renderer) and confirm the extended flowchart renders correctly and the new table row and documentation bullet's links resolve to real files (.github/workflows/agent-implementation-plan.yml, docs/workflows/implementation-plan.md).",
+          "Render docs/workflows/implementation-plan.md and confirm its Mermaid diagram and tables render correctly, matching the style of docs/workflows/work-order.md.",
+          "Walk through the new page as if setting up the Jira 'Implementation Plan Requested' rule: confirm the event name (`plan-requested`), payload (`{\"ticket_key\": \"...\"}`), runner requirement, and the three secrets are all obtainable from the page without opening agent-implementation-plan.yml.",
+          "Open every link in the README section and check it resolves."
+        ]
+      },
+      "risks": [
+        {
+          "risk": "Links in the README break when docs move.",
+          "mitigation": "The manual link check in Testing."
+        }
+      ]
+    }
+  }
+}

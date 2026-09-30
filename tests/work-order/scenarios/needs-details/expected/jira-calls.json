@@ -5,6 +5,11 @@
     "body": null
   },
   {
+    "method": "GET",
+    "path": "/comment?maxResults=100",
+    "body": null
+  },
+  {
     "method": "POST",
     "path": "/comment",
     "body": {
@@ -87,7 +92,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "This ticket doesn’t have enough detail to generate a work order, so it’s in Intake until more is added. Update the description to resubmit it automatically."
+                "text": "This ticket doesn’t have enough detail to generate a work order, so it’s in Intake until more is added. Update the description, or add the details in a comment starting with /revise, to resubmit it automatically."
               }
             ]
           },
@@ -121,6 +126,19 @@
         "labels": [
           {
             "add": "needs-details"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "",
+    "body": {
+      "update": {
+        "labels": [
+          {
+            "remove": "needs-human"
           }
         ]
       }

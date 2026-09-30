@@ -1,0 +1,63 @@
+{
+  "comments": [
+    {
+      "id": "301",
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Needs details",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " \u2014 flagged by Jira automation."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "This ticket doesn\u2019t have enough detail to generate a work order, so it\u2019s in Intake until more is added. Update the description to resubmit it automatically."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "421",
+      "author": {
+        "accountType": "atlassian",
+        "displayName": "Riley Requester"
+      },
+      "created": "2026-09-30T10:00:00.000+0000",
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "/revise The README should cover what triggers each automation workflow, what it does, and what needs configuring (runner, secrets)."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

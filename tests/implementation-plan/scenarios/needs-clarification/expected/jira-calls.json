@@ -1,0 +1,171 @@
+[
+  {
+    "method": "GET",
+    "path": "?fields=summary,description,status",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/comment?maxResults=100",
+    "body": null
+  },
+  {
+    "method": "POST",
+    "path": "/comment",
+    "body": {
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "⏳ Writing implementation plan",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " — usually takes 5–10 minutes. Refresh the page to see the result. "
+              },
+              {
+                "type": "text",
+                "text": "Follow progress in GitHub Actions",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://github.com/example/repo/actions/runs/1000"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "?fields=status",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/transitions",
+    "body": null
+  },
+  {
+    "method": "POST",
+    "path": "/comment",
+    "body": {
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Needs clarification",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " — flagged by Claude (implementation plan review)."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "The implementation plan needs answers to these questions before it can be written. Answer them in the work order or in a comment, then move the ticket to Work Order Approved to try again."
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Should the Quick Start target teams using the Claude API or a subscription runner first?",
+                        "marks": [
+                          {
+                            "type": "strong"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": " Why it matters: The two setups need different first steps, and the README should lead with one. Best answered by: Delivery lead."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "",
+    "body": {
+      "update": {
+        "labels": [
+          {
+            "add": "needs-clarification"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "",
+    "body": {
+      "update": {
+        "labels": [
+          {
+            "add": "needs-human"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/transitions",
+    "body": {
+      "transition": {
+        "id": "21"
+      }
+    }
+  },
+  {
+    "method": "DELETE",
+    "path": "/comment/5001",
+    "body": null
+  }
+]

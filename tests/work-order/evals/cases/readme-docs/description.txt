@@ -1,6 +1,0 @@
-Original Request: Can we get the README updated so new people understand how the Jira to GitHub automation works?
-What's Needed: Update README.md to explain the automation workflows in this repo: what triggers each one, what it does, and what needs to be configured (runner, secrets) for it to work.
-Why / Context: New team members are setting up Jira automation rules and don't know which events to send or which secrets must exist in the repo.
-Workstream: Internal tooling / documentation
-Known Constraints: Documentation only. Do not change any workflow files. Keep it to roughly one page.
-Source / Email Thread: N/A

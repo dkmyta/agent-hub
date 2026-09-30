@@ -39,6 +39,9 @@ Things to know:
   before it uses up the plan's allowance.
 - **If the login expires**, runs fail and the ticket gets the failure comment;
   log in again on the machine.
+- **Only the login is shared, not your personal Claude setup.** Runs ignore
+  that account's own settings, `CLAUDE.md`, hooks and MCP servers (in
+  `~/.claude`), so the agents behave the same on anyone's runner.
 - **The machine is trusted**: a self-hosted runner can reach anything the
   machine can. The agent workflows never run on `pull_request` events, so code
   from forks never runs on it — a test enforces this. Keep it that way.
@@ -56,7 +59,8 @@ Things to know:
      that machine is **not logged in** — a login takes precedence over the API
      key.
 3. **Review `CLAUDE_MAX_BUDGET_USD`** — it's now real money per run.
-4. **Run the evals** (Actions → Agent Evals) before relying on it.
+4. **Check it works**: run one real ticket through, or the evals (Actions →
+   Agent Evals, stage **all**) if the cost is acceptable.
 
 Amazon Bedrock or Google Vertex AI work the same way with their Claude Code
 environment variables instead of `ANTHROPIC_API_KEY` (add them as secrets and
@@ -71,14 +75,12 @@ instead:
 
 1. Add `DISABLE_AUTOUPDATER=1` to the runner's `.env` file (in the runner's
    install directory) and restart the runner service.
-2. To upgrade: run `claude update` on the runner, then run **Agent Evals**.
+2. To upgrade: run `claude update` on the runner, then run **Agent Evals** with stage **all**.
 
 On GitHub-hosted runners, pin `CLAUDE_CODE_VERSION` and change it deliberately.
 
 ## When Claude is used
 
-Only when someone asks for it: a Jira rule requesting a stage, a manual **Run
-workflow** on an agent workflow, or a deliberate eval run (**Agent Evals**, or
-`npm run evals --prefix tests`). The test suite, the git hooks and CI never use
-Claude — tests enforce this. The details, and how the evals fit in, are in
+Only when a ticket or a person asks for it — never from the tests, git hooks
+or CI. What triggers it and what it typically costs:
 [claude-usage.md](claude-usage.md).
