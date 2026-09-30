@@ -217,6 +217,32 @@
           }
         }
       }
+    },
+    "revision_responses": {
+      "type": "array",
+      "description": "Only when revising after change requests: one entry per request, saying how it was handled.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request",
+          "response"
+        ],
+        "properties": {
+          "request": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The change request, briefly, in your own words."
+          },
+          "response": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 800,
+            "description": "What changed, the answer to a question, or why nothing changed (e.g. out of scope, unclear \u2014 say what's needed \u2014 or it needs a decision)."
+          }
+        }
+      }
     }
   }
 }

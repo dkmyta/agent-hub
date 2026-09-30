@@ -6,11 +6,15 @@ enough to work with.
 
 | | |
 |---|---|
-| Trigger | `repository_dispatch` `work-order-requested` (Jira), or **Run workflow** with a ticket key |
+| Trigger | `repository_dispatch` `work-order-requested` (Jira: Work Order Requested or Revision Requested rule), or **Run workflow** with a ticket key |
 | Runs on | `AGENT_RUNS_ON` (default `[self-hosted, claude]`) — see [runners.md](../runners.md) |
-| Model | `CLAUDE_MODEL` (default `claude-sonnet-5`), falling back to `CLAUDE_FALLBACK_MODEL` when overloaded; capped by `CLAUDE_MAX_BUDGET_USD` |
-| Agent files | `.github/agents/work-order/` (prompt, schema, ticket layout) |
+| Model | `CLAUDE_MODEL` (default `claude-sonnet-5`); review `REVIEW_CLAUDE_MODEL` (Opus) |
+| Agent files | `.github/agents/work-order/` (prompt, schema, ticket layout, revisions) |
 | Tests | `tests/work-order/` — see [Testing](#testing) |
+
+Shared behaviour — the expert review, revisions, failure reasons, safety —
+is in [architecture.md](../architecture.md); everything done in Jira, including
+every way to send a ticket back or ask for changes, is in [jira.md](../jira.md).
 
 ## Ticket lifecycle
 
@@ -18,123 +22,166 @@ enough to work with.
 stateDiagram-v2
   [*] --> Intake: ticket created
   Intake --> Intake: no details (Jira rule) — Needs details comment + label
-  Intake --> WorkOrder: has details (Jira rule) — run starts
+  Intake --> WorkOrder: has details (Jira rule), or /revise with details
   WorkOrder --> WorkOrder: ready — work order written
   WorkOrder --> Intake: needs details (Claude) — comment + label
-  Intake --> WorkOrder: description edited — resubmitted
+  WorkOrder --> WorkOrder: /revise — work order revised
+  WorkOrder --> WorkOrder: failure — ❌ comment; /revise retries
 ```
 
-**Ready.** The description is replaced by the work order (Overview, Scope,
-Developer Notes, Risk & Open Questions, Delivery — acceptance criteria as
-checkboxes). The original intake form is kept as a comment, and earlier
-"Needs details" comments are struck through and marked ✅ Resolved.
+- **Ready** — the description becomes the work order, topped by an "Expert
+  review: …" line; the original intake form is kept as a comment; earlier
+  Needs details comments are ✅ Resolved; `needs-human` is added. A person
+  reviews it and moves it to **Work Order Approved**, which starts the
+  [implementation plan](implementation-plan.md).
+- **Needs details** — a "Needs details — flagged by Claude" comment with
+  *what's missing*, `needs-details`, `needs-human` removed, back to **Intake**.
+  Editing the description, or commenting `/revise` with the details, resubmits.
+- **Failed** — the progress comment becomes "❌ Work order generation failed"
+  with the reason and the run link; `needs-human` is added; it stays in Work
+  Order. Comment `/revise` to retry.
 
-**Needs details.** A comment with the standard message, the source ("flagged
-by Claude") and *What's missing*, the `needs-details` label, and the ticket
-moves back to Intake. Editing the description resubmits it.
+## Revisions
 
-**Failed.** The progress comment becomes "❌ Work order generation failed" with
-a link to the run log; the ticket stays in Work Order. Fix the cause, then
-**Re-run jobs** on that run (or **Run workflow** with the ticket key).
+A run is a revision when the description is already a work order (it has any
+of the work order's group headings). What's specific to this stage:
 
-## Jira setup
+- It revises the **live description** section by section, so edits people
+  made stay; the Overview text and each h4 section are the units.
+- The original request isn't captured again.
+- If a plan is attached, its summary in the work order is replaced by a note
+  that the plan is out of date; approving again writes a new plan.
+- A revision that needs the requester goes back to Intake with Needs details;
+  its request stays open.
 
-### Automation rule: "Work Order Requested"
+## How it runs
 
-| Part | Setting |
+A typical run takes 1–3 minutes. In Jira, the Work Order Requested or
+Revision Requested rule moves the ticket to Work Order if needed and sends
+`work-order-requested` ([jira.md](../jira.md#rule-work-order-requested)).
+In GitHub Actions:
+
+1. **Checkout** — without recorded test data or stored credentials.
+2. **Fetch ticket** — rejects anything that isn't a ticket key; stops quietly
+   if the ticket isn't in Work Order; decides new or revision; turns the
+   ticket and people's comments into Markdown; posts "⏳ Generating work
+   order" or "⏳ Revising work order".
+3. **Claude** — draft (the work order, or for a revision only the changed
+   sections), check, expert review, check.
+4. **Apply** (ready) — re-checks the status; for a revision, checks every
+   section it changes still exists, then replaces only those; for a new work
+   order, keeps the original request as a comment (once) and replaces the
+   description; adds `needs-human`; posts the 🔁 reply for change requests;
+   resolves them and earlier Needs details comments.
+   **Or Return** (needs details) — re-checks the status and that the
+   transition to Intake exists before changing anything; comments, labels,
+   moves to **Intake**.
+5. **Clear progress comment**, or **Report failure** (with the reason).
+
+## What it produces
+
+| Section | Contents |
 |---|---|
-| Trigger | Multiple issue events: Issue created, Issue updated |
-| Trigger conditions | Status = **Intake**; Issue type = the intake type |
-| Block 1 | If Sprint is empty → set Sprint to current |
-| Block 2 (gate), match **any** | `{{#changelog.description}}changed{{/}}` equals `changed` · `{{changelog}}` equals *(empty)* — i.e. only new tickets and description edits |
-| → If has details | Smart values: `{{issue.description.replaceAll("(?m)^(\s*h[1-6]\..*\|[\s*_#-]*[^:\n]{1,80}:[\s*_]*\|\s*-{4,}\s*\|\s*[*#-]+\s*)$", "").trim()}}` does not equal *(empty)* → remove label `needs-details` → transition to **Work Order** → Send web request |
-| → Else | Comment (once): the standard Needs details message → add label `needs-details` |
-| Allow rule trigger | Off |
+| *(first line)* | "Expert review: …" — what the review did |
+| **Overview** | Plain-language summary (who, why, what exists, what done looks like); Clarifications; Important Details |
+| **Scope** | Acceptance Criteria (checkboxes); Out of Scope, each with a reason |
+| **Developer Notes** | Where Things Are in the Codebase; Resources & Background (with sources); Getting Started |
+| **Risk & Open Questions** | Confidence / Risk; Contains Customer Data (Y/N); Open Questions / Assumptions |
+| **Delivery** | Implementation Plan, Testing Instructions, Pull Request — "Pending" until later stages fill them |
 
-The web request: `POST https://api.github.com/repos/<owner>/<repo>/dispatches`,
-headers `Authorization: Bearer <token>` (**hidden**), `Accept:
-application/vnd.github+json`, body:
+Plus the Original Request comment (first work order only) and, for change
+requests, a "🔁 Change requests to the work order" comment.
 
-```json
-{"event_type": "work-order-requested", "client_payload": {"ticket_key": "{{issue.key}}"}}
-```
+## Settings
 
-The token is a fine-grained GitHub token for this repository with
-**Contents: Read and write**.
-
-### Statuses, labels and text the workflow depends on
-Status and label names are repository variables (defaults below; see
+Repository variables, defaults shown (all variables:
 [setup.md](../setup.md#4-set-variables-only-what-differs-from-the-defaults)).
-The comment text is fixed in the workflow and must match the rule's comment.
 
-| Setting | Value | Used for |
+| Setting | Default | Used for |
 |---|---|---|
-| `JIRA_WORK_ORDER_STATUS` (variable) | Work Order | The run only acts on tickets in this status |
-| `JIRA_INTAKE_STATUS` (variable) | Intake | Where needs-details tickets go (needs a Work Order → Intake transition) |
-| `JIRA_NEEDS_DETAILS_LABEL` (variable) | needs-details | Added on bounce; removed by the rule on resubmit |
-| `NEEDS_DETAILS_TITLE` | Needs details | How needs-details comments are recognised to resolve them — must match the rule's comment |
-| `NEEDS_DETAILS_MESSAGE` | *(standard message)* | Must match the rule's comment text |
-| `ORIGINAL_REQUEST_NOTE` | *(closing line of the Original Request comment)* | How a re-run recognises an already-captured request |
-| `JIRA_NOTIFY_USERS` (variable) | true | `false` silences watcher notifications for the description update (needs Jira admin) |
+| `JIRA_WORK_ORDER_STATUS` / `JIRA_INTAKE_STATUS` | Work Order / Intake | Where the run acts, and where needs-details tickets go |
+| `JIRA_NEEDS_DETAILS_LABEL` / `JIRA_NEEDS_HUMAN_LABEL` | needs-details / needs-human | Labels ([jira.md](../jira.md#labels)) |
+| `CLAUDE_MODEL` / `CLAUDE_FALLBACK_MODEL` | claude-sonnet-5 / claude-opus-5-5 | The draft |
+| `CLAUDE_MAX_BUDGET_USD` / `REVIEW_CLAUDE_MAX_BUDGET_USD` | 2.00 / 2.00 | Per-pass caps, API-equivalent dollars ([claude-usage.md](../claude-usage.md)) |
+| `REVISION_MAX_BUDGET_USD` | 1.00 | Per-pass cap for revisions |
 
-### Claude settings
-All repository variables; defaults shown.
+Fixed in the workflow, and must match the Jira rules: the "Needs details"
+comment title and message (`NEEDS_DETAILS_TITLE`, `NEEDS_DETAILS_MESSAGE`).
+Also fixed: the Original Request comment's closing line, and the plan
+section and file name a revision checks for.
 
-| Variable | Default | Used for |
-|---|---|---|
-| `CLAUDE_MODEL` / `CLAUDE_FALLBACK_MODEL` | claude-sonnet-5 / claude-opus-5-5 | The fallback is used automatically when the main model is overloaded |
-| `CLAUDE_MAX_BUDGET_USD` | 2.00 | Stops a runaway run (API-equivalent dollars; typical costs in [claude-usage.md](../claude-usage.md)). On the current subscription it protects the plan's usage limits; with an API key it caps spend — see [runners.md](../runners.md) |
-| `CLAUDE_FETCH_DOMAINS` | official docs sites | The only sites Claude can fetch pages from (search is unrestricted). Add a domain when work orders need its docs |
+## Constraints
 
-### Secrets and permissions
-- Repository secrets: `JIRA_DOMAIN`, `JIRA_EMAIL`, `JIRA_API_TOKEN`.
-- The `JIRA_EMAIL` account needs: Browse, Edit Issues, Transition Issues, Add
-  Comments, **Delete Own Comments** (progress comment) and **Edit All
-  Comments** (resolving the rule's needs-details comments).
+- **Jira's description limit (~32,000 characters)** — work orders are
+  typically 5–15k; an oversize update fails with Jira's error.
+- **Run time** — the Claude step has 35 minutes; typical runs take 1–3.
 
 ## Edge cases
 
+Shared ones (revisions, failures, retries) are in
+[architecture.md](../architecture.md) and [jira.md](../jira.md#reverse-paths-sending-back-and-asking-for-changes).
+
 | Situation | Behaviour |
 |---|---|
-| Blank or template-only description | Stopped by the rule: stays in Intake, Needs details (Jira) comment + label, no run |
+| Blank or template-only description | Stopped by the Jira rule: stays in Intake with Needs details, no run |
 | Only placeholders / too vague | Claude returns needs-details → back to Intake |
 | Title or other fields edited | Ignored — only description changes resubmit |
-| Two saves in quick succession | Newest request cancels the older run (`concurrency`); the cancelled run removes its progress comment |
-| Ticket moved while Claude works | Nothing written; progress comment cleared |
-| Manual run on a ticket not in Work Order | No-op with a notice |
-| No Work Order → Intake transition | Fails before changing anything; failure comment |
-| Claude errors, times out, or returns incomplete output | Fails; failure comment |
-| Jira rejects the description (e.g. too long) | Fails after the Original Request comment is posted; failure comment. A re-run doesn't post the original request again |
-| A step runs too long | That step's time limit fails the run (reported on the ticket) before the job limit is reached |
-| Budget exceeded | Fails; failure comment; the log shows `error_max_budget_usd` |
-| Jira unreachable at the start | Fails; failure posted as a new comment |
-| Invalid ticket key (manual run) | Rejected before any request |
-| Ticket text tries to instruct Claude | Treated as data; Claude can only fetch pages from allowed documentation sites (covered by an eval) |
+| Description saved while in Work Order | Nothing runs — a manual change; comment `/revise` to have it worked in |
+| No Work Order → Intake transition | Fails before changing anything |
+| Jira rejects the description (e.g. too long) | Fails after the Original Request comment; a retry doesn't post it again |
+| Ticket moved back to Intake and edited | Revised against the edits; the original request isn't captured twice |
+| Ticket text tries to instruct Claude | Treated as data (covered by an eval) |
 
 ## Known gaps
 
-- **Edits during a run are missed.** A description saved while the ticket is
-  in Work Order doesn't trigger anything. Re-run the workflow, or move the
-  ticket to Intake and edit again.
-- **Description size.** Jira limits the description (~32k characters); an
-  unusually long work order fails and reports it.
-- **No automatic retries** for transient Jira or Claude errors — re-run.
-- **Expired credentials fail quietly.** An expired Jira token also stops the
-  failure comment, so tickets just sit in Work Order; an expired GitHub token
-  in the rule means no run starts. See
-  [setup.md](../setup.md#6-plan-for-credential-expiry) for ownership, renewal
-  and alerts.
-- **Posts as a person.** The automation acts as the `JIRA_EMAIL` user; a
-  dedicated service account would make its actions distinguishable and allow
-  a rule condition to ignore them.
-- **Evals are non-deterministic**: a passing run is evidence, not proof.
+The ones shared by every stage are in
+[architecture.md](../architecture.md#known-gaps-every-stage).
 
 ## Testing
 
 - `npm test --prefix tests` — every path above with Jira mocked and Claude
-  stubbed (`tests/work-order/scenarios.bats`, `claude-step.bats`,
-  `schema.bats`), plus the shared libraries (`tests/shared/`).
-- **Agent Evals** (Actions tab) or `npm run evals --prefix tests` — the real
-  Claude against sample tickets (`tests/work-order/evals/cases/`).
+  stubbed (`tests/work-order/`), plus the shared libraries.
+- **Agent Evals**, stage `work-order` — three cases: a plain-prose request
+  (→ work order), a vague one (→ needs details) and a prompt injection
+  (→ treated as data). See [evals.md](../evals.md).
 
-See [tests/README.md](../../tests/README.md).
+## Test in Jira
+
+On test tickets, after setting up or changing the stage. Each step that runs
+Claude costs a run.
+
+1. **Blank ticket** — create a Task with the template untouched. Expect: stays
+   in Intake, "Needs details — flagged by Jira automation", `needs-details`,
+   no run in GitHub Actions.
+2. **Vague ticket** — fill the template with "Fix it". Expect: back in Intake
+   with "Needs details — flagged by Claude" and what's missing;
+   `needs-details`; no `needs-human`.
+3. **Details in a comment** — on that ticket, comment `/revise` and a real
+   request. Expect: moves to Work Order; a work order; the Needs details
+   comments and your comment ✅ Resolved; a 🔁 comment; `needs-human`.
+4. **Clear request** — a new Task with a clear request. Expect: a work order
+   with the "Expert review: …" line, an Original Request comment,
+   `needs-human`.
+5. **Change request** — comment `/revise` with a specific change (e.g. "add
+   an acceptance criterion that …"). Expect: `needs-human` removed while
+   "⏳ Revising work order" shows; then only that change in the description,
+   a 🔁 comment, your comment ✅ Resolved, `needs-human` back, and **no**
+   second Original Request comment.
+6. **Manual edit, then a revision** — edit one section by hand (nothing runs),
+   then `/revise` a *different* section. Expect: only that section changes;
+   your edit is still there.
+7. **A question and a vague request** — comment `/revise Does this need a
+   database change?` and `/revise make it better`. Expect: one run handles
+   both; the 🔁 reply answers the question and says how it read the vague one
+   or asks what's needed.
+8. **Not a command, wrong status** — comment "/revised the title" (nothing
+   runs); comment `/revise` on a ticket in Implementation Plan Approved
+   ("Revision not started — …").
+9. **Failure and retry** — set `REVISION_MAX_BUDGET_USD` to `0.01` and
+   comment `/revise`. Expect: "❌ Work order generation failed" with a **Why:**
+   line, `needs-human`. Delete the variable, `/revise` again: a normal revision.
+10. **A removed section** — delete the "Out of Scope" heading, then `/revise`
+    asking to change it. Expect: ❌ with a **Why:** line naming "Out of Scope",
+    nothing changed. Put it back, `/revise` again: it works.
+11. **Back to Intake** — move a work order to Intake and edit it. Expect: back
+    in Work Order with the edits worked in, no second Original Request comment.

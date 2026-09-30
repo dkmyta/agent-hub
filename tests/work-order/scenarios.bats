@@ -5,7 +5,7 @@
 
 setup_file() {
   load helpers
-  extract_work_order
+  extract_stage
 }
 
 setup() {
@@ -92,4 +92,74 @@ setup() {
 
 @test "invalid ticket key: rejected before any request" {
   run_scenario invalid-ticket-key
+}
+
+@test "review changes the outcome: a ready draft goes back to Intake" {
+  run_scenario review-changes-outcome
+}
+
+@test "review fails: the unreviewed draft is never applied" {
+  run_scenario review-fails
+}
+
+@test "revise: the work order is revised with the change requests, which are answered and resolved" {
+  run_scenario revise --full
+  # Claude was told to revise, and got the change request but not the one
+  # already handled.
+  run cat "$RUNNER_TEMP/claude-prompt.txt"
+  assert_output --partial "Revise the work order"
+  assert_output --partial "/revise Split the README section"
+  refute_output --partial "/revise Mention the runner"
+  # Earlier 🔁 replies are the automation's own; Claude doesn't need them.
+  refute_output --partial "Earlier reply: mentioned the runner."
+
+  # Only the updated sections changed; every other one — people's edits
+  # included — is exactly as it was, and the review note was replaced.
+  local before after
+  before=$(jq -c '.fields.description' "$FIXTURES/tickets/work-order.json")
+  after=$(jq -c 'select(.body.fields.description) | .body.fields.description' "$CALLS")
+  run jq -rn -L "$AGENTS_LIB" --argjson a "$before" --argjson b "$after" 'include "adf";
+    [$a.content[] | select(.type == "heading" and .attrs.level == 4) | plain_text] as $headings
+    | [$headings[] | select(. as $h | ($a | section_blocks($h)) != ($b | section_blocks($h)))]'
+  assert_output '[
+  "Acceptance Criteria"
+]'
+  # Headings are fixed: the same sections, in the same order.
+  assert_equal "$(jq -c -L "$AGENTS_LIB" 'include "adf"; [.content[] | select(.type == "heading") | plain_text]' <<< "$after")" \
+    "$(jq -c -L "$AGENTS_LIB" 'include "adf"; [.content[] | select(.type == "heading") | plain_text]' <<< "$before")"
+  run jq -r -L "$AGENTS_LIB" 'include "adf"; {content: section_blocks("Acceptance Criteria")} | to_markdown' <<< "$after"
+  assert_output --partial "The README's setup steps link to docs/setup.md."
+  run jq -r -L "$AGENTS_LIB" 'include "adf"; ([.content[] | plain_text | select(startswith("Expert review:"))] | length), (.content[1] | plain_text)' <<< "$after"
+  assert_line --index 0 1
+  assert_line --index 1 "Overview"
+  run jq -r -L "$AGENTS_LIB" 'include "adf"; .content[2] | plain_text' <<< "$after"
+  assert_output --partial "Revised summary"
+}
+
+@test "revise with a plan attached: the plan summary becomes an out-of-date note" {
+  run_scenario revise-plan-out-of-date
+  run jq -r 'select(.body.fields.description) | .body.fields.description | tostring' "$CALLS"
+  assert_output --partial "is out of date"
+  refute_output --partial "Pending — added once the plan is approved."
+}
+
+@test "revise needs details: back to Intake, needs-human removed, change request left open" {
+  run_scenario revise-needs-details
+}
+
+@test "details added in a /revise comment: work order written, both comments resolved" {
+  run_scenario details-in-comment
+  run cat "$RUNNER_TEMP/claude-prompt.txt"
+  assert_output --partial "Prepare the work order"
+  assert_output --partial "/revise The README should cover"
+}
+
+@test "revise a section removed by hand: nothing changed, the failure names the section" {
+  run_scenario revise-section-removed
+  run jq -r 'select(.body.fields.description) | "description written"' "$CALLS"
+  assert_output ""
+  run jq -r 'select(.path == "/comment/5001" and .method == "PUT") | .body.body | tostring' "$CALLS"
+  assert_output --partial 'Why: '
+  assert_output --partial 'no longer has: \"Acceptance Criteria\"'
+  assert_output --partial "comment /revise again"
 }

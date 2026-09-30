@@ -57,3 +57,51 @@ md() { printf '{"type":"doc","version":1,"content":[%s]}' "$1" | adf_raw to_mark
   assert_equal "$(md '{"type":"codeBlock","content":['"$(t 'echo hi')"']}')" $'```\necho hi\n```'
   assert_equal "$(md '{"type":"panel","content":['"$(p "$(t inside)")"']}')" "inside"
 }
+
+# A work order's Delivery group: h3, then h4 sections.
+delivery() {
+  printf '{"type":"doc","version":1,"content":[%s,%s,%s,%s,%s]}' \
+    '{"type":"heading","attrs":{"level":3},"content":['"$(t Delivery)"']}' \
+    '{"type":"heading","attrs":{"level":4},"content":['"$(t 'Implementation Plan')"']}' "$(p "$(t Pending)")" \
+    '{"type":"heading","attrs":{"level":4},"content":['"$(t 'Testing Instructions')"']}' "$(p "$(t 'Pending 2')")"
+}
+
+@test "section_blocks: the blocks under a heading, up to the next same-level heading" {
+  assert_equal "$(delivery | adf 'section_blocks("Implementation Plan") | map(plain_text)')" '["Pending"]'
+  assert_equal "$(delivery | adf 'section_blocks("Missing")')" '[]'
+}
+
+@test "replace_section: replaces only that section's blocks, keeping everything else" {
+  assert_equal "$(delivery | adf 'replace_section("Implementation Plan"; [h5("Approach"), para("new")]) | [.content[] | plain_text]')" \
+    '["Delivery","Implementation Plan","Approach","new","Testing Instructions","Pending 2"]'
+}
+
+@test "replace_section: replacing again replaces the previous content, including its subsections" {
+  assert_equal "$(delivery | adf 'replace_section("Implementation Plan"; [h5("Old"), para("old")])
+      | replace_section("Implementation Plan"; [para("new")]) | [.content[] | plain_text]')" \
+    '["Delivery","Implementation Plan","new","Testing Instructions","Pending 2"]'
+}
+
+@test "replace_section: a missing section is an error, not a silent no-op" {
+  run bash -c "$(declare -f adf delivery p t); delivery | adf 'replace_section(\"Pull Request\"; [])'"
+  assert_failure
+  assert_output --partial 'No "Pull Request" section'
+}
+
+@test "to_markdown: tables get a header separator and escaped pipes" {
+  assert_equal "$(adf_raw '{content: [table(["A","B"]; [["1","x|y"]])]} | to_markdown' <<< null)" $'| A | B |\n|---|---|\n| 1 | x\\|y |'
+}
+
+@test "to_markdown: whitespace stays outside bold and code markers" {
+  assert_equal "$(md "$(p "$(t 'Why: ' '{"type":"strong"}'),$(t because),$(t ' x.md ' '{"type":"code"}')")")" '**Why:** because `x.md` '
+}
+
+@test "is_command: the command word at the start, any case, not as part of a longer word" {
+  run adf '[
+    ("/revise", "/revise add a step", "  /Revise the steps", "/REVISE\nmore",
+     "/revised the plan", "please /revise", "", "revise this") | is_command("/revise")]' <<< null
+  assert_output '[true,true,true,true,false,false,false,false]'
+  # Matched literally: characters special in regular expressions work too.
+  assert_equal "$(adf_raw '"+fix. now" | is_command("+fix.")' <<< null)" true
+  assert_equal "$(adf_raw '"anything" | is_command("")' <<< null)" false
+}

@@ -1,0 +1,208 @@
+{
+  "comments": [
+    {
+      "id": "401",
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Original Request:"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "What's Needed: Update README.md to explain the automation workflows in this repo: what triggers each one, what it does, and what needs to be configured (runner, secrets) for it to work."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Why / Context: New team members are setting up Jira automation rules and don't know which events to send or which secrets must exist in the repo."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Workstream: Internal tooling / documentation"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Known Constraints: Documentation only. Do not change any workflow files. Keep it to roughly one page."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Source / Email Thread: N/A"
+              }
+            ]
+          },
+          {
+            "type": "rule"
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Captured from the original intake form before the work order replaced the description.",
+                "marks": [
+                  {
+                    "type": "em"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "author": {
+        "accountType": "atlassian",
+        "displayName": "Jira Automation User"
+      },
+      "created": "2026-09-29T10:00:00.000+0000"
+    },
+    {
+      "id": "411",
+      "author": {
+        "accountType": "atlassian",
+        "displayName": "Dana Lead"
+      },
+      "created": "2026-09-30T10:00:00.000+0000",
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "/revise Split the README section into one subsection per workflow, and add a criterion that the setup steps link to docs/setup.md."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "412",
+      "author": {
+        "accountType": "atlassian",
+        "displayName": "Sam Dev"
+      },
+      "created": "2026-09-30T10:05:00.000+0000",
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Looks good otherwise."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "413",
+      "author": {
+        "accountType": "atlassian",
+        "displayName": "Dana Lead"
+      },
+      "created": "2026-09-29T12:00:00.000+0000",
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "\u2705 Resolved \u2014 handled \u2014 see the \ud83d\udd01 comment for what changed."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "/revise Mention the runner."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "414",
+      "author": {
+        "accountType": "atlassian",
+        "displayName": "Jira Automation User"
+      },
+      "created": "2026-09-29T12:30:00.000+0000",
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "\ud83d\udd01 Change requests to the work order",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " \u2014 how each was handled:"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Earlier reply: mentioned the runner."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

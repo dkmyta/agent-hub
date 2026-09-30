@@ -1,0 +1,46 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 102540,
+  "num_turns": 16,
+  "total_cost_usd": 0.8084246999999999,
+  "structured_output": {
+    "status": "ready",
+    "revision_responses": [
+      {
+        "request": "One subsection per workflow",
+        "response": "Split the README section into Work order and Implementation plan subsections."
+      },
+      {
+        "request": "Setup steps link to docs/setup.md",
+        "response": "Added an acceptance criterion for the link."
+      }
+    ],
+    "updates": {
+      "scope": {
+        "acceptance_criteria": [
+          "README.md has a section for agent-work-order.yml covering: its trigger (work-order-requested repository_dispatch, plus manual workflow_dispatch with ticket_key), what a run does (fetches the ticket from Jira, has Claude review it read-only, writes back either a formatted work order or a needs-details bounce to Intake), and what must be configured (self-hosted runner with the claude label; secrets JIRA_DOMAIN, JIRA_EMAIL, JIRA_API_TOKEN).",
+          "README.md has a section for agent-build.yml covering: its trigger (jira-plan-approved repository_dispatch with ticket_key, summary, description payload fields), what a run does (Claude implements the change on a new agent/<ticket_key> branch, opens a draft PR against main, and a comment with the PR link is posted back to the Jira ticket), and what must be configured (self-hosted runner; contents:write and pull-requests:write permissions; secrets JIRA_DOMAIN, JIRA_EMAIL, JIRA_API_TOKEN).",
+          "Only README.md is changed \u2014 no workflow YAML, prompt, schema, or script file under .github is touched.",
+          "The result reads as roughly one page: a short shared-pipeline intro plus one scannable subsection per workflow, not a line-by-line YAML walkthrough.",
+          "The README's setup steps link to docs/setup.md."
+        ]
+      },
+      "overview": {
+        "summary": [
+          "Revised summary: the README gets one subsection per workflow.",
+          "Each covers its trigger, what it does and what it needs configured."
+        ]
+      }
+    }
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "costUSD": 0.000768
+    },
+    "claude-sonnet-5": {
+      "costUSD": 0.8076567
+    }
+  }
+}

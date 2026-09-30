@@ -1,0 +1,355 @@
+name: Agent — Implementation Plan
+run-name: "Implementation plan: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}"
+
+# Stage 2 of the Jira → GitHub agent pipeline. When a work order is approved,
+# the Jira "Implementation Plan Requested" rule moves the ticket to Work Order
+# Approved, removes its needs-human label and dispatches `plan-requested` with
+# only the ticket key. Claude researches the codebase read-only and writes a
+# plan detailed enough for someone new to the task. Thorough plans outgrow
+# Jira's field limit, so the full plan is attached to the ticket as Markdown
+# and a summary goes in the work order's Implementation Plan section (the rest
+# of the work order stays); the ticket moves to Implementation Plan for
+# review. If the plan needs a product or scope decision, the ticket goes back
+# to Work Order with its questions instead.
+#
+# Revisions: a "/revise" comment on a ticket in Implementation Plan (the Jira
+# "Revision Requested" rule) runs this again from that status; Claude revises
+# the attached plan with the change requests instead of starting over, and
+# the ticket stays in Implementation Plan (docs/workflows/implementation-plan.md).
+#
+# Shared code: .github/agents/lib. This stage: .github/agents/implementation-plan.
+# Per-repository settings come from repository variables (docs/setup.md).
+
+on:
+  repository_dispatch:
+    types: [plan-requested]
+  workflow_dispatch:
+    inputs:
+      ticket_key:
+        description: Jira ticket key (in Work Order Approved for a new plan, or Implementation Plan to revise it)
+        required: true
+        type: string
+
+# One run per ticket: a newer request cancels one still in progress.
+concurrency:
+  group: implementation-plan-${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TICKET_KEY: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
+  AGENTS_DIR: .github/agents
+  AGENT_DIR: .github/agents/implementation-plan
+  # Planning needs deeper reasoning than work orders, so it has its own model
+  # and budget (API-equivalent dollars; typical costs: docs/claude-usage.md).
+  CLAUDE_MODEL: ${{ vars.PLAN_CLAUDE_MODEL || 'claude-opus-5-5' }}
+  CLAUDE_FALLBACK_MODEL: ${{ vars.PLAN_CLAUDE_FALLBACK_MODEL || 'claude-sonnet-5' }}
+  CLAUDE_MAX_BUDGET_USD: ${{ vars.PLAN_CLAUDE_MAX_BUDGET_USD || '5.00' }}
+  # Expert review of every draft before it reaches the ticket (docs/architecture.md):
+  # a strong model reviewing a draft catches what the drafter missed.
+  REVIEW_CLAUDE_MODEL: ${{ vars.REVIEW_CLAUDE_MODEL || 'claude-opus-5-5' }}
+  REVIEW_CLAUDE_FALLBACK_MODEL: ${{ vars.REVIEW_CLAUDE_FALLBACK_MODEL || 'claude-sonnet-5' }}
+  REVIEW_CLAUDE_MAX_BUDGET_USD: ${{ vars.REVIEW_CLAUDE_MAX_BUDGET_USD || '5.00' }}
+  # A revision is scoped to the requested changes, so each of its passes has
+  # this lower cap instead.
+  REVISION_MAX_BUDGET_USD: ${{ vars.PLAN_REVISION_MAX_BUDGET_USD || '2.00' }}
+  # The only sites Claude may fetch pages from (web search is unrestricted).
+  CLAUDE_FETCH_DOMAINS: >-
+    ${{ vars.CLAUDE_FETCH_DOMAINS || 'docs.github.com developer.atlassian.com support.atlassian.com docs.anthropic.com docs.claude.com developer.mozilla.org nodejs.org docs.npmjs.com' }}
+  # Jira names this workflow depends on; must match the Jira project's workflow
+  # and the "Implementation Plan Requested" automation rule.
+  WORK_ORDER_APPROVED_STATUS: ${{ vars.JIRA_WORK_ORDER_APPROVED_STATUS || 'Work Order Approved' }}
+  PLAN_STATUS: ${{ vars.JIRA_IMPLEMENTATION_PLAN_STATUS || 'Implementation Plan' }}
+  WORK_ORDER_STATUS: ${{ vars.JIRA_WORK_ORDER_STATUS || 'Work Order' }}
+  NEEDS_HUMAN_LABEL: ${{ vars.JIRA_NEEDS_HUMAN_LABEL || 'needs-human' }}
+  NEEDS_CLARIFICATION_LABEL: ${{ vars.JIRA_NEEDS_CLARIFICATION_LABEL || 'needs-clarification' }}
+  # The work order's section the plan summary goes into (the work-order stage
+  # creates it), the attached plan's file name, and the comment title used to
+  # flag and later resolve clarification requests.
+  PLAN_SECTION: Implementation Plan
+  PLAN_FILE_SUFFIX: implementation-plan.md
+  NEEDS_CLARIFICATION_TITLE: Needs clarification
+  NEEDS_CLARIFICATION_MESSAGE: "The implementation plan needs answers to these questions before it can be written. Answer them in the work order or in a comment, then move the ticket to Work Order Approved to try again."
+  # Comments starting with this are change requests (or retries); the Jira
+  # "Revision Requested" rule dispatches a run for them, and the run marks
+  # them resolved once handled.
+  REVISE_COMMAND: ${{ vars.JIRA_REVISE_COMMAND || '/revise' }}
+  # Jira's limit on the description; a summary that would exceed it fails the
+  # run with a clear message instead of Jira rejecting the update.
+  DESCRIPTION_MAX_CHARS: "32000"
+  # "false" suppresses watcher notifications for the description update
+  # (requires Jira admin permission for the API user).
+  JIRA_NOTIFY_USERS: ${{ vars.JIRA_NOTIFY_USERS || 'true' }}
+
+jobs:
+  implementation-plan:
+    # Default: a self-hosted runner labelled `claude` with a Claude Code login;
+    # see docs/runners.md for the Claude API instead.
+    runs-on: ${{ fromJSON(vars.AGENT_RUNS_ON || '["self-hosted", "claude"]') }}
+    # Every step has its own limit and together they fit within this one, so a
+    # slow step fails (and is reported on the ticket) instead of the whole job
+    # being cancelled.
+    timeout-minutes: 70
+    steps:
+      # Leaves out recorded test data so Claude works from the ticket and the
+      # code, not from a recorded answer. The evals mirror these patterns.
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/tests/*/fixtures/
+            !/tests/*/scenarios/
+            !/tests/*/evals/
+            !/tests/*/expected/
+
+      - name: Install Claude Code
+        if: runner.environment == 'github-hosted'
+        timeout-minutes: 3
+        env:
+          CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION || 'latest' }}
+        run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+
+      - name: Fetch ticket
+        id: start
+        timeout-minutes: 3
+        env: &jira-env
+          JIRA_DOMAIN: ${{ secrets.JIRA_DOMAIN }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          source "$AGENTS_DIR/lib/jira.sh"
+          source "$AGENTS_DIR/lib/stage.sh"
+          # Work Order Approved: a new plan (or a fresh re-plan). Implementation
+          # Plan: a revision of the attached plan.
+          stage_fetch "$WORK_ORDER_APPROVED_STATUS" "$PLAN_STATUS" || exit 0
+
+          # The ticket must carry a work order: its acceptance criteria (which
+          # the plan must cover) and the section the plan goes into. Checked
+          # before Claude runs, so no Claude usage is spent on a ticket without one.
+          jq -L "$AGENTS_DIR/lib" 'include "adf";
+            [.fields.description // {content: []} | section_blocks("Acceptance Criteria")[]
+             | select(.type == "taskList") | .content[] | plain_text]' \
+            "$RUNNER_TEMP/ticket.json" > "$RUNNER_TEMP/acceptance-criteria.json"
+          if [ "$(jq length "$RUNNER_TEMP/acceptance-criteria.json")" = 0 ] \
+            || ! jq -e -L "$AGENTS_DIR/lib" --arg section "$PLAN_SECTION" 'include "adf";
+                 .fields.description // {content: []} | section_index($section) != null' \
+                 "$RUNNER_TEMP/ticket.json" > /dev/null; then
+            stage_fail "There's no work order to plan from: the description needs its Acceptance Criteria checklist and an \"$PLAN_SECTION\" section. Generate the work order first, or restore those sections, then move the ticket to Work Order Approved again."
+          fi
+
+          stage_ticket_markdown --with-comments
+
+          # Revising: Claude starts from the attached plan (the description only
+          # has its summary). Without one (e.g. deleted), write a new plan.
+          echo new > "$RUNNER_TEMP/mode"
+          if [ "$(stage_start_status)" = "$PLAN_STATUS" ]; then
+            PLAN_ID=$(jira_attachments | jq -r --arg name "$TICKET_KEY-$PLAN_FILE_SUFFIX" \
+              '[.[] | select(.filename == $name)] | sort_by(.created) | last | .id // empty')
+            if [ -n "$PLAN_ID" ]; then
+              # The attached file is the plan's source of truth: people may have
+              # edited and re-uploaded it (the newest one wins).
+              jira_attachment_content "$PLAN_ID" > "$RUNNER_TEMP/current-plan.md"
+              {
+                printf '\nCurrent implementation plan (attached as %s):\n\n' "$TICKET_KEY-$PLAN_FILE_SUFFIX"
+                cat "$RUNNER_TEMP/current-plan.md"
+              } >> "$RUNNER_TEMP/ticket.md"
+              echo revision > "$RUNNER_TEMP/mode"
+            else
+              echo "::notice::No attached plan to revise on $TICKET_KEY — writing a new one."
+            fi
+          fi
+          MODE=$(cat "$RUNNER_TEMP/mode" 2>/dev/null || echo new)
+          echo "Mode: $MODE."
+
+          if [ "$MODE" = revision ]; then
+            stage_progress_comment "⏳ Revising implementation plan" \
+              " — usually takes 5–10 minutes. Refresh the page to see the result. "
+          else
+            stage_progress_comment "⏳ Writing implementation plan" \
+              " — usually takes 5–10 minutes. Refresh the page to see the result. "
+          fi
+
+      - name: Write implementation plan (Claude Code)
+        id: claude
+        if: steps.start.outputs.proceed == 'true'
+        timeout-minutes: 50
+        env:
+          # Only used when set, and only where Claude Code has no login (a
+          # subscription login on the runner takes precedence). Empty is fine.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          source "$AGENTS_DIR/lib/claude.sh"
+          MODE=$(cat "$RUNNER_TEMP/mode" 2>/dev/null || echo new)
+          source "$AGENTS_DIR/lib/stage.sh"
+          if [ "$MODE" = revision ]; then
+            claude_run "Revise the current implementation plan for this Jira ticket, addressing the change requests in its comments." plan
+          else
+            claude_run "Write the implementation plan for this Jira ticket." plan
+          fi
+          claude_check plan needs-clarification questions
+          claude_review "Review this implementation plan draft and return the final version."
+          claude_check plan needs-clarification questions
+
+          # A ready plan must cover every acceptance criterion, word for word,
+          # and only modify or delete files that exist — checked on the reviewed
+          # plan (for a revision, on the sections it changes; the rest was
+          # checked before). The log names positions and paths, never ticket text.
+          if [ "$(jq -r '.structured_output.status' "$CLAUDE_OUTPUT")" = ready ]; then
+            jq '.structured_output.plan // .structured_output.updates' "$CLAUDE_OUTPUT" > "$RUNNER_TEMP/plan-checked.json"
+            MISSING=$(jq -r --slurpfile plan "$RUNNER_TEMP/plan-checked.json" '
+              def norm: gsub("\\s+"; " ") | ltrimstr(" ") | rtrimstr(" ");
+              if $plan[0] | has("acceptance_criteria") | not then ""
+              else [$plan[0].acceptance_criteria[].criterion | norm] as $covered
+              | [to_entries[] | select((.value | norm) as $c | $covered | any(. == $c) | not) | .key + 1]
+              | join(", ") end' "$RUNNER_TEMP/acceptance-criteria.json")
+            if [ -n "$MISSING" ]; then
+              stage_fail "The plan didn't cover acceptance criteria $MISSING (by position in the work order), so it wasn't applied. Comment $REVISE_COMMAND to try again."
+            fi
+            MISSING_FILES=$(jq -r '(.changes // [])[] | select(.action != "add") | .path' "$RUNNER_TEMP/plan-checked.json" \
+              | while read -r FILE; do [ -e "${FILE#./}" ] || echo "$FILE"; done)
+            if [ -n "$MISSING_FILES" ]; then
+              # The paths come from Claude, so they go only on the ticket.
+              stage_fail "The plan changes $(echo "$MISSING_FILES" | wc -l | tr -d ' ') file(s) that don't exist, so it wasn't applied. Comment $REVISE_COMMAND to try again." \
+                "Files: $(echo "$MISSING_FILES" | paste -sd ',' - | sed 's/,/, /g')."
+            fi
+          fi
+          claude_summary "Implementation plan"
+
+      - name: Apply implementation plan to ticket
+        id: apply
+        if: steps.claude.outputs.status == 'ready'
+        timeout-minutes: 3
+        env: *jira-env
+        run: |
+          source "$AGENTS_DIR/lib/jira.sh"
+          MODE=$(cat "$RUNNER_TEMP/mode" 2>/dev/null || echo new)
+          source "$AGENTS_DIR/lib/stage.sh"
+          START_STATUS=$(stage_start_status)
+          jira_require_status "$START_STATUS" || exit 0
+          # Before changing anything, so a misconfigured Jira workflow can't
+          # leave a half-processed ticket. A revision is already there.
+          TRANSITION_ID=""
+          [ "$START_STATUS" = "$PLAN_STATUS" ] || TRANSITION_ID=$(stage_transition_id "$PLAN_STATUS")
+
+          # The full plan, as Markdown, to attach to the ticket. A revision
+          # changes only its updated sections of the attached file, so the rest
+          # — including people's edits to it — stays as it is.
+          PLAN_FILE="$RUNNER_TEMP/$TICKET_KEY-$PLAN_FILE_SUFFIX"
+          if [ "$MODE" = revision ]; then
+            source "$AGENT_DIR/revise.sh"
+            jq '.structured_output.updates' "$RUNNER_TEMP/claude-output.json" > "$RUNNER_TEMP/updates.json"
+            # Like work orders: a section the revision changes may have been
+            # removed or renamed by hand — say which, before changing anything.
+            MISSING_SECTIONS=$(revision_missing_sections "$RUNNER_TEMP/updates.json" "$RUNNER_TEMP/current-plan.md")
+            if [ -n "$MISSING_SECTIONS" ]; then
+              stage_fail "The revision changes sections the attached plan no longer has: $MISSING_SECTIONS. Nothing was changed. Put the heading(s) back in the file (same name, as a \"## \" heading), upload it with the same name, then comment $REVISE_COMMAND again."
+            fi
+          else
+            jq '.structured_output.plan' "$RUNNER_TEMP/claude-output.json" > "$RUNNER_TEMP/plan.json"
+          fi
+          {
+            if [ "$MODE" = revision ]; then
+              revision_plan_markdown "$RUNNER_TEMP/updates.json" "$RUNNER_TEMP/current-plan.md"
+            else
+              jq -r '"# Implementation plan: \(env.TICKET_KEY) — \(.fields.summary)\n"' "$RUNNER_TEMP/ticket.json"
+              echo "Written by the implementation plan workflow from the approved work order on $TICKET_KEY."
+              echo
+              jq -L "$AGENTS_DIR/lib" -f "$AGENT_DIR/render.jq" --arg mode full --arg file "" --argjson level 2 "$RUNNER_TEMP/plan.json" \
+                | jq -r -L "$AGENTS_DIR/lib" 'include "adf"; {content: .} | to_markdown'
+            fi
+            # The expert review's full notes (the attachment is private to Jira;
+            # they're never logged).
+            jq -r '"\n## Expert review\n\n\(.note)\n",
+              (if (.changes | length) > 0 then "**Changes made**\n", (.changes[] | "- \(.)"), "" else empty end),
+              (if (.issues | length) > 0 then "**Issues found in the draft**\n", (.issues[] | "- \(.)"), "" else empty end)' \
+              "$RUNNER_TEMP/review.json"
+          } > "$PLAN_FILE"
+
+          # The summary goes into the Implementation Plan section of the current
+          # description (read fresh, so edits made during the run are kept);
+          # the work order around it is untouched.
+          if [ "$MODE" = revision ]; then
+            jira_issue description | jq '.fields.description' \
+              | revision_summary "$RUNNER_TEMP/updates.json" "$(basename "$PLAN_FILE")"
+          else
+            jq -L "$AGENTS_DIR/lib" -f "$AGENT_DIR/render.jq" --arg mode summary \
+              --arg file "$(basename "$PLAN_FILE")" --argjson level 5 "$RUNNER_TEMP/plan.json"
+          fi | jq -L "$AGENTS_DIR/lib" --slurpfile review "$RUNNER_TEMP/review.json" 'include "adf";
+                . + [para([em("Expert review: \($review[0].note)")])]' > "$RUNNER_TEMP/plan-summary.json"
+          jira_issue description \
+            | jq -L "$AGENTS_DIR/lib" --arg section "$PLAN_SECTION" --slurpfile blocks "$RUNNER_TEMP/plan-summary.json" \
+                'include "adf"; .fields.description | replace_section($section; $blocks[0])' \
+            > "$RUNNER_TEMP/description.json"
+          SIZE=$(jq -r -L "$AGENTS_DIR/lib" 'include "adf"; to_markdown | length' "$RUNNER_TEMP/description.json")
+          if [ "$SIZE" -gt "$DESCRIPTION_MAX_CHARS" ]; then
+            stage_fail "With the plan summary, the description would be $SIZE characters — over Jira's limit ($DESCRIPTION_MAX_CHARS) — so nothing was changed. Shorten the work order, or comment $REVISE_COMMAND asking for a shorter plan."
+          fi
+
+          # Upload the new plan first: if anything fails after this, the ticket
+          # still has a plan. Earlier plans are removed only once the new one
+          # is in place, so the build stage always finds exactly one.
+          PREVIOUS=$(jira_attachments | jq -r --arg name "$(basename "$PLAN_FILE")" '.[] | select(.filename == $name) | .id')
+          jira_attach "$PLAN_FILE" > /dev/null
+          jira_set_description < "$RUNNER_TEMP/description.json"
+          for ATTACHMENT in $PREVIOUS; do jira_delete_attachment "$ATTACHMENT"; done
+          jira_remove_label "$NEEDS_CLARIFICATION_LABEL"
+          # Waiting for a person to review and approve the plan.
+          jira_add_label "$NEEDS_HUMAN_LABEL"
+          [ -z "$TRANSITION_ID" ] || jira_transition "$TRANSITION_ID"
+
+          # Say how each change request was handled, then mark them and the
+          # clarification requests as resolved.
+          stage_revision_reply "implementation plan"
+          jira_comments > "$RUNNER_TEMP/comments.json"
+          RESOLVED=$(stage_resolve_comments "$RUNNER_TEMP/comments.json" \
+            "the questions were answered and the implementation plan was written." "$NEEDS_CLARIFICATION_TITLE")
+          REVISIONS=$(stage_resolve_revisions "$RUNNER_TEMP/comments.json")
+
+          echo "Implementation plan $([ "$MODE" = revision ] && echo revised || echo written) on [$TICKET_KEY]($TICKET_URL), in $PLAN_STATUS; resolved $RESOLVED clarification comment(s) and $REVISIONS change request(s)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Return ticket to Work Order
+        id: return
+        if: steps.claude.outputs.status == 'needs-clarification'
+        timeout-minutes: 3
+        env: *jira-env
+        run: |
+          source "$AGENTS_DIR/lib/jira.sh"
+          source "$AGENTS_DIR/lib/stage.sh"
+          jira_require_status "$(stage_start_status)" || exit 0
+          TRANSITION_ID=$(stage_transition_id "$WORK_ORDER_STATUS")
+
+          jq -L "$AGENTS_DIR/lib" --arg title "$NEEDS_CLARIFICATION_TITLE" --arg message "$NEEDS_CLARIFICATION_MESSAGE" 'include "adf";
+            doc([para([strong($title), text(" — flagged by Claude (implementation plan review).")]),
+                 para($message),
+                 bullets([.structured_output.questions[]
+                   | [strong(.question), text(" Why it matters: \(.why) Best answered by: \(.who).")]])])' \
+            "$RUNNER_TEMP/claude-output.json" | jira_comment > /dev/null
+          jira_add_label "$NEEDS_CLARIFICATION_LABEL"
+          jira_add_label "$NEEDS_HUMAN_LABEL"
+          jira_transition "$TRANSITION_ID"
+
+          echo "[$TICKET_KEY]($TICKET_URL) returned to $WORK_ORDER_STATUS as $NEEDS_CLARIFICATION_LABEL." >> "$GITHUB_STEP_SUMMARY"
+
+      # Runs on success and on cancellation (a newer request superseded this
+      # run), so no "⏳" comment is left behind.
+      - name: Clear progress comment
+        if: success() || cancelled()
+        timeout-minutes: 2
+        env: *jira-env
+        run: |
+          source "$AGENTS_DIR/lib/jira.sh"
+          source "$AGENTS_DIR/lib/stage.sh"
+          stage_clear_progress
+
+      - name: Report failure on ticket
+        if: failure()
+        timeout-minutes: 2
+        env: *jira-env
+        run: |
+          source "$AGENTS_DIR/lib/jira.sh"
+          source "$AGENTS_DIR/lib/stage.sh"
+          stage_report_failure "❌ Implementation plan failed" "$(stage_start_status "$WORK_ORDER_APPROVED_STATUS")"

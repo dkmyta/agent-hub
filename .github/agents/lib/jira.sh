@@ -26,10 +26,13 @@ printf 'user = "%s:%s"\n' \
   "$(printf '%s' "$JIRA_EMAIL" | sed 's/[\\"]/\\&/g')" \
   "$(printf '%s' "$JIRA_API_TOKEN" | sed 's/[\\"]/\\&/g')" > "$JIRA_CURL_CONFIG"
 
-jira() {
-  curl -sS --fail-with-body --config "$JIRA_CURL_CONFIG" \
-    -H "Content-Type: application/json" -H "Accept: application/json" "$@"
+# Every Jira call goes through jira_request (the tests replace just this).
+jira_request() {
+  curl -sS --fail-with-body --config "$JIRA_CURL_CONFIG" -H "Accept: application/json" "$@"
 }
+
+# A JSON request: jira [-X METHOD] URL [-d BODY].
+jira() { jira_request -H "Content-Type: application/json" "$@"; }
 
 # Issue fields, e.g. jira_issue summary,description,status
 jira_issue() { jira "$ISSUE_URL?fields=$1"; }
@@ -71,6 +74,27 @@ jira_comments() { jira "$ISSUE_URL/comment?maxResults=100"; }
 
 jira_add_label() {
   jq -nc --arg name "$1" '{update: {labels: [{add: $name}]}}' \
+    | jira -X PUT "$ISSUE_URL" -d @-
+}
+
+# Attach Markdown file $1 to the ticket (a multipart upload; Jira requires the
+# X-Atlassian-Token header). Prints the new attachment's id.
+jira_attach() {
+  jira_request -H "X-Atlassian-Token: no-check" -F "file=@$1;type=text/markdown" \
+    "$ISSUE_URL/attachments" | jq -r '.[0].id'
+}
+
+# The ticket's attachments: [{id, filename, created, ...}].
+jira_attachments() { jira_issue attachment | jq '.fields.attachment // []'; }
+
+jira_delete_attachment() { jira -X DELETE "https://$JIRA_DOMAIN/rest/api/3/attachment/$1"; }
+
+# Print attachment $1's content. Jira redirects to its media store, which curl
+# follows without resending the credentials (they're only for the Jira host).
+jira_attachment_content() { jira_request -L "https://$JIRA_DOMAIN/rest/api/3/attachment/content/$1"; }
+
+jira_remove_label() {
+  jq -nc --arg name "$1" '{update: {labels: [{remove: $name}]}}' \
     | jira -X PUT "$ISSUE_URL" -d @-
 }
 

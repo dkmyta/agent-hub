@@ -1,0 +1,30 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 60000,
+  "num_turns": 9,
+  "total_cost_usd": 0.9,
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "costUSD": 0.9
+    }
+  },
+  "structured_output": {
+    "result": {
+      "status": "needs-details",
+      "missing": "The request names README.md but the ticket also asks for an unspecified \"setup page\" — which page, and who is the audience?"
+    },
+    "review": {
+      "note": "The draft proceeded, but the request leaves the target page undecided; sent back for details.",
+      "changes": [
+        "Changed the outcome to needs-details: the second deliverable is unspecified."
+      ],
+      "issues": [
+        "Changed the outcome to needs-details: the second deliverable is unspecified."
+      ],
+      "outcome_changed": true,
+      "outcome_reason": "The request names two deliverables but only one is identifiable."
+    }
+  }
+}

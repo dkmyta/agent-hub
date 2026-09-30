@@ -37,7 +37,10 @@ if (command === "extract") {
 } else if (command === "shape") {
   for (const step of steps) {
     const env = Object.keys(step.env ?? {}).join(",") || "-";
-    console.log(`${step.name ?? step.uses} | id: ${step.id ?? "-"} | if: ${step.if ?? "-"} | env: ${env}`);
+    // Action versions are left out: Dependabot updates them, and the shape is
+    // about the steps and their conditions.
+    const name = step.name ?? step.uses.replace(/@.*$/, "");
+    console.log(`${name} | id: ${step.id ?? "-"} | if: ${step.if ?? "-"} | env: ${env}`);
   }
 } else if (command === "checkout" || command === "excludes") {
   const checkout = steps.find((s) => s.uses?.startsWith("actions/checkout@"));

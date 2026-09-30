@@ -12,7 +12,8 @@ const onDemand = ["repository_dispatch", "workflow_dispatch"];
 for (const file of readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))) {
   const workflow = parse(readFileSync(`${dir}/${file}`, "utf8"), { merge: true });
   const scripts = Object.values(workflow.jobs).flatMap((job) => job.steps.map((s) => s.run ?? ""));
-  const usesClaude = scripts.some((run) => /(^|[\s;&|(])claude\s|npm run evals/m.test(run));
+  // Direct calls, the shared runner (lib/claude.sh), or the evals.
+  const usesClaude = scripts.some((run) => /(^|[\s;&|(])claude\s|lib\/claude\.sh|claude_run|npm run evals/m.test(run));
   // `on:` can be a string, a list, or a map of triggers.
   const on = workflow.on ?? workflow[true] ?? {};
   const triggers = typeof on === "string" ? [on] : Array.isArray(on) ? on : Object.keys(on);

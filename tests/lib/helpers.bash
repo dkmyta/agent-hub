@@ -97,3 +97,141 @@ assert_valid_adf() {
   run node "$TESTS_DIR/lib/validate.mjs" adf "$1"
   assert_success
 }
+
+# --- Stage scenarios --------------------------------------------------------
+# Every agent stage has the same steps (ids: start, claude, apply, return,
+# clear-progress-comment, report-failure-on-ticket). A stage's helpers.bash
+# sets WORKFLOW, STAGE_DIR (its tests folder), FIXTURES and BOUNCE_STATUS
+# (the status Claude returns to send a ticket back, e.g. needs-details).
+
+# extract_stage: extract the stage's steps once per test file (setup_file).
+extract_stage() {
+  export STEPS="$BATS_FILE_TMPDIR/steps"
+  extract_workflow "$WORKFLOW" "$STEPS"
+}
+
+# run_stage: runs the steps in the workflow's order under its `if:`
+# conditions, printing each step's result. Each stage's workflow-shape.txt
+# snapshots those conditions, so a change to them fails a test until this is
+# updated to match. CANCEL_AFTER=<step id> simulates the run being cancelled
+# after that step.
+run_stage() {
+  local failed=0 cancelled=0 proceed status
+  step() {
+    if run_step "$STEPS" "$2"; then echo "$1: success"; else echo "$1: failure"; failed=1; fi
+    if [ "$2" = "${CANCEL_AFTER:-}" ]; then echo "(run cancelled)"; cancelled=1; fi
+  }
+  skip() { echo "$1: skipped"; }
+  succeeding() { [ $failed = 0 ] && [ $cancelled = 0 ]; }  # success()
+
+  # The tests run as a self-hosted runner, where Claude Code is preinstalled.
+  skip "Install Claude Code"
+
+  step "Fetch ticket" start
+  proceed=$(step_output start proceed)
+
+  if succeeding && [ "$proceed" = true ]; then step "Claude" claude
+  else skip "Claude"; fi
+  status=$(step_output claude status)
+
+  if succeeding && [ "$status" = ready ]; then step "Apply" apply
+  else skip "Apply"; fi
+
+  if succeeding && [ "$status" = "$BOUNCE_STATUS" ]; then step "Return" return
+  else skip "Return"; fi
+
+  if succeeding || [ $cancelled = 1 ]; then step "Clear progress comment" clear-progress-comment
+  else skip "Clear progress comment"; fi
+
+  if [ $failed = 1 ]; then step "Report failure" report-failure-on-ticket
+  else skip "Report failure"; fi
+}
+
+# run_scenario <name> [--full]
+# Runs $STAGE_DIR/scenarios/<name>/scenario.env through the workflow and
+# snapshots a trace of step results and Jira calls. --full also snapshots every
+# Jira request body and the run summary (kept to the main paths, so a layout
+# change updates a few snapshots, not all of them). Claude's prompts aren't
+# snapshotted: the Claude-step tests check what matters in them. Every
+# document sent to Jira must be valid ADF.
+run_scenario() {
+  local full=${2:-} dir="$STAGE_DIR/scenarios/$1" var
+  export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" CLAUDE_FIXTURE=none CANCEL_AFTER=""
+  export CLAUDE_REVIEW_FIXTURE=approve CLAUDE_REVIEW_EXIT=0 CLAUDE_FIXTURE_EDIT="" CLAUDE_REVIEW_FIXTURE_EDIT=""
+  export TICKET_FIXTURE=tickets/ready.json COMMENTS_FIXTURE=comments-none.json
+  export TRANSITIONS_FIXTURE=transitions.json ATTACHMENTS_FIXTURE="" ATTACHMENT_CONTENT_FIXTURE=""
+  set -a  # scenario.env overrides the defaults above
+  # shellcheck source=/dev/null
+  source "$dir/scenario.env"
+  set +a
+  for var in TICKET_FIXTURE COMMENTS_FIXTURE TRANSITIONS_FIXTURE CLAUDE_FIXTURE ATTACHMENTS_FIXTURE ATTACHMENT_CONTENT_FIXTURE CLAUDE_REVIEW_FIXTURE; do
+    case "${!var}" in none | approve | "") ;; *) export "$var=$FIXTURES/${!var}" ;; esac
+  done
+
+  # Variants of a recorded output are the recording plus a jq edit, rather
+  # than near-copies of it (CLAUDE_FIXTURE_EDIT, CLAUDE_REVIEW_FIXTURE_EDIT).
+  if [ -n "$CLAUDE_FIXTURE_EDIT" ]; then
+    jq "$CLAUDE_FIXTURE_EDIT" "$CLAUDE_FIXTURE" > "$BATS_TEST_TMPDIR/claude-fixture.json"
+    export CLAUDE_FIXTURE="$BATS_TEST_TMPDIR/claude-fixture.json"
+  fi
+  if [ -n "$CLAUDE_REVIEW_FIXTURE_EDIT" ]; then
+    jq "$CLAUDE_REVIEW_FIXTURE_EDIT" "$CLAUDE_REVIEW_FIXTURE" > "$BATS_TEST_TMPDIR/claude-review-fixture.json"
+    export CLAUDE_REVIEW_FIXTURE="$BATS_TEST_TMPDIR/claude-review-fixture.json"
+  fi
+
+  use_run_env "$BATS_TEST_TMPDIR"
+  run_stage > "$RUNNER_TEMP/trace.txt"
+  {
+    echo "--- Jira calls"
+    jq -r 'def first_text: [.. | objects | select(.type == "text") | .text][0] // "";
+      "\(.method) \(.path)" + (
+        if .body.body then " — comment: \(.body.body | first_text)"
+        elif .body.fields.description then " — description: \([.body.fields.description.content[] | select(.type == "heading")] | length) headings"
+        elif .body then " — \(.body | tostring)"
+        else "" end)' "$CALLS"
+  } >> "$RUNNER_TEMP/trace.txt"
+  assert_snapshot "$dir/expected/trace.txt" "$RUNNER_TEMP/trace.txt"
+
+  if [ "$full" = --full ]; then
+    jq -s . "$CALLS" > "$RUNNER_TEMP/jira-calls.json"
+    touch "$RUNNER_TEMP/summary.md"
+    assert_snapshot "$dir/expected/jira-calls.json" "$RUNNER_TEMP/jira-calls.json"
+    assert_snapshot "$dir/expected/summary.md" "$RUNNER_TEMP/summary.md"
+    # Files uploaded to the ticket (e.g. the attached implementation plan).
+    local file
+    for file in "$RUNNER_TEMP"/attached/*; do
+      [ -e "$file" ] && assert_snapshot "$dir/expected/attached-$(basename "$file")" "$file"
+    done
+  fi
+  assert_valid_adf "$CALLS"
+}
+
+# Live evals: the run's total spend cap (see lib/run-evals.sh). Skips the case
+# once the run has spent EVALS_MAX_COST_USD.
+eval_budget_check() {
+  [ -n "${EVALS_SPENT_FILE:-}" ] || return 0
+  local spent
+  spent=$(cat "$EVALS_SPENT_FILE")
+  if jq -en --argjson spent "$spent" --argjson cap "$EVALS_MAX_COST_USD" '$spent >= $cap' > /dev/null; then
+    echo "| $1 | | skipped: eval budget reached | | | |" >> "$RESULTS"
+    skip "eval budget reached (\$$spent of \$$EVALS_MAX_COST_USD) — raise EVALS_MAX_COST_USD to run it"
+  fi
+}
+
+# eval_claude_step <steps dir>: the Claude step with the real Claude, adding
+# what it cost to the run's total whether it passed or not.
+eval_claude_step() {
+  local status=0 outputs=()
+  REAL_CLAUDE=1 run_step "$1" claude || status=$?
+  if [ -n "${EVALS_SPENT_FILE:-}" ]; then
+    # The draft is moved aside when the review starts; count both passes.
+    if [ -e "$RUNNER_TEMP/claude-draft.json" ]; then
+      outputs=("$RUNNER_TEMP/claude-draft.json" "$RUNNER_TEMP/claude-review-output.json")
+    else
+      outputs=("$RUNNER_TEMP/claude-output.json")
+    fi
+    jq -s --argjson spent "$(cat "$EVALS_SPENT_FILE")" '$spent + (map(.total_cost_usd // 0) | add // 0)' \
+      "${outputs[@]}" > "$EVALS_SPENT_FILE.new" 2>/dev/null && mv "$EVALS_SPENT_FILE.new" "$EVALS_SPENT_FILE"
+  fi
+  return "$status"
+}

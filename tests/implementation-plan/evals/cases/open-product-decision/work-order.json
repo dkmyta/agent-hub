@@ -1,0 +1,43 @@
+{
+  "overview": {
+    "summary": [
+      "The delivery lead wants people notified when a work order is ready for review, so tickets don't sit unreviewed. The notification should go out when the work order workflow writes a work order.",
+      "Requested by the team lead; internal documentation work, no customer involvement."
+    ],
+    "clarifications": [],
+    "important_details": []
+  },
+  "scope": {
+    "acceptance_criteria": [
+      "When a work order is written, the right people are notified that it is ready for review.",
+      "The notification links to the ticket.",
+      "Tickets sent back for more detail do not send the notification."
+    ],
+    "out_of_scope": [
+      "Notifications for other stages."
+    ]
+  },
+  "developer_notes": {
+    "codebase": [
+      {
+        "path": ".github/workflows/agent-work-order.yml",
+        "relevance": "Writes the work order; where the notification would be triggered."
+      }
+    ],
+    "resources": [],
+    "getting_started": [
+      "Read the files listed under the codebase section first."
+    ]
+  },
+  "risk": {
+    "confidence": {
+      "level": "High",
+      "reason": "Small, well-bounded change."
+    },
+    "customer_data": {
+      "contains": "N",
+      "reason": "Internal request."
+    },
+    "open_questions": []
+  }
+}

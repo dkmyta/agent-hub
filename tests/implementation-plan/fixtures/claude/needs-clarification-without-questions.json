@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "structured_output": {
+    "status": "needs-clarification",
+    "questions": []
+  }
+}

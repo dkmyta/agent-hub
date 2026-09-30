@@ -1,0 +1,23 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 42000,
+  "num_turns": 6,
+  "total_cost_usd": 0.3,
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "costUSD": 0.3
+    }
+  },
+  "structured_output": {
+    "status": "needs-clarification",
+    "questions": [
+      {
+        "question": "Should the Quick Start target teams using the Claude API or a subscription runner first?",
+        "why": "The two setups need different first steps, and the README should lead with one.",
+        "who": "Delivery lead"
+      }
+    ]
+  }
+}

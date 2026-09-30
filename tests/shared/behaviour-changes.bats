@@ -33,6 +33,20 @@ change() { # <file> <content>, committed on top of base
   assert_output ".github/agents/work-order/schema.json"
 }
 
+@test "review standard and checklist changes need evals" {
+  mkdir -p .github/agents/lib && change .github/agents/lib/review.md "Be strict."
+  change .github/agents/work-order/review.md "Check the criteria."
+  run "$SCRIPT" main~2
+  assert_line ".github/agents/lib/review.md"
+  assert_line ".github/agents/work-order/review.md"
+}
+
+@test "changes to how Claude is run (lib/claude.sh) need evals" {
+  mkdir -p .github/agents/lib && change .github/agents/lib/claude.sh 'claude -p "$prompt" --model x'
+  run "$SCRIPT" main~1
+  assert_output ".github/agents/lib/claude.sh"
+}
+
 @test "Claude settings in an agent workflow need evals" {
   change .github/workflows/agent-work-order.yml $'env:\n  CLAUDE_MODEL: claude-opus-5-5\n  WORK_ORDER_STATUS: Work Order'
   run "$SCRIPT" main~1
@@ -47,4 +61,39 @@ change() { # <file> <content>, committed on top of base
   run "$SCRIPT" main~3
   assert_success
   assert_output ""
+}
+
+@test "--stages names the stages whose evals to run" {
+  mkdir -p .github/agents/implementation-plan && echo "Plan." > .github/agents/implementation-plan/prompt.md
+  git add -A && git commit -qm "add stage"
+  change .github/agents/work-order/prompt.md "Be thorough."
+  change .github/workflows/agent-work-order.yml $'env:\n  CLAUDE_MODEL: claude-opus-5-5\n  WORK_ORDER_STATUS: Work Order'
+  run "$SCRIPT" --stages main~2
+  assert_output "work-order"
+}
+
+@test "--stages is just 'all' when a change affects every stage" {
+  mkdir -p .github/agents/lib && change .github/agents/lib/claude.sh 'claude -p "$prompt"'
+  change .github/agents/work-order/prompt.md "Be thorough."
+  run "$SCRIPT" --stages main~2
+  assert_output "all"
+
+  change .github/workflows/agent-evals.yml $'env:\n  CLAUDE_CODE_VERSION: 2.2.0'
+  run "$SCRIPT" --stages main~1
+  assert_output "all"
+}
+
+@test "--stages prints nothing when no change needs evals" {
+  change docs/README.md "# Updated docs"
+  run "$SCRIPT" --stages main~1
+  assert_success
+  assert_output ""
+}
+
+@test "revision standard changes need evals for every stage" {
+  mkdir -p .github/agents/lib && change .github/agents/lib/revise.md "Change less."
+  run "$SCRIPT" main~1
+  assert_output ".github/agents/lib/revise.md"
+  run "$SCRIPT" --stages main~1
+  assert_output "all"
 }

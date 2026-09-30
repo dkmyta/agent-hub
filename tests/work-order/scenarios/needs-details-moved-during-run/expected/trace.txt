@@ -1,12 +1,13 @@
 Install Claude Code: skipped
 Fetch ticket: success
-Generate work order: success
-Apply work order: skipped
-Return to Intake: success
+Claude: success
+Apply: skipped
+Return: success
 Clear progress comment: success
 Report failure: skipped
 --- Jira calls
 GET ?fields=summary,description,status
+GET /comment?maxResults=100
 POST /comment — comment: ⏳ Generating work order
 GET ?fields=status
 DELETE /comment/5001

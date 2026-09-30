@@ -45,6 +45,7 @@ use its default.
 | Variable | Default | Purpose |
 |---|---|---|
 | `AGENT_RUNS_ON` | `["self-hosted", "claude"]` | Runner labels, as JSON. `["ubuntu-latest"]` for GitHub-hosted runners |
+| `AGENT_EVALS_MAX_COST_USD` | `10` | Total spend cap for one Agent Evals run; remaining cases are skipped once reached |
 | `CLAUDE_CODE_VERSION` | `latest` | Claude Code version installed on GitHub-hosted runners |
 | `CLAUDE_MODEL` | `claude-sonnet-5` | Model for the agents |
 | `CLAUDE_FALLBACK_MODEL` | `claude-opus-5-5` | Used when the model is overloaded |
@@ -53,25 +54,34 @@ use its default.
 | `JIRA_WORK_ORDER_STATUS` | `Work Order` | Status a ticket is in while its work order is prepared |
 | `JIRA_INTAKE_STATUS` | `Intake` | Status for new tickets and tickets that need more detail |
 | `JIRA_NEEDS_DETAILS_LABEL` | `needs-details` | Label for tickets sent back for more detail |
+| `JIRA_WORK_ORDER_APPROVED_STATUS` | `Work Order Approved` | Status that requests an implementation plan |
+| `JIRA_IMPLEMENTATION_PLAN_STATUS` | `Implementation Plan` | Status of tickets with a plan waiting for approval |
+| `JIRA_NEEDS_HUMAN_LABEL` | `needs-human` | Label for tickets waiting for a person |
+| `JIRA_NEEDS_CLARIFICATION_LABEL` | `needs-clarification` | Label for tickets the plan stage sent back with questions |
+| `JIRA_REVISE_COMMAND` | `/revise` | Comments starting with this word ask an agent to revise (or retry); must match the Revision Requested rule |
+| `REVIEW_CLAUDE_MODEL` | `claude-opus-5-5` | Model for the expert review of every draft (needs Claude Code 2.1.280+) |
+| `REVIEW_CLAUDE_FALLBACK_MODEL` | `claude-sonnet-5` | Used when the review model is overloaded or unsupported |
+| `REVIEW_CLAUDE_MAX_BUDGET_USD` | `2.00` / `5.00` | Per-review cap (work orders / plans), API-equivalent dollars |
+| `PLAN_CLAUDE_MODEL` | `claude-opus-5-5` | Model for implementation plans (needs Claude Code 2.1.280+) |
+| `PLAN_CLAUDE_FALLBACK_MODEL` | `claude-sonnet-5` | Used when the plan model is overloaded or unsupported |
+| `PLAN_CLAUDE_MAX_BUDGET_USD` | `5.00` | Per-plan cap, in API-equivalent dollars |
+| `REVISION_MAX_BUDGET_USD` | `1.00` | Per-pass cap for work-order revisions (draft and review each) |
+| `PLAN_REVISION_MAX_BUDGET_USD` | `2.00` | Per-pass cap for plan revisions (draft and review each) |
 | `JIRA_NOTIFY_USERS` | `true` | `false` silences watcher notifications for description updates (needs Jira admin) |
 
 ## 5. Set up Jira
 
-1. **Statuses and transitions**: the project's workflow needs the two statuses
-   above, a transition from Intake to Work Order, and one back.
-2. **Permissions** for the `JIRA_EMAIL` account: Browse Projects, Edit Issues,
-   Transition Issues, Add Comments, Delete Own Comments, Edit All Comments.
-3. **A GitHub token for Jira**: a fine-grained personal access token, ideally
-   owned by a machine user (see [step 6](#6-plan-for-credential-expiry)), for
-   **this repository only**, with **Contents: Read and
-   write** — that's what `repository_dispatch` requires.
-4. **The automation rule**: build "Work Order Requested" as described in
-   [workflows/work-order.md](workflows/work-order.md#jira-setup), with the web
-   request pointing at **your** repository:
-   `https://api.github.com/repos/<owner>/<repo>/dispatches`. Put the token in
-   the `Authorization: Bearer <token>` header and mark the header as hidden.
-5. **The intake template**: the ticket type's description template should
-   contain only the intake fields the requester fills in.
+Follow **[jira.md](jira.md)** — the single reference for the Jira side — and
+tick off its [installation checklist](jira.md#checklist-for-a-new-installation):
+the Task work type and intake template, statuses and transitions,
+permissions for the `JIRA_EMAIL` account, and the three automation rules
+(Work Order Requested, Implementation Plan Requested, Revision Requested),
+each with its web request pointing at **your** repository.
+
+Those web requests need **a GitHub token for Jira**: a fine-grained token for
+**this repository only**, with **Contents: Read and write** (what
+`repository_dispatch` requires), ideally owned by a machine user — see
+[step 6](#6-plan-for-credential-expiry).
 
 ## 6. Plan for credential expiry
 
@@ -108,7 +118,9 @@ someone leaves or changes role:
    ticket in the Work Order status. The ticket should get a work order.
 2. Create a ticket through Jira and confirm the rule triggers a run.
 3. Optionally, **Actions → Agent Evals → Run workflow** to check the agent's
-   decisions in this repository (uses Claude).
+   decisions in this repository (uses Claude; type `use-claude` to confirm).
+   Recommended: add required reviewers to the `agent-evals` environment so
+   every eval run needs approval ([evals.md](evals.md#how-to-run-them)).
 
 ## 8. Local development (contributors)
 

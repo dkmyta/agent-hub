@@ -52,15 +52,21 @@ A change to an agent workflow, prompt, schema or shared library is done when:
    tickets, comments and Jira calls change.
 2. **New behaviour has a test**: a scenario for a new path through the
    workflow, a unit test for a new library function.
-3. **Evals pass** if a prompt, schema or Claude setting changed (CI's **Eval
-   reminder** flags these) or Claude Code was upgraded on the runner: run
-   **Agent Evals** from the Actions tab on the branch (or `npm run evals
-   --prefix tests`), and add an eval case for any new kind of ticket the agent
-   must handle. See [docs/evals.md](docs/evals.md).
-4. **Docs are updated**: the workflow's page in `docs/workflows/` (usage,
-   configuration, edge cases, known gaps) and anything in
-   `docs/architecture.md` the change affects.
-5. **Jira changes are written down**: if the change needs a Jira rule, status
+3. **Reverse paths are handled** for anything a stage produces for people:
+   a `/revise` revision mode, retry after failure, and sending back — each
+   with a scenario (see [docs/architecture.md](docs/architecture.md#revisions-and-reverse-paths-every-stage)).
+4. **Agent behaviour checked** if a prompt, schema or Claude setting changed
+   (CI's **Eval reminder** notes these): try it on a real ticket, or — when
+   it's worth the cost — run **Agent Evals** for the stages the notice names
+   (manual only, with a typed `use-claude` confirmation). Maintain the eval
+   cases as agents change, but add one only for a decision the existing cases
+   don't cover — evals cost time and Claude usage, so keep them to the most
+   important checks. See [docs/evals.md](docs/evals.md).
+5. **Docs are updated**: the workflow's page in `docs/workflows/` — how it
+   runs (trigger to ticket), what it produces, reverse paths, configuration,
+   constraints, edge cases, known gaps, and the steps to test it in Jira — plus `docs/jira.md` for any Jira change and
+   anything in `docs/architecture.md` the change affects.
+6. **Jira changes are written down**: if the change needs a Jira rule, status
    or permission change, the workflow doc says exactly what, and the PR
    description lists it as a deployment step.
 

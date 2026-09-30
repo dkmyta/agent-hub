@@ -1,0 +1,43 @@
+{
+  "overview": {
+    "summary": [
+      "The team wants the build workflow's pull requests to be opened as drafts with a clearer title format, so reviewers can tell automated PRs apart.",
+      "Requested by the team lead; internal documentation work, no customer involvement."
+    ],
+    "clarifications": [],
+    "important_details": []
+  },
+  "scope": {
+    "acceptance_criteria": [
+      "The build workflow (.github/workflows/agent-build.yml) opens its pull request as a draft.",
+      "The pull request title uses the format [TICKET-KEY] <summary>.",
+      "Existing tests for the build workflow are updated to cover the new title format."
+    ],
+    "out_of_scope": [
+      "Changes to the work order or implementation plan workflows."
+    ]
+  },
+  "developer_notes": {
+    "codebase": [
+      {
+        "path": ".github/workflows/agent-build.yml",
+        "relevance": "The build workflow that opens pull requests."
+      }
+    ],
+    "resources": [],
+    "getting_started": [
+      "Read the files listed under the codebase section first."
+    ]
+  },
+  "risk": {
+    "confidence": {
+      "level": "High",
+      "reason": "Small, well-bounded change."
+    },
+    "customer_data": {
+      "contains": "N",
+      "reason": "Internal request."
+    },
+    "open_questions": []
+  }
+}
