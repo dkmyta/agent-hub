@@ -243,6 +243,10 @@
           }
         }
       }
+    },
+    "clarification_settled": {
+      "type": "boolean",
+      "description": "Only when the ticket has an open \"Needs clarification\" comment from the implementation plan stage: true if this result answers every one of its questions (so a plan can be written), false if any is still open. Leave it out otherwise."
     }
   }
 }

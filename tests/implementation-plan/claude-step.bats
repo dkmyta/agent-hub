@@ -68,7 +68,8 @@ claude_step() { # <fixture> [jq edit to apply to it]
 @test "never prints the plan (ticket content) to the log" {
   claude_step ready.json
   run cat "$RUNNER_TEMP/log.txt"
-  assert_output --partial "Claude returned ready"
+  assert_output --partial "Draft: ready in"
+  assert_output --partial "Reviewed version: ready ("
   refute_output --partial "$(jq -r '.structured_output.plan.approach.summary[0][0:60]' "$FIXTURES/claude/ready.json")"
 }
 
@@ -131,4 +132,12 @@ revising() {
   refute_output --partial "secret-sounding-name"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "docs/secret-sounding-name.md"
+}
+
+@test "a clarification request isn't reviewed" {
+  claude_step needs-clarification.json
+  assert_success
+  assert [ ! -e "$RUNNER_TEMP/claude-review-args.txt" ]
+  run cat "$RUNNER_TEMP/summary.md"
+  assert_output --partial "skipped (sent back)"
 }

@@ -91,6 +91,14 @@ setup() {
   assert_output --partial "Current implementation plan (attached as PROJ-99-implementation-plan.md)"
   assert_output --partial "/revise Keep the README change"
 
+  # The workflow, not Claude, decides what's a change request: only comments
+  # whose first word is /revise; "/revised …" and "please /revise …" are background.
+  run awk '/^Change requests/{s="request"} /^Other comments/{s="other"} {print s": "$0}' "$RUNNER_TEMP/claude-prompt.txt"
+  assert_line --partial "request: /revise Keep the README change"
+  assert_line "other: /revised the wording"
+  assert_line "other: please /revise this"
+  refute_line "request: /revised the wording"
+
   # The attached file: only the updated sections changed (Testing, Risks);
   # everything else — including a person's edit — is as it was, with the
   # revision's review notes at the end.
@@ -105,6 +113,19 @@ setup() {
   assert_output 1
   run grep -c "^## Expert review" "$attached"
   assert_output 1
+  # Exactly one blank line before the review notes, as in a new plan.
+  run awk '/^## Expert review/ { print (p2 != "" && p1 == "") ? "one blank line" : "wrong spacing" } { p2 = p1; p1 = $0 }' "$attached"
+  assert_output "one blank line"
+  # The version line is replaced (one, no old "Written by" line) and says what
+  # it was revised from; so does the 🔁 reply.
+  run grep -c '^_Version: ' "$attached"
+  assert_output 1
+  run grep -c '^Written by the implementation plan workflow' "$attached"
+  assert_output 0
+  run grep '^_Version: ' "$attached"
+  assert_output --partial "revised after change requests, from the attachment uploaded 2026-09-30 09:00 by Dana Lead"
+  run jq -r 'select(.method == "POST" and (.body.body | tostring | test("🔁"))) | .body.body | tostring' "$CALLS"
+  assert_output --partial "Revised from the attachment uploaded 2026-09-30 09:00 by Dana Lead"
   # Headings are fixed: the same sections, in the same order.
   assert_equal "$(grep '^## ' "$attached")" "$(grep '^## ' "$FIXTURES/previous-plan.md")"
   run sections "$attached" Testing

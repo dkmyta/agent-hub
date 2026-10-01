@@ -113,6 +113,14 @@ setup() {
   # Earlier 🔁 replies are the automation's own; Claude doesn't need them.
   refute_output --partial "Earlier reply: mentioned the runner."
 
+  # The workflow, not Claude, decides what's a change request: only comments
+  # whose first word is /revise; "/revised …" and "please /revise …" are background.
+  run awk '/^Change requests/{s="request"} /^Other comments/{s="other"} {print s": "$0}' "$RUNNER_TEMP/claude-prompt.txt"
+  assert_line --partial "request: /revise Split the README section"
+  assert_line "other: /revised the wording"
+  assert_line "other: please /revise this"
+  refute_line "request: /revised the wording"
+
   # Only the updated sections changed; every other one — people's edits
   # included — is exactly as it was, and the review note was replaced.
   local before after
@@ -140,6 +148,7 @@ setup() {
   run_scenario revise-plan-out-of-date
   run jq -r 'select(.body.fields.description) | .body.fields.description | tostring' "$CALLS"
   assert_output --partial "is out of date"
+  assert_output --partial "changes made to the old plan (by hand or with /revise) don’t carry over"
   refute_output --partial "Pending — added once the plan is approved."
 }
 
@@ -162,4 +171,18 @@ setup() {
   assert_output --partial 'Why: '
   assert_output --partial 'no longer has: \"Acceptance Criteria\"'
   assert_output --partial "comment /revise again"
+}
+
+@test "a revision that settles the plan's questions clears needs-clarification" {
+  run_scenario revise-settles-clarification
+  run jq -c 'select(.body.update.labels) | .body.update.labels[0]' "$CALLS"
+  assert_line '{"remove":"needs-clarification"}'
+  run jq -r 'select(.path == "/comment/450") | .body.body | tostring' "$CALLS"
+  assert_output --partial "settled in the work order"
+}
+
+@test "a revision that doesn't settle them leaves needs-clarification alone" {
+  run_scenario revise
+  run jq -c 'select(.body.update.labels) | .body.update.labels[0]' "$CALLS"
+  refute_line '{"remove":"needs-clarification"}'
 }

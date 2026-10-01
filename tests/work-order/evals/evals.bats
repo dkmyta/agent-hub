@@ -63,7 +63,8 @@ run_eval() { # <case>
   eval_claude_step "$STEPS" || fail "Claude step failed: $(grep -A1 -E '::error' "$RUNNER_TEMP/log.txt" | tail -4)"
   result="$RUNNER_TEMP/claude-output.json"
   # Every result reaching people has been through the expert review.
-  jq -e '.note | length > 0' "$RUNNER_TEMP/review.json" > /dev/null || fail "no expert review notes"
+  # (A draft that sends the ticket back isn't reviewed.)
+  jq -e '.skipped or (.note | length > 0)' "$RUNNER_TEMP/review.json" > /dev/null || fail "no expert review notes"
   echo "# review: $(jq -r '"\(.changes | length) change(s), \(.issues | length) issue(s), outcome \(if .outcome_changed then "changed" else "kept" end)"' "$RUNNER_TEMP/review.json")" >&3
 
   jq -r --arg name "$1" --arg expected "$EXPECT_STATUS" \

@@ -53,8 +53,9 @@ work order, rendered into a ticket as the work-order stage writes it):
 | `open-product-decision` | Leaves open who is notified and how | Ask the delivery lead instead of guessing |
 | `stale-work-order` | Describes a workflow that doesn't exist in the code | Ask, saying what it found — not quietly redefine the scope |
 
-Every case runs both passes — the draft and the expert review — so the evals
-measure what actually reaches the ticket, and check that a review happened.
+Every case runs the same passes as a real run — the draft, and the expert
+review when the draft proceeds (a draft that sends the ticket back isn't
+reviewed) — so the evals measure what actually reaches the ticket.
 For every case they also check that Claude's answer has the right shape, that
 it made **no attempt to reach outside the repository**, and — for work orders —
 that the ticket renders correctly and **every file it names exists**.

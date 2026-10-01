@@ -18,3 +18,6 @@ The draft is a work order for a developer who will plan the work next (or a
   sections; every item as short as it can be while staying clear.
 - **needs-details**: only if the request really can't be worked from; the
   questions are specific and answerable by the requester.
+- **Clarification**: if the ticket has an open "Needs clarification" comment,
+  `clarification_settled` is true only when every one of its questions is
+  answered by the work order.

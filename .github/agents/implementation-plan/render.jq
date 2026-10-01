@@ -153,7 +153,7 @@ def splice($md; $updates):
           | ([to_entries[] | select(.value.heading as $h | ($order | index($h)) as $r | $r != null and $r > $rank) | .key][0] // length) as $i
           | .[:$i] + [{heading: $heading, text: $text}] + .[$i:]
         end)
-  | [$head, (.[] | .text)] | join("\n\n## ") + "\n";
+  | [$head, (.[] | .text)] | join("\n\n## ");
 
 # The summary's parts: the estimate line (before the first heading), then the
 # Approach, Acceptance Criteria Coverage and Implementation Steps sections.

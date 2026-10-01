@@ -200,7 +200,10 @@ run_scenario() {
     # Files uploaded to the ticket (e.g. the attached implementation plan).
     local file
     for file in "$RUNNER_TEMP"/attached/*; do
-      [ -e "$file" ] && assert_snapshot "$dir/expected/attached-$(basename "$file")" "$file"
+      [ -e "$file" ] || continue
+      # The version line carries the run's time; snapshot it without.
+      sed -E 's/^_Version: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} UTC/_Version: <time>/' "$file" > "$file.snapshot"
+      assert_snapshot "$dir/expected/attached-$(basename "$file")" "$file.snapshot"
     done
   fi
   assert_valid_adf "$CALLS"

@@ -45,7 +45,7 @@ docs link here):
 
 | | Typical | Notes |
 |---|---|---|
-| One work order (draft + review) | $0.30–1.50 | Clear requests cost more (research); bounced tickets under $0.50 |
+| One work order (draft + review) | $0.30–1.50 | Clear requests cost more (research); a ticket sent back for details costs only its draft (no review), well under $0.50 |
 | One implementation plan (draft + review) | $1.50–7 | Several minutes; scales with the change. Opus costs more than Sonnet |
 | One eval case | As one real run of its stage | Each case runs the draft and the review |
 | Work order evals (3 cases) | $1–3 | A few minutes |
