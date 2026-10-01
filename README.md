@@ -26,7 +26,9 @@ work order or plan (or retry a failed run) — see
 [Reverse paths](docs/jira.md#reverse-paths-sending-back-and-asking-for-changes).
 
 Any repository can use them: add the files, register a runner, set a few
-secrets, and point a Jira rule at the repository — no workflow edits. Start
+secrets, and point a Jira rule at the repository — no workflow edits. Jira is
+the tracker today; GitHub Projects is being added as an alternative with the
+same stages — see [docs/trackers.md](docs/trackers.md). Start
 with **[docs/setup.md](docs/setup.md)**.
 
 > By default the agents run on a **self-hosted runner** where Claude Code is
@@ -48,6 +50,8 @@ with **[docs/setup.md](docs/setup.md)**.
 ## Documentation
 
 - [Setup](docs/setup.md) — add the workflows to a repository and connect Jira
+- [Choosing a tracker](docs/trackers.md) — Jira or GitHub Projects: what's shared, what differs, and what's ready
+- [GitHub Projects setup](docs/github-projects.md) — the foundations: board, statuses, views, labels, intake template and access (stages not connected yet)
 - [Jira setup](docs/jira.md) — statuses, labels, rules, sending tickets back and asking for changes (`/revise`), permissions, and what to automate in Jira
 - [Architecture and conventions](docs/architecture.md) — how agent workflows are built; the standard every new workflow follows
 - [Agent evals](docs/evals.md) — checking Claude's decisions: when it's worth the cost, the guards, how

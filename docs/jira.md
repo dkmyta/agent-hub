@@ -7,6 +7,10 @@ recommendations. Names shown are the defaults; status
 and label names can be changed per repository with variables (see
 [setup.md](setup.md#4-set-variables-only-what-differs-from-the-defaults)).
 
+Using GitHub Projects instead? See [trackers.md](trackers.md) and
+[github-projects.md](github-projects.md) — the statuses, labels and `/revise`
+requests are the same.
+
 The examples assume a **team-managed** project. In a company-managed project
 the same settings live in the workflow scheme and permission scheme.
 

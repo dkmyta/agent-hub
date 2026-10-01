@@ -1,7 +1,7 @@
 # Setting up the agent workflows in a repository
 
 How to add the agent workflows to a GitHub repository and connect them to a
-Jira project. Nothing in the workflow files needs editing: each repository
+tracker — Jira, or GitHub Projects ([choosing one](trackers.md)). Nothing in the workflow files needs editing: each repository
 supplies its own **runner**, **secrets**, optional **variables**, and **Jira
 rule**.
 
@@ -69,9 +69,17 @@ use its default.
 | `PLAN_REVISION_MAX_BUDGET_USD` | `2.00` | Per-pass cap for plan revisions (draft and review each) |
 | `JIRA_NOTIFY_USERS` | `true` | `false` silences watcher notifications for description updates (needs Jira admin) |
 
-## 5. Set up Jira
+## 5. Set up your tracker
 
-Follow **[jira.md](jira.md)** — the single reference for the Jira side — and
+Pick one per repository — see [trackers.md](trackers.md). The stages work the
+same way with either.
+
+**GitHub Projects:** follow **[github-projects.md](github-projects.md)** and
+its checklist (the board, views, labels, intake template and access) — the
+foundations only: its agent stages aren't connected yet, so for the full
+pipeline today, use Jira.
+
+**Jira:** follow **[jira.md](jira.md)** — the single reference for the Jira side — and
 tick off its [installation checklist](jira.md#checklist-for-a-new-installation):
 the Task work type and intake template, statuses and transitions,
 permissions for the `JIRA_EMAIL` account, and the three automation rules
