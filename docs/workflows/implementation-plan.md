@@ -57,7 +57,9 @@ What's specific to this stage:
 
 - The **attached file** is the plan's source of truth — people may download,
   edit and re-upload it with the same name (keeping the `## ` headings); the
-  newest is used. The revision replaces only the sections it changes, in that
+  newest is used. Its *Version* line under the title says when and how it was
+  made, and each revision's 🔁 reply names the upload it started from — so
+  editing a stale download (which would undo later changes) is easy to spot. The revision replaces only the sections it changes, in that
   file and in the summary; the rest, including your edits, stays.
 - The checks run on what changed: coverage if the acceptance criteria
   changed, files if the changes did. Manual edits aren't checked — check

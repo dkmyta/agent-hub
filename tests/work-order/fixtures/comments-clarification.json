@@ -86,6 +86,38 @@
       "created": "2026-09-29T10:00:00.000+0000"
     },
     {
+      "id": "450",
+      "author": {
+        "accountType": "atlassian",
+        "displayName": "Jira Automation User"
+      },
+      "created": "2026-09-30T09:30:00.000+0000",
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Needs clarification",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " \u2014 flagged by Claude (implementation plan review). Should customers be notified when a ticket is stuck?"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "411",
       "author": {
         "accountType": "atlassian",

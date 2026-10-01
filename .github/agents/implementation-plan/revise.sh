@@ -12,6 +12,21 @@ revision_plan_markdown() {
     --rawfile md "$2" --slurpfile updates "$1"
 }
 
+# revision_version_line <line> < plan.md: the plan with its version line (or
+# the older "Written by …" line) replaced by <line> — or, if someone removed
+# it, <line> added under the title.
+revision_version_line() {
+  awk -v version="$1" '
+    { lines[++n] = $0
+      if (!at && ($0 ~ /^_Version: / || $0 ~ /^Written by the implementation plan workflow/)) at = n }
+    END {
+      for (i = 1; i <= n; i++) {
+        print (i == at ? version : lines[i])
+        if (!at && i == 1) { print ""; print version }
+      }
+    }'
+}
+
 # revision_missing_sections <updates.json> <current plan.md>: the headings of
 # sections every plan has that the revision changes but the file no longer
 # has (removed or renamed by hand), comma-separated; nothing if all are there.

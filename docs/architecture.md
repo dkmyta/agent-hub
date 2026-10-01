@@ -85,6 +85,10 @@ sequenceDiagram
 - Every stage's Claude step is **draft → check → review → check**
   (`claude_run`, `claude_check`, `claude_review`, `claude_check`), so the
   stage's own checks run on the reviewed version.
+- **A draft that sends the ticket back isn't reviewed** (needs details, needs
+  clarification): it changes nothing on the ticket but a comment, and a person
+  picks it up next, so the review would only polish wording. The summary shows
+  "skipped (sent back)".
 - The review standard is shared (`lib/review.md`: verify claims, fix errors,
   check the decision, simplify, improve clarity, keep the format); each stage
   adds a checklist in `<stage>/review.md`.
@@ -130,8 +134,13 @@ the same way (the Jira side, and every path, is in
   comment (`stage_revision_reply`); the requests are marked ✅ Resolved
   (`stage_resolve_revisions`) so later runs leave them out. A request that
   needs a decision takes the stage's send-back path and stays open.
-- **Comments are input**, minus the automation's own (⏳, ❌, ✅ Resolved, 🔁);
-  superseded output is marked out of date, not silently left.
+- **The workflow decides what's a request, not Claude.** Claude gets the
+  comments (minus the automation's own: ⏳, ❌, ✅ Resolved, 🔁) in two
+  sections: "Change requests" — exactly the unresolved comments the Jira rule
+  treats as `/revise` — and "Other comments", background only. Responses are
+  one per listed request; questions about a request go in its response,
+  never into the output. Superseded output is marked out of date, not
+  silently left.
 - **`needs-human` follows who's waiting** — added whenever a person must act
   (including after a failure), removed while the agent works and when the
   requester is the one to act.

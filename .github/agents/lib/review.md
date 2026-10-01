@@ -25,9 +25,10 @@ exactly the draft's format) and `review` (what you did).
 2. **Fix errors and gaps.** Wrong or missing steps, changes, commands or tests;
    acceptance criteria that can't be observed or verified; inconsistencies
    between sections; anything the reader would get stuck on.
-3. **Check change requests.** If the ticket has change requests (comments
-   starting with `/revise`) that aren't resolved, every one must be handled in
-   the result, and `result.revision_responses` must say accurately how. When
+3. **Check change requests.** If the ticket lists change requests (its
+   "Change requests" section), every one must be handled in the result, and
+   `result.revision_responses` must have exactly one accurate entry per
+   listed request — none for "Other comments". When
    revising, anything the requests didn't touch should be unchanged unless it
    was wrong.
 4. **Check the decision.** If the draft's outcome is wrong — it proceeds when a

@@ -77,6 +77,10 @@ env:
   # "Revision Requested" rule dispatches a run for them, and the run marks
   # them resolved once handled.
   REVISE_COMMAND: ${{ vars.JIRA_REVISE_COMMAND || '/revise' }}
+  # The plan stage's questions: when a revision here settles them, the label
+  # and comment are cleared (the names must match the plan stage's).
+  NEEDS_CLARIFICATION_LABEL: ${{ vars.JIRA_NEEDS_CLARIFICATION_LABEL || 'needs-clarification' }}
+  NEEDS_CLARIFICATION_TITLE: Needs clarification
   # The work order section the plan stage fills in, and its attachment's name:
   # a revised work order marks an earlier plan as out of date.
   PLAN_SECTION: Implementation Plan
@@ -224,7 +228,7 @@ jobs:
             jq -L "$AGENTS_DIR/lib" --arg section "$PLAN_SECTION" --arg file "$PLAN_FILE" 'include "adf";
               if section_index($section) == null then . else
               replace_section($section; [para([text("The attached plan ("), code($file),
-                text(") was written for an earlier version of this work order and is out of date. It’s replaced when the work order is approved again.")])]) end' \
+                text(") was written for an earlier version of this work order and is out of date. It’s replaced when the work order is approved again, by a new plan written from this work order — changes made to the old plan (by hand or with /revise) don’t carry over.")])]) end' \
               "$RUNNER_TEMP/description.json" > "$RUNNER_TEMP/description.new" && mv "$RUNNER_TEMP/description.new" "$RUNNER_TEMP/description.json"
           fi
 
@@ -260,6 +264,13 @@ jobs:
           RESOLVED=$(stage_resolve_comments "$RUNNER_TEMP/comments.json" \
             "details were added and the work order was generated." "$NEEDS_DETAILS_TITLE")
           REVISIONS=$(stage_resolve_revisions "$RUNNER_TEMP/comments.json")
+          # The plan stage's open questions are now answered: no longer waiting
+          # on a decision, only on approval.
+          if jq -e '.structured_output.clarification_settled == true' "$RUNNER_TEMP/claude-output.json" > /dev/null; then
+            jira_remove_label "$NEEDS_CLARIFICATION_LABEL"
+            stage_resolve_comments "$RUNNER_TEMP/comments.json" \
+              "settled in the work order; approve it to write the plan." "$NEEDS_CLARIFICATION_TITLE" > /dev/null
+          fi
 
           echo "Work order $([ "$MODE" = revision ] && echo revised || echo written) on [$TICKET_KEY]($TICKET_URL); resolved $RESOLVED needs-details comment(s) and $REVISIONS change request(s)." >> "$GITHUB_STEP_SUMMARY"
 

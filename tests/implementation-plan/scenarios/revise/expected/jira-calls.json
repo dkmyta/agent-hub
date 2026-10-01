@@ -1673,6 +1673,20 @@
                 ]
               }
             ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Revised from the attachment uploaded 2026-09-30 09:00 by Dana Lead. To edit the plan by hand, download the newest attachment first and check its Version line.",
+                "marks": [
+                  {
+                    "type": "em"
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

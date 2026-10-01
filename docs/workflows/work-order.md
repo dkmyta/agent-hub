@@ -36,6 +36,7 @@ stateDiagram-v2
   [implementation plan](implementation-plan.md).
 - **Needs details** — a "Needs details — flagged by Claude" comment with
   *what's missing*, `needs-details`, `needs-human` removed, back to **Intake**.
+  This draft isn't reviewed — it only sends the ticket back.
   Editing the description, or commenting `/revise` with the details, resubmits.
 - **Failed** — the progress comment becomes "❌ Work order generation failed"
   with the reason and the run link; `needs-human` is added; it stays in Work
@@ -53,6 +54,9 @@ of the work order's group headings). What's specific to this stage:
   that the plan is out of date; approving again writes a new plan.
 - A revision that needs the requester goes back to Intake with Needs details;
   its request stays open.
+- After the plan stage sent the ticket back with questions, a revision that
+  settles all of them clears `needs-clarification` and resolves the questions
+  comment, so the ticket only waits for approval.
 
 ## How it runs
 

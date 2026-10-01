@@ -1,6 +1,6 @@
 # Implementation plan: PROJ-99 — Document the Jira to GitHub automation in the README
 
-Written by the implementation plan workflow from the approved work order on PROJ-99.
+_Version: <time> — revised after change requests, from the attachment uploaded 2026-09-30 09:00 by Dana Lead._
 
 **Estimate:** S — One README change and one new docs page, following existing patterns.
 
@@ -131,7 +131,6 @@ No release steps beyond merging.
 - The exact Jira-side trigger condition for an 'Implementation Plan Requested' automation rule (what specifically marks a work order as approved) isn't recorded anywhere in this repository, so the new doc page documents the GitHub-side contract precisely and notes that the live rule's condition should be confirmed with whoever administers the Jira project — mirroring the ticket's own out-of-scope note that configuring the Jira rules themselves is separate work.
 - Per Dana Lead's comment ('Yes — cover all three workflows, briefly'), 'all three' is read as the three workflows that actually exist and touch Claude/Jira today — agent-work-order.yml, agent-implementation-plan.yml, agent-evals.yml — not a literal reading of the ticket's original two-workflow (work-order/build) framing.
 - tests.yml (CI lint/tests) is left as already documented in README's Workflows table; it isn't a Jira-triggered agent workflow and isn't one of the three Dana Lead asked to cover.
-
 
 ## Expert review
 

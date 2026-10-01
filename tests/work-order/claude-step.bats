@@ -61,7 +61,8 @@ claude_step() { # <fixture | none>
   claude_step ready.json
   assert_success
   run cat "$RUNNER_TEMP/log.txt"
-  assert_output --partial "Claude returned ready"
+  assert_output --partial "Draft: ready in"
+  assert_output --partial "Reviewed version: ready ("
   refute_output --partial "$(jq -r '.structured_output.work_order.overview.summary[0][0:60]' "$FIXTURES/claude/ready.json")"
   refute_output --partial "acceptance_criteria"
 
@@ -218,4 +219,17 @@ revising() {
     run node "$TESTS_DIR/lib/validate.mjs" output "$BATS_TEST_TMPDIR/revision.json" "$TESTS_DIR/${stage%%:*}/fixtures/claude/revised.json" updates "${stage#*:}"
     assert_success
   done
+}
+
+@test "a draft that sends the ticket back isn't reviewed" {
+  claude_step needs-details.json
+  assert_success
+  assert_equal "$(step_output claude status)" needs-details
+  # No second Claude call, and the summary and log say why.
+  assert [ ! -e "$RUNNER_TEMP/claude-review-args.txt" ]
+  run cat "$RUNNER_TEMP/log.txt"
+  assert_output --partial "Review skipped: the draft sends the ticket back."
+  assert_output --partial "Sent back without a review: needs-details"
+  run cat "$RUNNER_TEMP/summary.md"
+  assert_output --partial "| needs-details | skipped (sent back) |"
 }

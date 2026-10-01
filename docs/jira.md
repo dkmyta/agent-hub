@@ -68,7 +68,7 @@ recommendations below.
 |---|---|---|---|
 | `needs-details` | The request can't be worked from yet | Work Order Requested rule, or the work-order stage | Work Order Requested or Revision Requested rule, on resubmission |
 | `needs-human` | Waiting for a person to act: review and approve, answer questions, or deal with a failed run | Work-order stage (work order written), plan stage (plan written or clarification needed), either stage when a run fails | The rule for each "…Approved" transition; Revision Requested and Work Order Requested rules (the agent is working); the work-order stage when it returns a ticket to Intake |
-| `needs-clarification` | The plan needs a product or scope decision | Plan stage | Implementation Plan Requested rule on re-approval; plan stage when a plan is written |
+| `needs-clarification` | The plan needs a product or scope decision | Plan stage | Implementation Plan Requested rule on re-approval; the work-order stage when a revision settles the plan's questions; plan stage when a plan is written |
 
 ## Rule: Work Order Requested
 
@@ -175,9 +175,9 @@ as input. `/revise` on its own (no text) retries. How revisions work:
 | The request lacks details (Needs details) | Edit the description, **or** comment `/revise` with the details | Resubmitted; a work order is written from the form plus the comment |
 | The work order needs a change you'll make yourself | Edit the description | Nothing runs; your version is what's approved and planned from, and later revisions keep your edits |
 | The work order needs changes | In Work Order, comment `/revise` and what to change | Revised in place; a 🔁 comment says how each request was handled; the request is marked ✅ Resolved; `needs-human` again |
-| The plan asked questions (`needs-clarification`) | Answer in a comment or the work order, then move to **Work Order Approved** | A new plan, using the answers |
+| The plan asked questions (`needs-clarification`) | Answer in a comment or the work order — or comment `/revise` with the answers, so the work order records them — then move to **Work Order Approved** | A `/revise` that settles every question clears `needs-clarification` and resolves the questions comment, so the ticket only waits for approval. Approving writes a new plan, using the answers |
 | The plan needs changes | In Implementation Plan, comment `/revise` and what to change | Only the affected sections of the attached plan are revised (the rest, including your edits, is kept); stays in Implementation Plan; 🔁 comment; request resolved |
-| The plan needs a change you'll make yourself | Download `KEY-implementation-plan.md`, edit, upload with the same name | Nothing runs; the newest file is the plan that's approved, revised and built from |
+| The plan needs a change you'll make yourself | Download the **newest** `KEY-implementation-plan.md` (check its *Version* line), edit, upload with the same name | Nothing runs; the newest file is the plan that's approved, revised and built from. Editing an older download would undo later changes; each revision's 🔁 reply names the file it started from |
 | A change request needs a product decision | *(nothing — the agent handles it)* | Sent back to Work Order with questions (plan) or to Intake with Needs details (work order); the request stays open |
 | The plan should start over (e.g. the code changed) | Move Implementation Plan → **Work Order Approved** | A fresh plan replaces the attached one |
 | The work order must change after the plan | Move to **Work Order**, then `/revise` (or edit), then approve again | The revised work order marks the old plan out of date; approving writes a new plan |

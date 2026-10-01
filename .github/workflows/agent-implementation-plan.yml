@@ -147,8 +147,11 @@ jobs:
           # has its summary). Without one (e.g. deleted), write a new plan.
           echo new > "$RUNNER_TEMP/mode"
           if [ "$(stage_start_status)" = "$PLAN_STATUS" ]; then
-            PLAN_ID=$(jira_attachments | jq -r --arg name "$TICKET_KEY-$PLAN_FILE_SUFFIX" \
-              '[.[] | select(.filename == $name)] | sort_by(.created) | last | .id // empty')
+            # The newest one, and who uploaded it when — said in the version
+            # line and the 🔁 reply, so a revision of a stale upload is visible.
+            jira_attachments | jq --arg name "$TICKET_KEY-$PLAN_FILE_SUFFIX" \
+              '[.[] | select(.filename == $name)] | sort_by(.created) | last // {}' > "$RUNNER_TEMP/current-plan-attachment.json"
+            PLAN_ID=$(jq -r '.id // empty' "$RUNNER_TEMP/current-plan-attachment.json")
             if [ -n "$PLAN_ID" ]; then
               # The attached file is the plan's source of truth: people may have
               # edited and re-uploaded it (the newest one wins).
@@ -251,12 +254,23 @@ jobs:
           else
             jq '.structured_output.plan' "$RUNNER_TEMP/claude-output.json" > "$RUNNER_TEMP/plan.json"
           fi
+          # A version line under the title says when and how this file was made,
+          # so a stale download is easy to spot before editing it by hand.
+          NOW=$(date -u '+%Y-%m-%d %H:%M UTC')
+          if [ "$MODE" = revision ]; then
+            BASIS=$(jq -r '"the attachment uploaded \((.created // "")[0:16] | sub("T"; " ")) by \(.author.displayName // "someone")"' \
+              "$RUNNER_TEMP/current-plan-attachment.json")
+            VERSION="_Version: $NOW — revised after change requests, from $BASIS._"
+          else
+            VERSION="_Version: $NOW — written from the approved work order on $TICKET_KEY._"
+          fi
           {
             if [ "$MODE" = revision ]; then
-              revision_plan_markdown "$RUNNER_TEMP/updates.json" "$RUNNER_TEMP/current-plan.md"
+              revision_plan_markdown "$RUNNER_TEMP/updates.json" "$RUNNER_TEMP/current-plan.md" \
+                | revision_version_line "$VERSION"
             else
               jq -r '"# Implementation plan: \(env.TICKET_KEY) — \(.fields.summary)\n"' "$RUNNER_TEMP/ticket.json"
-              echo "Written by the implementation plan workflow from the approved work order on $TICKET_KEY."
+              echo "$VERSION"
               echo
               jq -L "$AGENTS_DIR/lib" -f "$AGENT_DIR/render.jq" --arg mode full --arg file "" --argjson level 2 "$RUNNER_TEMP/plan.json" \
                 | jq -r -L "$AGENTS_DIR/lib" 'include "adf"; {content: .} | to_markdown'
@@ -303,7 +317,12 @@ jobs:
 
           # Say how each change request was handled, then mark them and the
           # clarification requests as resolved.
-          stage_revision_reply "implementation plan"
+          if [ "$MODE" = revision ]; then
+            stage_revision_reply "implementation plan" \
+              "Revised from $BASIS. To edit the plan by hand, download the newest attachment first and check its Version line."
+          else
+            stage_revision_reply "implementation plan"
+          fi
           jira_comments > "$RUNNER_TEMP/comments.json"
           RESOLVED=$(stage_resolve_comments "$RUNNER_TEMP/comments.json" \
             "the questions were answered and the implementation plan was written." "$NEEDS_CLARIFICATION_TITLE")

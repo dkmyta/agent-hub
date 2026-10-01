@@ -124,7 +124,9 @@ claude_check() {
       || echo "Claude Code produced no JSON output ($(wc -c < "$CLAUDE_OUTPUT" | tr -d ' ') bytes)."
     exit 1
   fi
-  jq -r '"Claude returned \(.structured_output.status) in \(.num_turns) turns."' "$CLAUDE_OUTPUT"
+  jq -r 'if .review_skipped then "Sent back without a review: \(.structured_output.status) (\(.num_turns) turns)."
+         elif has("draft_status") then "Reviewed version: \(.structured_output.status) (\(.num_turns) turns in total, draft and review)."
+         else "Draft: \(.structured_output.status) in \(.num_turns) turns." end' "$CLAUDE_OUTPUT"
 }
 
 # claude_review_schema <stage schema.json>: the review's output format — the
@@ -149,6 +151,16 @@ claude_review_schema() {
 # the review doesn't produce a usable result: nothing unreviewed is applied.
 claude_review() {
   local draft="$RUNNER_TEMP/claude-draft.json" prompt="$RUNNER_TEMP/review-prompt.md" schema input
+  # A draft that sends the ticket back (needs details, needs clarification)
+  # isn't reviewed: it changes nothing on the ticket but a comment, and a
+  # person picks it up next, so the review would only polish its wording.
+  if ! jq -e '.structured_output.status == "ready"' "$CLAUDE_OUTPUT" > /dev/null 2>&1; then
+    cp "$CLAUDE_OUTPUT" "$draft"
+    jq -n '{skipped: true, note: "", changes: [], issues: [], outcome_changed: false, outcome_reason: ""}' > "$CLAUDE_REVIEW"
+    jq '. + {review_skipped: true, draft_status: .structured_output.status}' "$draft" > "$CLAUDE_OUTPUT"
+    echo "Review skipped: the draft sends the ticket back."
+    return 0
+  fi
   mv "$CLAUDE_OUTPUT" "$draft"
   input=$(printf '%s\n\n<ticket>\n%s\n</ticket>\n\n<draft>\n%s\n</draft>' "$1" \
     "$(cat "$RUNNER_TEMP/ticket.md")" "$(jq -c '.structured_output' "$draft")")
@@ -231,7 +243,7 @@ claude_summary() {
     | "### \($title): \(env.TICKET_KEY)\n",
       "| Result | Review | Length | Models | Claude Code | Duration | Turns (draft + review) | Cost (API-equivalent) |",
       "|---|---|---|---|---|---|---|---|",
-      "| \(.structured_output.status) | \(if $r.outcome_changed then "outcome changed (was \(.draft_status))" else "\($r.changes // [] | length) change(s)" end) | \(if (.draft_chars // 0) > 0 then "\(.final_chars) chars (\(((.final_chars - .draft_chars) * 100 / .draft_chars) | round)% vs draft)" else "-" end) | \($models) | \($version) | \(.duration_ms / 1000 | floor)s | \(.draft_turns) + \(.review_turns) | $\($total * 100 | round / 100) (draft $\(.draft_cost * 100 | round / 100), review $\(.review_cost * 100 | round / 100)) |",
+      "| \(.structured_output.status) | \(if $r.skipped then "skipped (sent back)" elif $r.outcome_changed then "outcome changed (was \(.draft_status))" else "\($r.changes // [] | length) change(s)" end) | \(if (.draft_chars // 0) > 0 then "\(.final_chars) chars (\(((.final_chars - .draft_chars) * 100 / .draft_chars) | round)% vs draft)" else "-" end) | \($models) | \($version) | \(.duration_ms / 1000 | floor)s | \(.draft_turns // .num_turns) + \(.review_turns // 0) | $\($total * 100 | round / 100) (draft $\((.draft_cost // $total) * 100 | round / 100), review $\((.review_cost // 0) * 100 | round / 100)) |",
       ""' \
     "$CLAUDE_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
   _fallback_warning "$CLAUDE_MODEL" "$CLAUDE_FALLBACK_MODEL" "$RUNNER_TEMP/claude-draft.json" draft

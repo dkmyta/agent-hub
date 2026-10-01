@@ -46,20 +46,27 @@ stage_fail() {
 stage_start_status() { cat "$RUNNER_TEMP/start-status" 2>/dev/null || echo "${1:-}"; }
 
 # stage_ticket_markdown [--with-comments]: the ticket as Markdown for Claude
-# (written to ticket.md). With --with-comments, people's comments are added —
-# where clarifications, extra details and change requests (REVISE_COMMAND)
-# land — leaving out the automation's own progress (⏳), failure (❌),
-# resolved (✅) and revision-reply (🔁) comments.
+# (written to ticket.md). With --with-comments, people's comments are added,
+# leaving out the automation's own progress (⏳), failure (❌), resolved (✅)
+# and revision-reply (🔁) comments, in two sections: "Change requests" —
+# exactly the comments the Jira rule treats as /revise requests (REVISE_COMMAND
+# as the first word; resolved ones are already left out) — and "Other
+# comments", which are background. The workflow decides what's a request, not
+# Claude, so every stage and model treats the same comments the same way.
 stage_ticket_markdown() {
   local comments='{"comments": []}'
   [ "${1:-}" = --with-comments ] && comments=$(jira_comments)
-  jq -r -L "$AGENTS_DIR/lib" --argjson all "$comments" 'include "adf";
-    "Key: \(env.TICKET_KEY)\nTitle: \(.fields.summary)\n\nDescription:\n\(.fields.description | to_markdown)",
-    ([$all.comments[]
+  jq -r -L "$AGENTS_DIR/lib" --argjson all "$comments" --arg command "${REVISE_COMMAND:-}" 'include "adf";
+    def entry: "**\(.author.displayName // "Someone")** (\(.created[0:10])):\n\(.body | to_markdown)";
+    def section($title): if length > 0 then "\n\($title):\n\n" + join("\n\n---\n\n") else empty end;
+    [$all.comments[]
       | select(.author.accountType != "app")
-      | select(.body | first_text | test("^(⏳|❌|✅ Resolved|🔁)") | not)
-      | "**\(.author.displayName // "Someone")** (\(.created[0:10])):\n\(.body | to_markdown)"]
-     | if length > 0 then "\nComments:\n\n" + join("\n\n---\n\n") else empty end)' \
+      | select(.body | first_text | test("^(⏳|❌|✅ Resolved|🔁)") | not)] as $people
+    | "Key: \(env.TICKET_KEY)\nTitle: \(.fields.summary)\n\nDescription:\n\(.fields.description | to_markdown)",
+      ([$people[] | select(.body | first_text | is_command($command)) | entry]
+        | section("Change requests (comments starting with \($command); answer each one)")),
+      ([$people[] | select(.body | first_text | is_command($command) | not) | entry]
+        | section("Other comments (background only; not change requests, even if they mention \($command))"))' \
     "$RUNNER_TEMP/ticket.json" > "$RUNNER_TEMP/ticket.md"
 }
 
@@ -147,14 +154,16 @@ stage_resolve_revisions() {
   _resolve_matching "$1" "handled — see the 🔁 comment for what changed." 'is_command($command)'
 }
 
-# stage_revision_reply <what>: when the result answers change requests
+# stage_revision_reply <what> [note]: when the result answers change requests
 # (structured_output.revision_responses in claude-output.json), post a
-# "🔁 Change requests to the <what>" comment saying how each was handled, so people see what changed
-# without comparing versions. Nothing if there were none.
+# "🔁 Change requests to the <what>" comment saying how each was handled,
+# ending with <note> if given (e.g. which version was revised). Nothing if
+# there were none.
 stage_revision_reply() {
   jq -e '(.structured_output.revision_responses // []) | length > 0' "$RUNNER_TEMP/claude-output.json" > /dev/null || return 0
-  jq -L "$AGENTS_DIR/lib" --arg what "$1" 'include "adf";
+  jq -L "$AGENTS_DIR/lib" --arg what "$1" --arg note "${2:-}" 'include "adf";
     doc([para([strong("🔁 Change requests to the \($what)"), text(" — how each was handled:")]),
-         bullets([.structured_output.revision_responses[] | [strong(.request), text(" — \(.response)")]])])' \
+         bullets([.structured_output.revision_responses[] | [strong(.request), text(" — \(.response)")]])]
+        + (if $note != "" then [para([em($note)])] else [] end))' \
     "$RUNNER_TEMP/claude-output.json" | jira_comment > /dev/null
 }
