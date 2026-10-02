@@ -1,0 +1,26 @@
+Install Claude Code: skipped
+Fetch ticket: success
+Agent: success
+Apply: success
+Send back: skipped
+Clear progress comment: success
+Report failure: skipped
+--- Jira calls
+GET ?fields=summary,description,status
+GET /comment?maxResults=100
+GET ?fields=attachment
+GET /attachment/content/8001
+POST /comment — comment: ⏳ Revising implementation plan
+GET ?fields=status
+GET ?fields=description
+GET ?fields=description
+GET ?fields=attachment
+POST /attachments — {"upload":"PROJ-99-implementation-plan.md"}
+PUT ?notifyUsers=true — description: 21 headings
+DELETE /attachment/8001
+PUT  — {"update":{"labels":[{"remove":"needs-clarification"}]}}
+PUT  — {"update":{"labels":[{"add":"needs-human"}]}}
+POST /comment — comment: 🔁 Change requests to the implementation plan
+GET /comment?maxResults=100
+PUT /comment/511 — comment: ✅ Resolved
+DELETE /comment/5001

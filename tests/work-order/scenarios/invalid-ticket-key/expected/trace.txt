@@ -1,8 +1,0 @@
-Install Claude Code: skipped
-Fetch ticket: failure
-Claude: skipped
-Apply: skipped
-Return: skipped
-Clear progress comment: skipped
-Report failure: failure
---- Jira calls

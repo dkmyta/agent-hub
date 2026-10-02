@@ -1,0 +1,20 @@
+Install Claude Code: skipped
+Fetch ticket: success
+Agent: success
+Apply: skipped
+Send back: success
+Clear progress comment: success
+Report failure: skipped
+--- Jira calls
+GET ?fields=summary,description,status
+GET /comment?maxResults=100
+GET ?fields=attachment
+GET /attachment/content/8001
+POST /comment — comment: ⏳ Revising implementation plan
+GET ?fields=status
+GET /transitions
+POST /comment — comment: Needs clarification
+PUT  — {"update":{"labels":[{"add":"needs-clarification"}]}}
+PUT  — {"update":{"labels":[{"add":"needs-human"}]}}
+POST /transitions — {"transition":{"id":"21"}}
+DELETE /comment/5001

@@ -1,0 +1,137 @@
+name: "Agent hub: stage"
+
+# The one workflow every agent-hub stage runs through, called by the stage
+# workflows (agent-hub-work-order.yml, agent-hub-implementation-plan.yml) with
+# the stage's name and the ticket key. Each step loads what it needs
+# (lib/load.sh: the settings, the tracker or the agent runner, the shared
+# library and the stage), then calls the stage's own function for that step
+# (stages/<stage>/stage.sh): step_fetch, step_agent, step_apply, step_return.
+#
+# Per-repository settings come from repository variables, passed to the steps
+# as JSON (see .github/agent-hub/docs/setup.md); nothing here needs editing per repository.
+
+on:
+  workflow_call:
+    inputs:
+      stage:
+        description: The stage's folder name under .github/agent-hub/stages
+        required: true
+        type: string
+      ticket-key:
+        description: The ticket to work on
+        required: true
+        type: string
+      agent-minutes:
+        description: Time limit for the agent step (draft and review)
+        required: true
+        type: number
+      job-minutes:
+        description: Time limit for the whole job; the steps' limits together fit within it
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    # Default: a self-hosted runner labelled `claude`, where Claude Code is
+    # logged in with a Claude subscription. Set AGENT_HUB_RUNS_ON (a JSON
+    # label list, e.g. ["ubuntu-latest"]) plus the AGENT_HUB_ANTHROPIC_API_KEY
+    # secret to use the Claude API instead. See .github/agent-hub/docs/runners.md.
+    runs-on: ${{ fromJSON(vars.AGENT_HUB_RUNS_ON || '["self-hosted", "claude"]') }}
+    # Every step has its own limit and together they fit within this one, so a
+    # slow step fails (and is reported on the ticket) instead of the whole job
+    # being cancelled.
+    timeout-minutes: ${{ inputs.job-minutes }}
+    env:
+      HUB_DIR: .github/agent-hub
+      STAGE: ${{ inputs.stage }}
+      TICKET_KEY: ${{ inputs.ticket-key }}
+      VARS: ${{ toJSON(vars) }}
+    steps:
+      # Leaves out recorded test data (past Claude outputs, snapshots, eval
+      # tickets) so Claude works from the ticket and the code, not from a
+      # recorded answer. The evals mirror these patterns.
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/.github/agent-hub/tests/*/fixtures/
+            !/.github/agent-hub/tests/*/scenarios/
+            !/.github/agent-hub/tests/*/evals/
+            !/.github/agent-hub/tests/*/expected/
+
+      # GitHub-hosted runners don't have Claude Code; self-hosted runners have
+      # it installed (see .github/agent-hub/docs/runners.md).
+      - name: Install Claude Code
+        if: runner.environment == 'github-hosted'
+        timeout-minutes: 3
+        env:
+          CLAUDE_CODE_VERSION: ${{ vars.AGENT_HUB_CLAUDE_CODE_VERSION || 'latest' }}
+        run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+
+      - name: Fetch ticket
+        id: start
+        timeout-minutes: 3
+        env: &tracker-env
+          JIRA_DOMAIN: ${{ secrets.AGENT_HUB_JIRA_DOMAIN }}
+          JIRA_EMAIL: ${{ secrets.AGENT_HUB_JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.AGENT_HUB_JIRA_API_TOKEN }}
+        run: |
+          source "$HUB_DIR/lib/load.sh" tracker
+          step_fetch
+
+      # The only step that uses Claude, and it never gets the tracker's
+      # credentials: it can't change the ticket, only return a result.
+      - name: Agent (draft and review)
+        id: agent
+        if: steps.start.outputs.proceed == 'true'
+        timeout-minutes: ${{ inputs.agent-minutes }}
+        env:
+          # Only used when set, and only where Claude Code has no login (a
+          # subscription login on the runner takes precedence). Empty is fine.
+          ANTHROPIC_API_KEY: ${{ secrets.AGENT_HUB_ANTHROPIC_API_KEY }}
+        run: |
+          source "$HUB_DIR/lib/load.sh" agent
+          step_agent
+
+      - name: Apply to ticket
+        id: apply
+        if: steps.agent.outputs.status == 'ready'
+        timeout-minutes: 3
+        env: *tracker-env
+        run: |
+          source "$HUB_DIR/lib/load.sh" tracker
+          step_apply
+
+      # Any other result sends the ticket back (needs details, needs
+      # clarification, …), as the stage defines.
+      - name: Send back
+        id: return
+        if: steps.agent.outputs.status != '' && steps.agent.outputs.status != 'ready'
+        timeout-minutes: 3
+        env: *tracker-env
+        run: |
+          source "$HUB_DIR/lib/load.sh" tracker
+          step_return
+
+      # Runs on success and on cancellation (a newer request for the ticket
+      # superseded this run), so no "⏳" progress comment is left behind.
+      - name: Clear progress comment
+        if: success() || cancelled()
+        timeout-minutes: 2
+        env: *tracker-env
+        run: |
+          source "$HUB_DIR/lib/load.sh" tracker
+          stage_clear_progress
+
+      - name: Report failure on ticket
+        if: failure()
+        timeout-minutes: 2
+        env: *tracker-env
+        run: |
+          source "$HUB_DIR/lib/load.sh" tracker
+          stage_report_failure "$FAILURE_TITLE" "$(stage_start_status "$HOME_STATUS")"

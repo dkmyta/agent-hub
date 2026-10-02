@@ -1,0 +1,173 @@
+name: "Agent hub: Tests"
+
+# The agent hub's own checks: the same checks as its local hooks
+# (.github/agent-hub/.pre-commit-config.yaml), which contributors can skip,
+# plus its test suite on both jq versions. In a repository that has the hub
+# copied in, they only run when a pull request changes hub files
+# (.github/agent-hub/, .github/workflows/agent-hub-*,
+# .github/ISSUE_TEMPLATE/agent-hub-*); the two result checks
+# below always report, so they can be required without blocking pull requests
+# that don't touch the hub. Runs on GitHub-hosted runners with no tracker,
+# Claude or self-hosted runner involved, so it's safe for pull requests from
+# forks. See .github/agent-hub/CONTRIBUTING.md.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # Whether the hub changed: on pull requests, compared with the base branch;
+  # on pushes to main, always.
+  changes:
+    name: Hub changes
+    runs-on: ubuntu-latest
+    outputs:
+      hub: ${{ steps.check.outputs.hub }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: check
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -z "$BASE_SHA" ] || git diff --name-only "$BASE_SHA"...HEAD | grep -qE '^\.github/(agent-hub/|workflows/agent-hub-|ISSUE_TEMPLATE/agent-hub-)'; then
+            echo "hub=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hub=false" >> "$GITHUB_OUTPUT"
+            echo "No agent-hub files changed: its checks are skipped."
+          fi
+
+  lint:
+    name: Lint
+    needs: changes
+    if: needs.changes.outputs.hub == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.github/agent-hub/.pre-commit-config.yaml') }}
+
+      # Runs the commit-stage hooks; the tests (a push-stage hook) run below.
+      - name: pre-commit (formatting, actionlint, shellcheck)
+        run: pipx run --spec pre-commit==4.6.2 pre-commit run --config .github/agent-hub/.pre-commit-config.yaml --all-files --show-diff-on-failure
+
+  # Unit tests can't tell whether Claude still decides well, so flag pull
+  # requests that change prompts, schemas or Claude settings. A notice, not a
+  # required check: the evals use Claude, are started by hand and used sparingly.
+  eval-reminder:
+    name: Eval reminder
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.hub == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Check for agent behaviour changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          changes=$(.github/agent-hub/scripts/agent-behaviour-changes.sh "$BASE_SHA")
+          if [ -z "$changes" ]; then
+            echo "No prompt, schema or Claude setting changes."
+            exit 0
+          fi
+          # Only the affected stages' evals, so a run costs one stage's worth.
+          stages=$(.github/agent-hub/scripts/agent-behaviour-changes.sh --stages "$BASE_SHA" | paste -sd ' ' - | sed 's/ /, /g')
+          echo "::notice title=Agent behaviour changed::This PR changes how the agents decide ($stages). Try it on a real ticket, or run Agent hub: Evals if it's worth the cost."
+          {
+            echo "### Agent behaviour changed"
+            echo
+            echo "This PR changes prompts, schemas or Claude settings, which unit tests can't evaluate."
+            echo "Try it on a real ticket, or — if it's worth the Claude usage — run **Actions → Agent hub: Evals** for **stage: $stages** (manual, confirm with \`use-claude\`; see .github/agent-hub/docs/evals.md)."
+            echo
+            echo '```'
+            echo "$changes"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    name: Test (jq ${{ matrix.jq }})
+    needs: changes
+    if: needs.changes.outputs.hub == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.8.2 matches the self-hosted runner; 1.7.1 is what GitHub-hosted
+        # runners have (the Claude API setup, the hub's docs/runners.md).
+        jq: ["1.7.1", "1.8.2"]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .github/agent-hub/tests/package-lock.json
+
+      - name: Install jq ${{ matrix.jq }}
+        env:
+          JQ_VERSION: ${{ matrix.jq }}
+        # Checksums pinned from each release's sha256sum.txt.
+        run: |
+          case "$JQ_VERSION" in
+            1.7.1) sha256=5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5 ;;
+            1.8.2) sha256=b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f ;;
+            *) echo "::error::No checksum pinned for jq $JQ_VERSION"; exit 1 ;;
+          esac
+          url=https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL -o "$RUNNER_TEMP/bin/jq" "$url"
+          echo "$sha256  $RUNNER_TEMP/bin/jq" | sha256sum --check --strict
+          chmod +x "$RUNNER_TEMP/bin/jq"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      # --ignore-scripts: none of the test dependencies need install scripts.
+      - run: npm ci --prefix .github/agent-hub/tests --ignore-scripts
+
+      - run: npm test --prefix .github/agent-hub/tests
+
+  # The checks to require: each passes if its jobs passed, or were skipped
+  # because the hub didn't change. Changing the jq versions never changes the
+  # name of a required check.
+  lint-result:
+    name: "Agent hub: Lint"
+    if: always()
+    needs: [changes, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULT: ${{ needs.lint.result }}
+          HUB: ${{ needs.changes.outputs.hub }}
+        run: |
+          echo "Lint: $RESULT (hub changed: $HUB)"
+          [ "$RESULT" = success ] || { [ "$RESULT" = skipped ] && [ "$HUB" = false ]; }
+
+  test-result:
+    name: "Agent hub: Test"
+    if: always()
+    needs: [changes, test]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULT: ${{ needs.test.result }}
+          HUB: ${{ needs.changes.outputs.hub }}
+        run: |
+          echo "Test matrix: $RESULT (hub changed: $HUB)"
+          [ "$RESULT" = success ] || { [ "$RESULT" = skipped ] && [ "$HUB" = false ]; }
