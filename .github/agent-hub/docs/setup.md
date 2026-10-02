@@ -7,7 +7,9 @@ the hub needs editing: each repository supplies its own **runner**,
 
 ## 1. Add the files
 
-Copy these into the repository, unchanged:
+Install the hub with its script — see
+[updating.md](updating.md#installing) (one clone and one command). It adds
+these, which you don't edit (changes go in extensions, or to the hub itself):
 
 | Path | What it is |
 |---|---|

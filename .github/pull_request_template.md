@@ -9,6 +9,7 @@
 - [ ] New behaviour has a test (scenario or unit test)
 - [ ] Prompt, schema or Claude setting changed → tried on a real ticket, or **Agent hub: Evals** run if worth the cost ([when](agent-hub/docs/evals.md#when-to-run-them)) — or not applicable
 - [ ] Workflow docs updated (`.github/agent-hub/docs/workflows/…`, known gaps, edge cases) — or not applicable
+- [ ] `VERSION` bumped and a `CHANGELOG.md` entry added, with its **Updating** line — or not applicable
 
 ## Deployment steps
 

@@ -19,7 +19,8 @@ unless they start with `.github/`.
     agent-hub-request.yml         the intake form (GitHub Projects only)
   agent-hub-extensions/           the repository's own additions, per stage (optional; docs/extending.md)
   agent-hub/
-    VERSION
+    VERSION, CHANGELOG.md         the release, and what changed in each (docs/updating.md)
+    .installed                    in an installed repository: what the update script installed
     lib/
       settings.sh                 shared settings: repository variables and defaults
       load.sh                     what each workflow step sources
@@ -35,7 +36,7 @@ unless they start with `.github/`.
       prompt.md, schema.json      what the agent is asked, and the shape of its answer
       review.md                   the stage's review checklist
       render.jq, revise.sh        output → ticket layout; revisions
-    scripts/                      CI helpers
+    scripts/                      update.sh (install and update), CI helpers
     tests/                        the test suite and evals
     docs/
 ```

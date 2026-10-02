@@ -79,8 +79,9 @@ tickets' repository: **Issues → Labels → New label**.
 
 `.github/ISSUE_TEMPLATE/agent-hub-request.yml` is the GitHub version of the
 Jira intake template: an issue form with the same fields, listed as **Agent
-hub request** when someone opens a new issue (copy it to the tickets'
-repository if that's a different one, on its default branch).
+hub request** when someone opens a new issue. Install it with the hub
+(`--with-issue-form`, [updating.md](updating.md#installing)); if the tickets
+live in a different repository, copy it there too, on its default branch.
 
 - **Only pipeline issues use it.** It's one choice beside the repository's own
   issue templates, which it doesn't change; people filing other issues never

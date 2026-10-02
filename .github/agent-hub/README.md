@@ -24,9 +24,9 @@ leaves the ticket where it is, with a comment linking to the run. Commenting `/r
 work order or plan (or retry a failed run) — for Jira, see
 [Reverse paths](docs/jira.md#reverse-paths-sending-back-and-asking-for-changes).
 
-Any repository can use it: copy the hub (this folder and the `agent-hub-*`
-workflows), register a runner, set a few secrets, and connect a tracker
-— no workflow edits. Jira is ready today; GitHub Projects is being added as an
+Any repository can use it: install the hub with its script (this folder and
+the `agent-hub-*` workflows — [docs/updating.md](docs/updating.md)), register
+a runner, set a few secrets, and connect a tracker — no workflow edits. Jira is ready today; GitHub Projects is being added as an
 alternative with the same stages — see [docs/trackers.md](docs/trackers.md). Start
 with **[docs/setup.md](docs/setup.md)**.
 
@@ -50,6 +50,7 @@ with **[docs/setup.md](docs/setup.md)**.
 ## Documentation
 
 - [Setup](docs/setup.md) — add the hub to a repository and connect a tracker
+- [Installing and updating](docs/updating.md) — versions, the update script, what it replaces and keeps, releasing
 - [Choosing a tracker](docs/trackers.md) — Jira or GitHub Projects: what's shared, what differs, and what's ready
 - [GitHub Projects setup](docs/github-projects.md) — the foundations: board, statuses, views, labels, intake form and access (stages not connected yet)
 - [Jira setup](docs/jira.md) — statuses, labels, rules, sending tickets back and asking for changes (`/revise`), permissions, and what to automate in Jira
