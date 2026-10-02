@@ -8,6 +8,7 @@ setup() {
 }
 
 @test "the GitHub issue form has the same fields as the Jira intake template" {
+  [ -f "$REPO_DIR/.github/ISSUE_TEMPLATE/agent-hub-request.yml" ] || skip "the GitHub Projects intake form isn't installed here"
   # Jira: the template block in docs/jira.md ("Original Request:" …).
   jira=$(awk '/^  ```$/ {inblock = !inblock; next} inblock && /:$/ {sub(/^ +/, ""); sub(/:$/, ""); print}' "$HUB_DIR/docs/jira.md")
   # GitHub: the issue form's field labels.
@@ -27,6 +28,7 @@ setup() {
 # it): it must add the label the board's auto-add filter and the stages use,
 # and require the request itself.
 @test "the GitHub issue form adds the agent-hub label and requires the request" {
+  [ -f "$REPO_DIR/.github/ISSUE_TEMPLATE/agent-hub-request.yml" ] || skip "the GitHub Projects intake form isn't installed here"
   run node --input-type=module -e '
     import { readFileSync } from "node:fs";
     import { parse } from "yaml";

@@ -78,6 +78,9 @@ A change to a stage, prompt, schema, workflow or shared library is done when:
 6. **Tracker changes are written down**: if the change needs a tracker rule, status
    or permission change, the workflow doc says exactly what, and the PR
    description lists it as a deployment step.
+7. **The version is bumped**: `VERSION` and a `CHANGELOG.md` entry, with an
+   **Updating** line saying what repositories must do when updating to it
+   (see [docs/updating.md](docs/updating.md#releasing-a-version-hub-maintainers)).
 
 New workflows follow [docs/architecture.md](docs/architecture.md) and start
 their docs from [docs/workflows/TEMPLATE.md](docs/workflows/TEMPLATE.md).
