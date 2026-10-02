@@ -17,6 +17,7 @@ unless they start with `.github/`.
     agent-hub-evals.yml           live Claude evals, manual only
   ISSUE_TEMPLATE/
     agent-hub-request.yml         the intake form (GitHub Projects only)
+  agent-hub-extensions/           the repository's own additions, per stage (optional; docs/extending.md)
   agent-hub/
     VERSION
     lib/
@@ -48,8 +49,10 @@ runs the agent:
   is used.
 - **Agent runner** (`lib/runners/<runner>.sh`, chosen by `AGENT_HUB_RUNNER`,
   default `claude-code`): the `agent_*` functions — draft, review, check,
-  summarise, and clean up after the job (`agent_cleanup`). It has no tracker
-  credentials and reads nothing but its inputs and the repository.
+  summarise, and clean up after the job (`agent_cleanup`) — loading the
+  repository's extensions for the stage ([extending.md](extending.md)). It
+  has no tracker credentials and reads nothing but its inputs and the
+  repository.
 
 `tests/shared/trackers.bats` checks that every tracker and runner defines its
 interface.
@@ -337,9 +340,13 @@ replace them or show up on other work.
 - **Posts as a person.** The automation acts as the tracker account's user (Jira: `AGENT_HUB_JIRA_EMAIL`); a
   dedicated service account makes its actions distinguishable.
 - **Evals are non-deterministic**, and revisions aren't covered by one yet.
-- **No per-stage codebase expertise yet.** A repository's `CLAUDE.md`, and
-  its own subagents and skills in `.claude/`, are available to every stage;
-  a supported way to give each stage its own experts and skills is planned.
+- **Subagents' refused actions aren't reported.** Claude Code lists only the
+  main agent's refused tool calls, so the evals' check for attempts to reach
+  outside the repository can't see an expert's attempt. The restrictions
+  still apply to experts (tested); only the reporting is missing.
+- **No context from other repositories.** A stage sees only its own
+  repository (and its extensions); read-only context from other repositories
+  is planned ([extending.md](extending.md#not-yet)).
 
 ## Adding a stage
 

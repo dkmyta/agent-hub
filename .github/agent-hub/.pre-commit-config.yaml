@@ -10,7 +10,7 @@
 default_install_hook_types: [pre-commit, pre-push]
 default_stages: [pre-commit]
 
-files: ^\.github/(agent-hub/|workflows/agent-hub-|ISSUE_TEMPLATE/agent-hub-)
+files: ^\.github/(agent-hub/|agent-hub-extensions/|workflows/agent-hub-|ISSUE_TEMPLATE/agent-hub-)
 # Snapshots and vendored files must stay byte-for-byte as generated.
 exclude: ^\.github/agent-hub/tests/(vendor/|.*/expected/)
 

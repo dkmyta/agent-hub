@@ -100,6 +100,7 @@ Only when the result is worth the cost. Good reasons:
 | Review and revision standards | `lib/*.md`, `stages/*/review.md` | Changes what the review lets through and how revisions work |
 | Output format | `stages/*/schema.json` | Changes what Claude produces |
 | Claude settings | The Claude and budget settings in `lib/settings.sh` or a stage's `settings.sh`, the runner (`lib/runners/`), the `agent-hub-*.yml` workflows, or those `AGENT_HUB_*` repository variables | Changes how Claude works |
+| Repository extensions | `.github/agent-hub-extensions/` ([extending.md](extending.md)) | Changes what the agents know and check |
 | Claude Code upgrade | On the runner (or `AGENT_HUB_CLAUDE_CODE_VERSION`) | Can change behaviour on its own |
 | Switching Claude account type | Subscription ↔ API, or a new runner | Confirms the new setup works end to end |
 

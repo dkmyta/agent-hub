@@ -5,7 +5,8 @@ name: "Agent hub: Tests"
 # plus its test suite on both jq versions. In a repository that has the hub
 # copied in, they only run when a pull request changes hub files
 # (.github/agent-hub/, .github/workflows/agent-hub-*,
-# .github/ISSUE_TEMPLATE/agent-hub-*); the two result checks
+# .github/ISSUE_TEMPLATE/agent-hub-*) or the repository's extensions
+# (.github/agent-hub-extensions/, checked by the tests); the two result checks
 # below always report, so they can be required without blocking pull requests
 # that don't touch the hub. Runs on GitHub-hosted runners with no tracker,
 # Claude or self-hosted runner involved, so it's safe for pull requests from
@@ -36,7 +37,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if [ -z "$BASE_SHA" ] || git diff --name-only "$BASE_SHA"...HEAD | grep -qE '^\.github/(agent-hub/|workflows/agent-hub-|ISSUE_TEMPLATE/agent-hub-)'; then
+          if [ -z "$BASE_SHA" ] || git diff --name-only "$BASE_SHA"...HEAD | grep -qE '^\.github/(agent-hub/|agent-hub-extensions/|workflows/agent-hub-|ISSUE_TEMPLATE/agent-hub-)'; then
             echo "hub=true" >> "$GITHUB_OUTPUT"
           else
             echo "hub=false" >> "$GITHUB_OUTPUT"

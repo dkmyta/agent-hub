@@ -53,6 +53,7 @@ with **[docs/setup.md](docs/setup.md)**.
 - [Choosing a tracker](docs/trackers.md) — Jira or GitHub Projects: what's shared, what differs, and what's ready
 - [GitHub Projects setup](docs/github-projects.md) — the foundations: board, statuses, views, labels, intake form and access (stages not connected yet)
 - [Jira setup](docs/jira.md) — statuses, labels, rules, sending tickets back and asking for changes (`/revise`), permissions, and what to automate in Jira
+- [Extending the stages](docs/extending.md) — add your codebase's knowledge per stage: guidance, review checks, expert agents and skills
 - [Architecture and conventions](docs/architecture.md) — how the pipeline is built; the standard every new stage follows
 - [Agent evals](docs/evals.md) — checking Claude's decisions: when it's worth the cost, the guards, how
 - [When Claude is used](docs/claude-usage.md) — what causes Claude usage, tests vs evals, the eval notice, safeguards
