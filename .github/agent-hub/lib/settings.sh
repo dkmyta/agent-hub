@@ -22,6 +22,9 @@ setting() {
 set -a
 HUB_DIR=${HUB_DIR:-.github/agent-hub}
 STAGE_DIR="$HUB_DIR/stages/$STAGE"
+# The repository's own additions to the stages: shared/ and <stage>/ folders
+# (docs/extending.md). Owned by the repository, so hub updates never touch it.
+EXTENSIONS_DIR=${EXTENSIONS_DIR:-.github/agent-hub-extensions}
 
 # Where tickets live: trackers/<tracker>/tracker.sh. Jira is the only one so far
 # (GitHub Projects is planned).

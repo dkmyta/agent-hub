@@ -160,6 +160,94 @@ uuid='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
   assert_success
 }
 
+# Repository extensions (docs/extending.md): the stage's and the shared ones
+# are loaded for both passes; other stages' aren't; anything an extension
+# can't contain stops the run before Claude starts.
+extension() { # <folder> <file> [content]
+  mkdir -p "$(dirname "$EXTENSIONS_DIR/$1/$2")"
+  printf '%s\n' "${3:-}" > "$EXTENSIONS_DIR/$1/$2"
+}
+
+@test "extensions: guidance, review checklists, experts and skills for this stage and shared, not other stages" {
+  extension shared guidance.md "SHARED-GUIDANCE"
+  extension shared review.md "SHARED-REVIEW"
+  extension work-order guidance.md "STAGE-GUIDANCE"
+  extension work-order review.md "STAGE-REVIEW"
+  extension work-order agents/codebase-expert.md "---"
+  extension work-order skills/house-style/SKILL.md "---"
+  extension implementation-plan guidance.md "OTHER-STAGE-GUIDANCE"
+  extension implementation-plan agents/planner.md "---"
+  claude_step ready.json
+  assert_success
+  local draft review
+  draft=$(cat "$(arg --append-system-prompt-file)")
+  review=$(cat "$(grep -A1 -x -- --append-system-prompt-file "$RUNNER_TEMP/claude-review-args.txt" | sed -n 2p)")
+  # Guidance joins the stage's instructions, after them, shared first.
+  assert_regex "$draft" '^# Work order agent'
+  assert_regex "$draft" 'SHARED-GUIDANCE.*STAGE-GUIDANCE'
+  refute_regex "$draft" 'OTHER-STAGE-GUIDANCE|REVIEW'
+  # Review checklists join the review's standard, after the stage's own.
+  assert_regex "$review" '## Reviewing a work order.*SHARED-REVIEW.*STAGE-REVIEW'
+  refute_regex "$review" 'GUIDANCE'
+  # Only the stage's folder has agents or skills, so only it is a plugin, for both passes.
+  for args in claude-args.txt claude-review-args.txt; do
+    run grep -A1 -x -- --plugin-dir "$RUNNER_TEMP/$args"
+    assert_output "--plugin-dir
+$EXTENSIONS_DIR/work-order"
+  done
+  run grep -x "Repository extensions: .*" "$RUNNER_TEMP/log.txt"
+  assert_output "Repository extensions: $EXTENSIONS_DIR/shared $EXTENSIONS_DIR/work-order."
+}
+
+@test "extensions: a revision gets the revision instructions, then the repository's guidance" {
+  extension work-order guidance.md "STAGE-GUIDANCE"
+  echo revision > "$RUNNER_TEMP/mode"
+  cp "$FIXTURES/tickets/work-order.json" "$RUNNER_TEMP/ticket.json"
+  claude_step revised.json
+  assert_success
+  assert_regex "$(cat "$(arg --append-system-prompt-file)")" '^# Work order agent.*# Revising, not rewriting.*STAGE-GUIDANCE'
+}
+
+@test "extensions: none, nothing changes" {
+  claude_step ready.json
+  assert_success
+  run grep -c -- --plugin-dir "$RUNNER_TEMP/claude-args.txt"
+  assert_output 0
+  run cat "$(arg --append-system-prompt-file)"
+  assert_output "$(cat "$HUB_DIR/stages/work-order/prompt.md")"
+  run grep -c "Repository extensions" "$RUNNER_TEMP/log.txt"
+  assert_output 0
+}
+
+@test "extensions: hooks, MCP servers, manifests, settings or links stop the run before Claude starts" {
+  for bad in hooks/hooks.json .mcp.json .claude-plugin/plugin.json settings.json agents/notes.txt; do
+    rm -rf "$EXTENSIONS_DIR" "$RUNNER_TEMP/claude-args.txt" "$RUNNER_TEMP/failure-reason"
+    extension work-order guidance.md "fine"
+    extension work-order "$bad" "{}"
+    claude_step ready.json
+    assert_failure
+    assert [ ! -e "$RUNNER_TEMP/claude-args.txt" ]
+    run cat "$RUNNER_TEMP/failure-reason"
+    assert_output --partial "has files an extension can't contain: ${bad%%/*}"
+  done
+  rm -rf "$EXTENSIONS_DIR"
+  extension shared agents/real.md "---"
+  ln -s "$EXTENSIONS_DIR/shared/agents/real.md" "$EXTENSIONS_DIR/shared/agents/link.md"
+  claude_step ready.json
+  assert_failure
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "agents/link.md"
+  # A whole extension folder that's a link, e.g. to somewhere outside the repository.
+  rm -rf "$EXTENSIONS_DIR" "$RUNNER_TEMP/claude-args.txt"
+  extension elsewhere guidance.md "outside"
+  ln -s "$EXTENSIONS_DIR/elsewhere" "$EXTENSIONS_DIR/work-order"
+  claude_step ready.json
+  assert_failure
+  assert [ ! -e "$RUNNER_TEMP/claude-args.txt" ]
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "a link to another folder"
+}
+
 @test "Claude runs with the pinned model, a fallback and a budget cap" {
   claude_step ready.json
   assert_success

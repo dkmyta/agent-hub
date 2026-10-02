@@ -39,10 +39,12 @@ extract_workflow() {
 # use_run_env <dir>: the environment a runner provides, rooted at <dir>.
 use_run_env() {
   export RUNNER_TEMP=$1 STEP_OUTPUTS=$1/outputs CALLS=$1/calls.jsonl
-  # Where agent_cleanup looks for Claude Code's session folders: inside the
-  # test, except in evals, where the real Claude leaves real ones to remove.
+  # Inside the test, except in evals (the real Claude, in a copy of the
+  # repository): where agent_cleanup looks for Claude Code's session folders,
+  # and the repository extensions (none unless a test adds them).
   if [ "${RUN_EVALS:-}" != 1 ]; then
     export CLAUDE_TEMP_ROOT=$1/claude-temp CLAUDE_PROJECTS_ROOT=$1/claude-projects
+    export EXTENSIONS_DIR=$1/extensions
   fi
   export JIRA_DOMAIN=example.atlassian.net JIRA_EMAIL=bot@example.com JIRA_API_TOKEN=test-token
   export GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=example/repo GITHUB_RUN_ID=1000

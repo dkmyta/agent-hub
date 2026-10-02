@@ -17,11 +17,12 @@
 # stage's revise.sh builds (revision_preview). See docs/architecture.md.
 #
 # Reads: STAGE_DIR (prompt.md, schema.json, review.md, revise.sh), lib/review.md,
-# lib/revise.md, lib/review-revision.md, RUNNER_TEMP/ticket.md, and the
-# CLAUDE_* / REVIEW_CLAUDE_* settings (lib/settings.sh, the stage's
-# settings.sh). Writes
-# RUNNER_TEMP/agent-output.json (the draft, then the reviewed version with
-# combined usage) and RUNNER_TEMP/review.json.
+# lib/revise.md, lib/review-revision.md, RUNNER_TEMP/ticket.md, the
+# repository's extensions (EXTENSIONS_DIR), and the CLAUDE_* / REVIEW_CLAUDE_*
+# settings (lib/settings.sh, the stage's settings.sh). Uses stage_fail
+# (lib/stage.sh, loaded alongside by lib/load.sh) for a refused extension.
+# Writes RUNNER_TEMP/agent-output.json (the draft, then the reviewed version
+# with combined usage) and RUNNER_TEMP/review.json.
 
 AGENT_OUTPUT="$RUNNER_TEMP/agent-output.json"
 AGENT_REVIEW="$RUNNER_TEMP/review.json"
@@ -37,6 +38,57 @@ CLAUDE_TEMP_ROOT=${CLAUDE_TEMP_ROOT:-/tmp/claude-$(id -u)}
 CLAUDE_PROJECTS_ROOT=${CLAUDE_PROJECTS_ROOT:-$HOME/.claude/projects}
 AGENT_SESSIONS="$RUNNER_TEMP/agent-sessions"
 SESSION_ID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+
+# Repository extensions (docs/extending.md), from EXTENSIONS_DIR: shared/ for
+# every stage, then <stage>/. guidance.md joins the stage's instructions and
+# review.md the review's; agents/ and skills/ (Claude Code subagents and
+# skills) are loaded for both passes with --plugin-dir. They add knowledge
+# only: a folder holding anything else fails the run before Claude starts, and
+# the isolation below binds them like everything else.
+EXTENSION_DIRS=()
+PLUGIN_ARGS=()
+
+# agent_extension_problems <folder>: what in an extension folder isn't allowed,
+# one path per line (a disallowed folder, not everything in it); nothing if
+# it's all allowed. A link anywhere — the folder itself included — could
+# point outside the repository, so links are refused.
+agent_extension_problems() {
+  if [ -L "$1" ] || [ -L "$(dirname "$1")" ]; then echo "(a link to another folder)"; return; fi
+  (cd "$1" && find . -mindepth 1 \( -type l -o \( \
+      ! -path ./guidance.md ! -path ./review.md ! -path ./README.md \
+      ! -path ./agents ! -path './agents/*.md' ! -path ./skills ! -path './skills/?*/*' ! -path './skills/?*' \
+      \) \) -print) | sed 's|^\./||' | sort \
+    | awk 'last != "" && index($0, last "/") == 1 { next } { print; last = $0 }'
+}
+
+# _load_extensions: find this stage's extension folders, refuse any with
+# something not allowed, and build the --plugin-dir arguments. Once per step.
+_load_extensions() {
+  local dir problems
+  [ -z "${_EXTENSIONS_LOADED:-}" ] || return 0
+  _EXTENSIONS_LOADED=1
+  for dir in "$EXTENSIONS_DIR/shared" "$EXTENSIONS_DIR/$STAGE"; do
+    [ -d "$dir" ] || continue
+    problems=$(agent_extension_problems "$dir")
+    if [ -n "$problems" ]; then
+      stage_fail "The repository extension $dir has files an extension can't contain: $(echo "$problems" | paste -sd ',' - | sed 's/,/, /g'). Extensions hold only guidance.md, review.md, agents/ and skills/ (docs/extending.md). Nothing was changed; fix the folder, then comment $REVISE_COMMAND to try again."
+    fi
+    EXTENSION_DIRS+=("$dir")
+    if [ -d "$dir/agents" ] || [ -d "$dir/skills" ]; then PLUGIN_ARGS+=(--plugin-dir "$(cd "$dir" && pwd)"); fi
+  done
+  if [ ${#EXTENSION_DIRS[@]} -gt 0 ]; then echo "Repository extensions: ${EXTENSION_DIRS[*]}."; fi
+}
+
+# _extension_text <file> <title>: that file from each extension folder, under
+# a heading, to append to a prompt.
+_extension_text() {
+  local dir
+  for dir in "${EXTENSION_DIRS[@]}"; do
+    [ -s "$dir/$1" ] || continue
+    printf '\n\n# %s (%s)\n\nFrom the repository'"'"'s maintainers. Follow it wherever it doesn'"'"'t conflict with the instructions above.\n\n' "$2" "$dir/$1"
+    cat "$dir/$1"
+  done
+}
 
 # Claude's answers hold ticket content, and run logs can be public (they are in
 # public repositories), so they're never printed: logs show only outcomes and
@@ -71,6 +123,7 @@ _claude() {
     --output-format json \
     --permission-mode dontAsk \
     --allowedTools "$tools" \
+    "${PLUGIN_ARGS[@]}" \
     < /dev/null || true
 }
 
@@ -100,16 +153,21 @@ agent_revision_schema() {
 # agent_run <instruction> <payload field>: the draft. Never fails itself —
 # agent_check decides whether the result is usable.
 agent_run() {
-  local prompt="$STAGE_DIR/prompt.md" schema="$STAGE_DIR/schema.json"
+  local prompt="$RUNNER_TEMP/draft-prompt.md" schema="$STAGE_DIR/schema.json"
+  _load_extensions
   # Claude Code can update itself on the runner; record which version ran.
   CLAUDE_VERSION=$(claude --version 2>/dev/null | head -n 1 | cut -d ' ' -f 1)
   if agent_revising; then
     # shellcheck source=/dev/null
     source "$STAGE_DIR/revise.sh"
-    prompt="$RUNNER_TEMP/revise-prompt.md" schema="$RUNNER_TEMP/revision-schema.json"
-    cat "$STAGE_DIR/prompt.md" "$HUB_DIR/lib/revise.md" > "$prompt"
+    schema="$RUNNER_TEMP/revision-schema.json"
     agent_revision_schema "$STAGE_DIR/schema.json" "$2" > "$schema"
   fi
+  {
+    cat "$STAGE_DIR/prompt.md"
+    if agent_revising; then cat "$HUB_DIR/lib/revise.md"; fi
+    _extension_text guidance.md "Repository guidance"
+  } > "$prompt"
   _claude "$CLAUDE_MODEL" "$CLAUDE_FALLBACK_MODEL" "$(agent_budget "$CLAUDE_MAX_BUDGET_USD")" \
     "$prompt" "$(jq -c . "$schema")" \
     "$(printf '%s\n\n<ticket>\n%s\n</ticket>' "$1" "$(cat "$RUNNER_TEMP/ticket.md")")" \
@@ -182,7 +240,8 @@ agent_review() {
   mv "$AGENT_OUTPUT" "$draft"
   input=$(printf '%s\n\n<ticket>\n%s\n</ticket>\n\n<draft>\n%s\n</draft>' "$1" \
     "$(cat "$RUNNER_TEMP/ticket.md")" "$(jq -c '.structured_output' "$draft")")
-  # The shared review standard plus the stage's checklist.
+  # The shared review standard plus the stage's checklist (and the
+  # repository's, from its extensions).
   if agent_revising; then
     # shellcheck source=/dev/null
     source "$STAGE_DIR/revise.sh"
@@ -196,6 +255,8 @@ agent_review() {
     cat "$HUB_DIR/lib/review.md" "$STAGE_DIR/review.md" > "$prompt"
     schema=$(agent_review_schema "$STAGE_DIR/schema.json")
   fi
+  _load_extensions
+  _extension_text review.md "Repository review checklist" >> "$prompt"
 
   _claude "$REVIEW_CLAUDE_MODEL" "$REVIEW_CLAUDE_FALLBACK_MODEL" "$(agent_budget "$REVIEW_CLAUDE_MAX_BUDGET_USD")" "$prompt" "$schema" \
     "$input" > "$RUNNER_TEMP/agent-review-output.json"

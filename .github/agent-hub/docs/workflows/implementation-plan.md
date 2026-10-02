@@ -11,6 +11,7 @@ a product or scope decision, it sends the ticket back with the questions.
 | Runs on | `AGENT_HUB_RUNS_ON` (default `[self-hosted, claude]`) — see [runners.md](../runners.md) |
 | Model | `AGENT_HUB_PLAN_CLAUDE_MODEL` (default Opus); review `AGENT_HUB_REVIEW_CLAUDE_MODEL` (Opus) |
 | Stage files | `stages/implementation-plan/` (steps, settings, prompt, schema, plan rendering, revisions) |
+| Extensions | `.github/agent-hub-extensions/implementation-plan/` and `shared/`, optional — see [extending.md](../extending.md) |
 | Tests | `tests/implementation-plan/` — see [Testing](#testing) |
 
 Shared behaviour — the expert review, revisions, failure reasons, safety —

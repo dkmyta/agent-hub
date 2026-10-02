@@ -94,6 +94,21 @@ change() { # <file> <content>, committed on top of base
   assert_output ""
 }
 
+@test "extension changes need evals: shared ones for every stage, a stage's for that stage" {
+  change .github/agent-hub-extensions/work-order/agents/expert.md "Knows the API."
+  run "$SCRIPT" main~1
+  assert_output ".github/agent-hub-extensions/work-order/agents/expert.md"
+  run "$SCRIPT" --stages main~1
+  assert_output "work-order"
+  change .github/agent-hub-extensions/shared/guidance.md "Use British English."
+  run "$SCRIPT" --stages main~1
+  assert_output "all"
+  # Notes for people only.
+  change .github/agent-hub-extensions/work-order/README.md "Maintained by the API team."
+  run "$SCRIPT" main~1
+  assert_output ""
+}
+
 @test "revision standard changes need evals for every stage" {
   change $H/lib/revise.md "Change less."
   run "$SCRIPT" main~1

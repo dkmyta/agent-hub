@@ -54,6 +54,35 @@ setup() {
   done
 }
 
+# The repository's own extensions (docs/extending.md): a misnamed folder would
+# never load, and the runner refuses anything an extension can't contain —
+# better caught here than on a ticket.
+check_extensions() { # <extensions folder>: prints each problem
+  local dir
+  for dir in "$1"/*/; do
+    dir=$(basename "$dir")
+    [ "$dir" = shared ] || [ -d "$HUB_DIR/stages/$dir" ] || echo "$dir: not shared or a stage"
+    RUNNER_TEMP="$BATS_TEST_TMPDIR" bash -c 'source "$1" && agent_extension_problems "$2"' _ \
+      "$HUB_LIB/runners/claude-code.sh" "$1/$dir" | sed "s|^|$dir: |"
+  done
+}
+
+@test "the repository's extensions are for real stages and hold only what an extension may" {
+  [ -d "$REPO_DIR/.github/agent-hub-extensions" ] || skip "this repository has no extensions"
+  run check_extensions "$REPO_DIR/.github/agent-hub-extensions"
+  assert_output ""
+}
+
+@test "the extensions check catches misnamed folders and files an extension can't contain" {
+  local ext="$BATS_TEST_TMPDIR/ext"
+  mkdir -p "$ext/shared/agents" "$ext/work-order/skills/style" "$ext/work_order" "$ext/implementation-plan/hooks"
+  touch "$ext/shared/guidance.md" "$ext/shared/agents/expert.md" "$ext/work-order/skills/style/SKILL.md" \
+    "$ext/work_order/guidance.md" "$ext/implementation-plan/hooks/hooks.json"
+  run check_extensions "$ext"
+  assert_output "implementation-plan: hooks
+work_order: not shared or a stage"
+}
+
 @test "every stage folder has the files the shared workflow and agent runner need" {
   local stage file
   for stage in "$HUB_DIR"/stages/*/; do

@@ -10,6 +10,7 @@ enough to work with.
 | Runs on | `AGENT_HUB_RUNS_ON` (default `[self-hosted, claude]`) — see [runners.md](../runners.md) |
 | Model | `AGENT_HUB_CLAUDE_MODEL` (default `claude-sonnet-5`); review `AGENT_HUB_REVIEW_CLAUDE_MODEL` (Opus) |
 | Stage files | `stages/work-order/` (steps, settings, prompt, schema, ticket layout, revisions) |
+| Extensions | `.github/agent-hub-extensions/work-order/` and `shared/`, optional — see [extending.md](../extending.md) |
 | Tests | `tests/work-order/` — see [Testing](#testing) |
 
 Shared behaviour — the expert review, revisions, failure reasons, safety —

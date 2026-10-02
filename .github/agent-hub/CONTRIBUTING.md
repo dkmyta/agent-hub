@@ -17,8 +17,8 @@ pre-commit install --config .github/agent-hub/.pre-commit-config.yaml   # lint o
 
 The checks are defined once, in `.pre-commit-config.yaml`, cover only the
 hub's files (this folder, `.github/workflows/agent-hub-*.yml` and
-`.github/ISSUE_TEMPLATE/agent-hub-*`), and run in
-two places:
+`.github/ISSUE_TEMPLATE/agent-hub-*`) and the repository's extensions
+(`.github/agent-hub-extensions/`), and run in two places:
 
 - **Locally, for fast feedback**: formatting and lint on every commit (a few
   seconds), the test suite on every push (~20s). These can be skipped

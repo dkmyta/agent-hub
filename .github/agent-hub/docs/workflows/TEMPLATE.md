@@ -18,6 +18,7 @@ current is part of the definition of done (CONTRIBUTING.md).
 | Runs on | `AGENT_HUB_RUNS_ON` — see [runners.md](../runners.md) |
 | Model | <draft model>; review `AGENT_HUB_REVIEW_CLAUDE_MODEL` |
 | Stage files | `stages/<stage>/` |
+| Extensions | `.github/agent-hub-extensions/<stage>/` and `shared/`, optional — see [extending.md](../extending.md) |
 | Tests | `tests/<stage>/` |
 
 ## Ticket lifecycle

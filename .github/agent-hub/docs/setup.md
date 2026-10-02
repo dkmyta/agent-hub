@@ -124,7 +124,14 @@ someone leaves or changes role:
   go somewhere someone reads.
 - **Put the expiry dates in a calendar** with a reminder a few weeks ahead.
 
-## 7. Check it
+## 7. Optionally, extend the stages for your codebase
+
+Give the agents your repository's conventions, review checks and expert
+agents per stage, in `.github/agent-hub-extensions/` — see
+[extending.md](extending.md). Start without, and add what real tickets show
+is missing.
+
+## 8. Check it
 
 1. **Actions → Agent hub: Work order → Run workflow** with the key of a test
    ticket in the Work Order status. The ticket should get a work order.
@@ -134,7 +141,7 @@ someone leaves or changes role:
    Recommended: add required reviewers to the `agent-hub-evals` environment so
    every eval run needs approval ([evals.md](evals.md#how-to-run-them)).
 
-## 8. Local development (contributors)
+## 9. Local development (contributors)
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md): `npm ci --prefix .github/agent-hub/tests --ignore-scripts`
 and `pre-commit install --config .github/agent-hub/.pre-commit-config.yaml`.
