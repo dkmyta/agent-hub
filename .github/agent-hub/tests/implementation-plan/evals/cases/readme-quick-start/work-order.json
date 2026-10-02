@@ -1,0 +1,48 @@
+{
+  "overview": {
+    "summary": [
+      "New people opening the repository don't know where to start: the README lists the docs but has no short 'do this first' path. Add a Quick Start section near the top of .github/agent-hub/README.md with the essential steps to get the work order workflow running in a new repository, each linking to the matching part of .github/agent-hub/docs/setup.md.",
+      "Requested by the team lead; internal documentation work, no customer involvement."
+    ],
+    "clarifications": [],
+    "important_details": []
+  },
+  "scope": {
+    "acceptance_criteria": [
+      ".github/agent-hub/README.md has a Quick Start section near the top, before the Workflows table.",
+      "The Quick Start lists 4–5 steps: add the files, set up a runner, add the secrets, set up the Jira rule, and test with a manual run.",
+      "Each step links to the matching section of .github/agent-hub/docs/setup.md rather than repeating its content.",
+      "The Quick Start is under 15 lines, and no workflow or test files change."
+    ],
+    "out_of_scope": [
+      "Changes to .github/agent-hub/docs/setup.md itself — it is the detailed guide the Quick Start links to."
+    ]
+  },
+  "developer_notes": {
+    "codebase": [
+      {
+        "path": ".github/agent-hub/README.md",
+        "relevance": "The file to change."
+      },
+      {
+        "path": ".github/agent-hub/docs/setup.md",
+        "relevance": "The setup guide the steps link to."
+      }
+    ],
+    "resources": [],
+    "getting_started": [
+      "Read the files listed under the codebase section first."
+    ]
+  },
+  "risk": {
+    "confidence": {
+      "level": "High",
+      "reason": "Small, well-bounded change."
+    },
+    "customer_data": {
+      "contains": "N",
+      "reason": "Internal request."
+    },
+    "open_questions": []
+  }
+}

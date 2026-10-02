@@ -1,0 +1,42 @@
+# The agent hub pipeline's intake form, for the GitHub Projects tracker only:
+# the same fields as the Jira intake template (.github/agent-hub/docs/jira.md).
+# It sits beside the repository's own issue templates without changing them;
+# the agent-hub label it adds is what puts an issue on the board (the
+# project's "Auto-add to project" workflow) and in the pipeline. See
+# .github/agent-hub/docs/github-projects.md#intake-form.
+name: Agent hub request
+description: Ask the agent hub pipeline for a change — it prepares a work order, then a plan.
+labels: [agent-hub]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Describe the request in your own words; the agent turns it into a work
+        order for review. The more context, the fewer questions come back.
+  - type: textarea
+    id: original-request
+    attributes:
+      label: Original Request
+      description: What was asked, as it was asked.
+    validations:
+      required: true
+  - type: textarea
+    id: whats-needed
+    attributes:
+      label: What's Needed
+  - type: textarea
+    id: why-context
+    attributes:
+      label: Why / Context
+  - type: input
+    id: workstream
+    attributes:
+      label: Workstream
+  - type: textarea
+    id: known-constraints
+    attributes:
+      label: Known Constraints
+  - type: input
+    id: source
+    attributes:
+      label: Source / Email Thread

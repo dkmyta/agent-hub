@@ -1,0 +1,9 @@
+Install Claude Code: skipped
+Fetch ticket: success
+Agent: skipped
+Apply: skipped
+Send back: skipped
+Clear progress comment: success
+Report failure: skipped
+--- Jira calls
+GET ?fields=summary,description,status

@@ -1,8 +1,0 @@
-actions/checkout | id: - | if: - | env: -
-Install Claude Code | id: - | if: runner.environment == 'github-hosted' | env: CLAUDE_CODE_VERSION
-Fetch ticket | id: start | if: - | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
-Write implementation plan (Claude Code) | id: claude | if: steps.start.outputs.proceed == 'true' | env: ANTHROPIC_API_KEY
-Apply implementation plan to ticket | id: apply | if: steps.claude.outputs.status == 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
-Return ticket to Work Order | id: return | if: steps.claude.outputs.status == 'needs-clarification' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
-Clear progress comment | id: - | if: success() || cancelled() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
-Report failure on ticket | id: - | if: failure() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN

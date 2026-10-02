@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Stand-in for the Claude Code CLI. `--version` prints a fixed version.
+#
+# The draft call records its arguments (claude-args.txt) and prompt
+# (claude-prompt.txt) and prints $CLAUDE_FIXTURE (a recorded `claude
+# --output-format json` result, or nothing if "none"); exits $CLAUDE_EXIT.
+#
+# The review call (recognised by its combined review prompt file) records
+# claude-review-args.txt / claude-review-prompt.txt and prints
+# $CLAUDE_REVIEW_FIXTURE — or, if that's unset or "approve", a review that
+# returns the draft unchanged; exits $CLAUDE_REVIEW_EXIT.
+if [ "$1" = --version ]; then echo "9.9.9 (Claude Code)"; exit 0; fi
+
+case " $* " in
+  *review-prompt.md*) pass=review ;;
+  *) pass=draft ;;
+esac
+suffix=""; [ "$pass" = review ] && suffix="-review"
+printf '%s\n' "$@" > "$RUNNER_TEMP/claude$suffix-args.txt"
+while [ $# -gt 0 ]; do
+  [ "$1" = -p ] && { printf '%s' "$2" > "$RUNNER_TEMP/claude$suffix-prompt.txt"; break; }
+  shift
+done
+
+if [ "$pass" = draft ]; then
+  [ "$CLAUDE_FIXTURE" = none ] || cat "$CLAUDE_FIXTURE"
+  exit "${CLAUDE_EXIT:-0}"
+fi
+
+case "${CLAUDE_REVIEW_FIXTURE:-approve}" in
+  approve)
+    jq '{type, subtype, is_error: false, duration_ms: 20000, num_turns: 4, total_cost_usd: 0.2,
+         modelUsage: {"claude-opus-5-5": {costUSD: 0.2}},
+         structured_output: {result: .structured_output,
+           review: {note: "Verified the draft against the code; no changes needed.",
+                    changes: [], issues: [], outcome_changed: false, outcome_reason: ""}}}' \
+      "$RUNNER_TEMP/agent-draft.json" ;;
+  none) ;;
+  *) cat "$CLAUDE_REVIEW_FIXTURE" ;;
+esac
+exit "${CLAUDE_REVIEW_EXIT:-0}"

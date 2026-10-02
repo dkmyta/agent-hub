@@ -1,0 +1,77 @@
+name: "Agent hub: Evals"
+
+# Runs the agents against sample tickets with the real Claude Code CLI (the
+# tracker mocked) to check their decisions, not just the plumbing — see
+# .github/agent-hub/docs/evals.md. Uses Claude, so it only runs when started by
+# hand (workflow_dispatch), with `use-claude` typed into the confirmation box,
+# one stage at a time unless "all" is chosen, and — once the agent-hub-evals
+# environment has required reviewers — only after a reviewer approves. Never
+# triggered by pull requests: the job can run on a self-hosted runner, and code
+# from forks must never run there.
+
+on:
+  workflow_dispatch:
+    inputs:
+      # One option per stage with evals (checked by .github/agent-hub/tests/shared/claude-usage.bats).
+      # A single stage is preselected, so a run never covers every stage by accident.
+      stage:
+        description: Stage to evaluate ("all" only after a model or Claude Code change)
+        required: true
+        type: choice
+        options:
+          - work-order
+          - implementation-plan
+          - all
+      cases:
+        description: Space-separated case names (blank runs all of the stage's)
+        required: false
+        type: string
+      # Deliberate friction: a mistaken click doesn't run anything.
+      confirm:
+        description: This uses Claude and costs money (capped per run by AGENT_HUB_EVALS_MAX_COST_USD). Type use-claude to run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-hub-evals
+
+jobs:
+  evals:
+    # Without the confirmation the job is skipped: it never reaches a runner.
+    if: inputs.confirm == 'use-claude'
+    # Add required reviewers to this environment (Settings → Environments) so
+    # every run also waits for approval.
+    environment: agent-hub-evals
+    # Same runner and Claude account as the agent hub pipeline (see .github/agent-hub/docs/runners.md).
+    runs-on: ${{ fromJSON(vars.AGENT_HUB_RUNS_ON || '["self-hosted", "claude"]') }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Claude Code
+        if: runner.environment == 'github-hosted'
+        timeout-minutes: 3
+        env:
+          CLAUDE_CODE_VERSION: ${{ vars.AGENT_HUB_CLAUDE_CODE_VERSION || 'latest' }}
+        run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+
+      - run: npm ci --prefix .github/agent-hub/tests --ignore-scripts
+
+      - name: Agent evals
+        env:
+          EVALS_CONFIRM: use-claude
+          STAGE: ${{ inputs.stage }}
+          CASES: ${{ inputs.cases }}
+          # Total spend cap for the run; remaining cases are skipped once reached.
+          EVALS_MAX_COST_USD: ${{ vars.AGENT_HUB_EVALS_MAX_COST_USD || '10' }}
+          ANTHROPIC_API_KEY: ${{ secrets.AGENT_HUB_ANTHROPIC_API_KEY }}
+        run: |
+          # Test names start with "<case>:", so filter on the listed cases.
+          filter=()
+          if [ -n "$CASES" ]; then filter=(--filter "^($(echo "$CASES" | xargs | tr ' ' '|')):"); fi
+          npm run evals --prefix .github/agent-hub/tests -- "$STAGE" "${filter[@]}"
