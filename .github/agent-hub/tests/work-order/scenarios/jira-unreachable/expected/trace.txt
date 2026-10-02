@@ -5,6 +5,7 @@ Apply: skipped
 Send back: skipped
 Clear progress comment: skipped
 Report failure: success
+Remove agent session files: success
 --- Jira calls
 GET ?fields=summary,description,status
 POST /comment — comment: ❌ Work order generation failed

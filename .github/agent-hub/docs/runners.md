@@ -42,6 +42,13 @@ Things to know:
 - **Only the login is shared, not your personal Claude setup.** Runs ignore
   that account's own settings, `CLAUDE.md`, hooks and MCP servers (in
   `~/.claude`), so the agents behave the same on anyone's runner.
+- **One runner per machine (or per OS user).** Runs clean up Claude Code's
+  session files when they end, but two runners under the same user can run
+  jobs at once, and one could read the other's while both are running. For
+  the strongest isolation between jobs, GitHub recommends ephemeral runners
+  (one job each, then a fresh machine) — practical with the Claude API on
+  GitHub-hosted or autoscaled runners, less so for one machine with a
+  subscription login.
 - **The machine is trusted**: a self-hosted runner can reach anything the
   machine can. The agent hub pipeline never runs on `pull_request` events, so code
   from forks never runs on it — a test enforces this. Keep it that way.
@@ -65,6 +72,27 @@ Things to know:
 Amazon Bedrock or Google Vertex AI work the same way with their Claude Code
 environment variables instead of `ANTHROPIC_API_KEY` (add them as secrets and
 to the agent step's `env` in `agent-hub-stage.yml`).
+
+## Clearing old session files (one-time, for runners set up before this was fixed)
+
+Runs now delete their Claude Code session files when they end (see
+[architecture.md](architecture.md#safety)), but a runner that ran the agents
+before that keeps their session records — full transcripts of real tickets —
+and temp folders. Delete them once, as the runner's user, with no run in
+progress. They're named after the runner's work folder, with `/` and `_`
+turned into `-` (`~/actions-runner/_work/…` becomes `-…-actions-runner--work-…`;
+use your runner's folder name if it's installed elsewhere). List them first:
+
+```sh
+ls -d ~/.claude/projects/*actions-runner--work-* /tmp/claude-$(id -u)/*actions-runner--work-* 2>/dev/null
+```
+
+Then remove them. Only jobs run in the work folder, so this never touches your
+own Claude Code sessions:
+
+```sh
+rm -rf ~/.claude/projects/*actions-runner--work-* /tmp/claude-$(id -u)/*actions-runner--work-*
+```
 
 ## Claude Code version
 

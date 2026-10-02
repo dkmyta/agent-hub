@@ -56,7 +56,7 @@ setup() {
   local runner
   for runner in "$HUB_DIR"/lib/runners/*.sh; do
     run env RUNNER_TEMP="$BATS_TEST_TMPDIR" bash -c 'source "$1"
-      declare -F agent_run agent_check agent_review agent_summary > /dev/null' _ "$runner"
+      declare -F agent_run agent_check agent_review agent_summary agent_cleanup > /dev/null' _ "$runner"
     assert_success "$runner"
   done
 }

@@ -135,3 +135,15 @@ jobs:
         run: |
           source "$HUB_DIR/lib/load.sh" tracker
           stage_report_failure "$FAILURE_TITLE" "$(stage_start_status "$HOME_STATUS")"
+
+      # Claude Code's files for this job's sessions (its temp folder can be
+      # read by later runs on the same runner) are deleted whatever happened:
+      # success, failure, timeout or cancellation. See docs/architecture.md.
+      # Without a checkout nothing ran, so there's nothing to remove.
+      - name: Remove agent session files
+        if: always()
+        timeout-minutes: 1
+        run: |
+          [ -f "$HUB_DIR/lib/load.sh" ] || exit 0
+          source "$HUB_DIR/lib/load.sh" agent
+          agent_cleanup

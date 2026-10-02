@@ -47,9 +47,9 @@ runs the agent:
   tracker's API directly. Documents use ADF (`lib/adf.jq`) whichever tracker
   is used.
 - **Agent runner** (`lib/runners/<runner>.sh`, chosen by `AGENT_HUB_RUNNER`,
-  default `claude-code`): the `agent_*` functions — draft, review, check and
-  summarise. It has no tracker credentials and reads nothing but its inputs
-  and the repository.
+  default `claude-code`): the `agent_*` functions — draft, review, check,
+  summarise, and clean up after the job (`agent_cleanup`). It has no tracker
+  credentials and reads nothing but its inputs and the repository.
 
 `tests/shared/trackers.bats` checks that every tracker and runner defines its
 interface.
@@ -132,8 +132,8 @@ sequenceDiagram
   **Fetch ticket** (`id: start`) → **Agent (draft and review)** (`id: agent`)
   → **Apply to ticket** (`id: apply`, `status == 'ready'`) or **Send back**
   (`id: return`, any other status) → **Clear progress comment** → **Report
-  failure on ticket** (`if: failure()`). The test harness runs every stage
-  with this shape.
+  failure on ticket** (`if: failure()`) → **Remove agent session files**
+  (`if: always()`). The test harness runs every stage with this shape.
 - Each step sources `lib/load.sh` (the settings, then the tracker — or, for
   the agent step, the agent runner — then `lib/stage.sh` and the stage's
   `stage.sh`) and calls the stage's function for it: `step_fetch`,
@@ -268,7 +268,18 @@ re-running the automated review after changes.
   definition grants a tool), `--setting-sources project` (the repository's
   settings and `CLAUDE.md`, never the runner owner's personal ones), and no hooks or MCP
   servers (`disableAllHooks`, `--strict-mcp-config`), which would run outside
-  the tool rules.
+  the tool rules. Subagents (Claude Code's built-in ones, and any in the
+  repository's `.claude/agents/`) and skills are always available — the tool
+  allowlist doesn't gate them — and run under the same rules: read-only,
+  inside the repository.
+- **Nothing outlives the job.** Claude Code keeps per-session files outside
+  the repository — a temp folder (`/tmp/claude-<uid>/<project>/`) that agents
+  are allowed to read, linking to session records in `~/.claude/projects` —
+  so on a shared runner a later run could read an earlier run's (another
+  ticket's content). Every call runs with `--no-session-persistence` and a
+  session id chosen by the runner, and an `if: always()` step deletes those
+  sessions' folders (`agent_cleanup`), even after a failure, timeout or
+  cancellation. Tests check both.
 - Anything a later run needs to recognise (e.g. the Original Request comment)
   carries a fixed marker from the stage's `settings.sh`, so re-runs are idempotent.
   The prompt treats ticket text and web pages as data, never instructions.
@@ -326,9 +337,9 @@ replace them or show up on other work.
 - **Posts as a person.** The automation acts as the tracker account's user (Jira: `AGENT_HUB_JIRA_EMAIL`); a
   dedicated service account makes its actions distinguishable.
 - **Evals are non-deterministic**, and revisions aren't covered by one yet.
-- **No repository-specific agents yet.** A repository's `CLAUDE.md` is read,
-  but its own subagents and skills aren't used; a supported way to add
-  codebase expertise per stage is planned.
+- **No per-stage codebase expertise yet.** A repository's `CLAUDE.md`, and
+  its own subagents and skills in `.claude/`, are available to every stage;
+  a supported way to give each stage its own experts and skills is planned.
 
 ## Adding a stage
 

@@ -99,6 +99,67 @@ arg() { # value passed to the stub after flag $1
   grep -qx -- --strict-mcp-config "$RUNNER_TEMP/claude-args.txt"
 }
 
+# Security: Claude Code's session files on the runner (its temp folder, which
+# agents can read, and session records) must not outlive the job, or a later
+# run could read this ticket's content.
+uuid='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+
+@test "every Claude call has its own session id and isn't saved; the job removes those sessions' files" {
+  claude_step ready.json
+  assert_success
+  # The draft and the review: two calls, two different ids, both recorded.
+  run cat "$RUNNER_TEMP/agent-sessions"
+  assert_equal "${#lines[@]}" 2
+  assert_regex "${lines[0]}" "$uuid"
+  assert_regex "${lines[1]}" "$uuid"
+  assert_not_equal "${lines[0]}" "${lines[1]}"
+  local draft=${lines[0]} review=${lines[1]}
+  assert_equal "$(arg --session-id)" "$draft"
+  assert_equal "$(grep -A1 -x -- --session-id "$RUNNER_TEMP/claude-review-args.txt" | sed -n 2p)" "$review"
+  grep -qx -- --no-session-persistence "$RUNNER_TEMP/claude-args.txt"
+  grep -qx -- --no-session-persistence "$RUNNER_TEMP/claude-review-args.txt"
+
+  # What Claude Code leaves: a temp folder per session (linking to subagent
+  # records) and session records — plus another job's, which must stay.
+  local other=00000000-0000-4000-8000-000000000000 project=-runner-work-repo
+  mkdir -p "$CLAUDE_TEMP_ROOT/$project/$draft/tasks" "$CLAUDE_TEMP_ROOT/$project/$review/scratchpad" \
+    "$CLAUDE_PROJECTS_ROOT/$project/$draft/subagents" "$CLAUDE_TEMP_ROOT/$project/$other"
+  touch "$CLAUDE_TEMP_ROOT/$project/$draft/tasks/a1.output" "$CLAUDE_PROJECTS_ROOT/$project/$draft/subagents/a1.meta.json" \
+    "$CLAUDE_PROJECTS_ROOT/$project/$review.jsonl" "$CLAUDE_PROJECTS_ROOT/$project/$other.jsonl"
+  run run_step "$STEPS" remove-agent-session-files
+  assert_success
+  assert [ ! -e "$CLAUDE_TEMP_ROOT/$project/$draft" ]
+  assert [ ! -e "$CLAUDE_TEMP_ROOT/$project/$review" ]
+  assert [ ! -e "$CLAUDE_PROJECTS_ROOT/$project/$draft" ]
+  assert [ ! -e "$CLAUDE_PROJECTS_ROOT/$project/$review.jsonl" ]
+  assert [ -d "$CLAUDE_TEMP_ROOT/$project/$other" ]
+  assert [ -f "$CLAUDE_PROJECTS_ROOT/$project/$other.jsonl" ]
+  run tail -1 "$RUNNER_TEMP/log.txt"
+  assert_output "Removed Claude Code's files for 2 session(s)."
+}
+
+@test "session cleanup removes nothing for anything that isn't a session id" {
+  printf '%s\n' '*' '..' '' 'not-a-session' "../$(basename "$BATS_TEST_TMPDIR")" > "$RUNNER_TEMP/agent-sessions"
+  mkdir -p "$CLAUDE_TEMP_ROOT/-p/keep" "$CLAUDE_PROJECTS_ROOT/-p/keep"
+  run run_step "$STEPS" remove-agent-session-files
+  assert_success
+  assert [ -d "$CLAUDE_TEMP_ROOT/-p/keep" ]
+  assert [ -d "$CLAUDE_PROJECTS_ROOT/-p/keep" ]
+  run tail -1 "$RUNNER_TEMP/log.txt"
+  assert_output "Removed Claude Code's files for 0 session(s)."
+}
+
+@test "the session cleanup step runs whatever happened, without tracker credentials" {
+  run node "$TESTS_DIR/lib/workflow.mjs" shape "$WORKFLOW"
+  assert_line "Remove agent session files | id: - | if: always() | env: -"
+}
+
+@test "the session cleanup step does nothing when the checkout failed" {
+  mkdir -p "$BATS_TEST_TMPDIR/empty"
+  STEP_CWD="$BATS_TEST_TMPDIR/empty" run run_step "$STEPS" remove-agent-session-files
+  assert_success
+}
+
 @test "Claude runs with the pinned model, a fallback and a budget cap" {
   claude_step ready.json
   assert_success

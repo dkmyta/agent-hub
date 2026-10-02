@@ -6,3 +6,4 @@ Apply to ticket | id: apply | if: steps.agent.outputs.status == 'ready' | env: J
 Send back | id: return | if: steps.agent.outputs.status != '' && steps.agent.outputs.status != 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
 Clear progress comment | id: - | if: success() || cancelled() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
 Report failure on ticket | id: - | if: failure() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
+Remove agent session files | id: - | if: always() | env: -

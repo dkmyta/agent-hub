@@ -26,13 +26,28 @@
 AGENT_OUTPUT="$RUNNER_TEMP/agent-output.json"
 AGENT_REVIEW="$RUNNER_TEMP/review.json"
 
+# Claude Code keeps per-session files outside the repository: a temp folder
+# (/tmp/claude-<uid>/<project>/<session>) that agents are allowed to read,
+# linking to session records under ~/.claude/projects. On a shared runner a
+# later run could read an earlier one's — another ticket's content — so
+# sessions aren't saved (--no-session-persistence), each gets an id chosen
+# here, and agent_cleanup deletes those sessions' folders when the job ends.
+# The roots can be overridden (the tests do).
+CLAUDE_TEMP_ROOT=${CLAUDE_TEMP_ROOT:-/tmp/claude-$(id -u)}
+CLAUDE_PROJECTS_ROOT=${CLAUDE_PROJECTS_ROOT:-$HOME/.claude/projects}
+AGENT_SESSIONS="$RUNNER_TEMP/agent-sessions"
+SESSION_ID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+
 # Claude's answers hold ticket content, and run logs can be public (they are in
 # public repositories), so they're never printed: logs show only outcomes and
 # counts. The content goes to the ticket.
 
 # _claude <model> <fallback> <budget> <system prompt file> <schema> <prompt> > output
 _claude() {
-  local tools domain
+  local tools domain session
+  session=$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid) | tr 'A-Z' 'a-z')
+  [[ "$session" =~ $SESSION_ID_PATTERN ]] || { echo "::error::Could not create a session id." >&2; exit 1; }
+  echo "$session" >> "$AGENT_SESSIONS"
   # Read-only and scoped to the repository; page fetches only from
   # CLAUDE_FETCH_DOMAINS.
   tools="Read(./**),Grep(./**),Glob(./**),WebSearch"
@@ -42,6 +57,8 @@ _claude() {
   # and shell tools denied outright — allowlists alone don't bind subagents
   # whose definitions grant them.
   claude -p "$6" \
+    --session-id "$session" \
+    --no-session-persistence \
     --setting-sources project \
     --settings '{"disableAllHooks": true}' \
     --strict-mcp-config \
@@ -227,6 +244,24 @@ _fallback_warning() {
        | length > 0 and (index($model) | not)' "$3" > /dev/null 2>&1; then
     echo "::warning title=Fallback model used::$1 wasn't used for the $4 (overloaded, or not supported by Claude Code ${CLAUDE_VERSION:-?} — try \`claude update\` on the runner). The run used the fallback, $2."
   fi
+}
+
+# agent_cleanup: delete the folders Claude Code left for this job's sessions
+# (agent-sessions), in its temp folder and its session records. Only exact
+# session ids are matched, so nothing else is touched. Run by an always()
+# step, so it happens even after a failure, a timeout or a cancellation.
+agent_cleanup() {
+  local session root count=0
+  [ -s "$AGENT_SESSIONS" ] || return 0
+  while read -r session; do
+    [[ "$session" =~ $SESSION_ID_PATTERN ]] || continue
+    for root in "$CLAUDE_TEMP_ROOT" "$CLAUDE_PROJECTS_ROOT"; do
+      [ -d "$root" ] || continue
+      find "$root" -mindepth 2 -maxdepth 2 \( -name "$session" -o -name "$session.jsonl" \) -exec rm -rf {} +
+    done
+    count=$((count + 1))
+  done < "$AGENT_SESSIONS"
+  echo "Removed Claude Code's files for $count session(s)."
 }
 
 # agent_summary <title>: sets the step's `status` output and writes the run
