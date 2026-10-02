@@ -101,6 +101,8 @@ with `stages/implementation-plan/`):
    **Or Send back** (needs clarification) — re-checks the status and the
    transition to Work Order first; comments, labels, moves to **Work Order**.
 5. **Clear progress comment**, or **Report failure** (with the reason).
+6. **Remove agent session files** — always, so nothing from the run stays
+   on the runner.
 
 ## What it produces
 
