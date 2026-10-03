@@ -21,7 +21,7 @@ setup() {
   assert_output "bad.yml: uses Claude on pull_request"
 }
 
-@test "npm test (and so the pre-push hook and CI) doesn't include the evals" {
+@test "npm test (and so CI) doesn't include the evals" {
   run jq -r '.scripts.test' "$TESTS_DIR/package.json"
   refute_output --partial evals
 }
@@ -81,6 +81,36 @@ setup() {
   assert_output --partial "eval budget reached (\$5.2 of \$5)"
   run cat "$RESULTS"
   assert_output --partial "| some-case | | skipped: eval budget reached"
+}
+
+# Every eval case's setup — its ticket, the checkout, the fetch — works,
+# checked without Claude: the case stops before the agent step.
+@test "every eval case's setup works, checked without Claude" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  printf '#!/bin/sh\necho "the real claude was called" >&2; exit 1\n' > "$BATS_TEST_TMPDIR/bin/claude"
+  chmod +x "$BATS_TEST_TMPDIR/bin/claude"
+  cd "$TESTS_DIR" || return 1
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" RUN_EVALS=1 EVALS_SETUP_ONLY=1 run node_modules/.bin/bats */evals
+  assert_success
+  refute_output --partial "the real claude was called"
+  # Every case reached the point just before Claude.
+  assert_equal "$(grep -c '# skip setup checked' <<< "$output")" "$(grep -c '^ok ' <<< "$output")"
+  assert [ "$(grep -c '^ok ' <<< "$output")" -gt 0 ]
+}
+
+# The eval spend total counts each pass once, from whichever outputs exist.
+@test "eval cost: draft and review, a skipped review, a failed draft, an unreadable review" {
+  export RUNNER_TEMP="$BATS_TEST_TMPDIR"
+  out() { echo "{\"total_cost_usd\": $2}" > "$RUNNER_TEMP/$1"; }
+  out agent-draft.json 1.25; out agent-review-output.json 0.5
+  assert_equal "$(eval_cost)" 1.75
+  rm "$RUNNER_TEMP/agent-review-output.json"; out agent-output.json 1.25   # sent back: no review
+  assert_equal "$(eval_cost)" 1.25
+  echo "not json" > "$RUNNER_TEMP/agent-review-output.json"                # the review broke
+  assert_equal "$(eval_cost)" 1.25
+  rm "$RUNNER_TEMP"/agent-draft.json "$RUNNER_TEMP/agent-review-output.json"   # failed before the review
+  out agent-output.json 0.4
+  assert_equal "$(eval_cost)" 0.4
 }
 
 @test "a local eval run needs a typed confirmation: without one, nothing runs" {

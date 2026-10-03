@@ -37,7 +37,9 @@ stateDiagram-v2
 
 - **Plan written** — thorough plans outgrow the tracker's field limit (Jira:
   ~32,000 characters), so the full plan is **attached** as `KEY-implementation-plan.md`
-  (always exactly one; the build stage reads it) and a **summary** goes in
+  (the **newest** such file is always the plan; the build stage reads it —
+  the hub replaces its own earlier uploads, and never deletes a person's) and a
+  **summary** goes in
   the work order's Delivery → Implementation Plan section. The ticket moves to
   Implementation Plan with `needs-human`; `needs-clarification` is removed and
   earlier Needs clarification comments are ✅ Resolved.
@@ -94,11 +96,18 @@ with `stages/implementation-plan/`):
 4. **Apply to ticket** (ready) — re-checks the status; checks the transition (new
    plans) or that every section it changes still exists (revisions) before
    changing anything; renders the plan (with the review's notes) and the
-   summary; checks the description stays under the tracker's limit; then **attaches
-   the new plan → updates the description → removes the previous plan →
-   labels → moves to Implementation Plan (unless revising) → 🔁 reply →
-   resolves comments**, so a failure at any point leaves the ticket
-   consistent.
+   summary; checks the description stays under the tracker's limit and that
+   no newer plan file was uploaded since the run started (a person's edit
+   would otherwise be lost); then **attaches the new plan → updates the
+   description and labels → removes the hub's own earlier plan files (if that
+   fails, only a warning: the newest file is the plan) → moves
+   to Implementation Plan (unless revising) → 🔁 reply → resolves comments**,
+   so a failure part-way leaves a usable ticket — the new plan attached, or
+   nothing changed — and the failure comment says where it stopped. The
+   upload check is repeated after the attachment and after the description
+   update: a person's upload landing then — or a check that can't be made —
+   makes the run remove its own attachment, put the description (and
+   `needs-clarification`) back, and fail — the person's file stays the plan.
    **Or Send back** (needs clarification) — re-checks the status and the
    transition to Work Order first; comments, labels, moves to **Work Order**.
 5. **Clear progress comment**, or **Report failure** (with the reason).
@@ -168,12 +177,16 @@ Shared ones (revisions, failures, retries) are in
 | Situation | Behaviour |
 |---|---|
 | Ticket has no work order | Fails before Claude runs (no Claude usage), with the reason |
+| A plan file uploaded while a run works | Fails before changing anything, with the reason; `/revise` again revises the newest. If it lands while the run publishes, the run takes back its own upload and description change first |
 | Plan misses a criterion, or modifies a file that doesn't exist | Fails; the reason names positions and paths, never ticket text |
 | Work order contradicts the code | Needs clarification, saying what was found — Claude doesn't redefine the scope |
 | Summary too large for the description | Fails with the reason; nothing written |
 | Plan upload fails | Description untouched |
 | Two approvals in quick succession | The newer request cancels the older run |
 | An optional section is absent and a revision adds to it | Inserted in plan order |
+| The plan file has a section a revision changes twice | Fails before changing anything, naming it — which to change would be a guess |
+| The plan file was saved with Windows line endings, or a heading as `## Testing ##` | Read the same (CommonMark headings) |
+| A file to add already exists, or is beneath a link that doesn't resolve | The plan isn't applied; the failure comment names the files (the run log doesn't) |
 
 ## Known gaps
 
@@ -183,6 +196,10 @@ Shared ones (revisions, failures, retries) are in
   editing it means downloading and re-uploading it.
 - **The plan reflects the code when it was written.** If the code changes
   before the build, start over (move back to Work Order Approved).
+- **File paths are checked when the plan is written** (inside the
+  repository, files to change exist, files to add don't); the repository can
+  change before the build, so the build stage (planned) has to check them
+  again when it writes.
 - **Plans and plan revisions use Opus** for both passes — see
   [claude-usage.md](../claude-usage.md).
 - The gaps shared by every stage:
@@ -209,29 +226,34 @@ cost more than work orders.
    Plan status with `needs-human`.
 2. **Change request** — comment `/revise` with a specific change (e.g. "add a
    manual check that every link works"). Expect: "⏳ Revising implementation
-   plan"; still in Implementation Plan; one attachment, with only that change;
+   plan"; still in Implementation Plan; a new attachment with only that change
+   (the hub's previous one removed);
    a 🔁 comment; your comment ✅ Resolved; `needs-human` back.
 3. **Manual edit, then a revision** — download the plan, add a line to one
    section, upload it with the same name (nothing runs); then `/revise` a
    *different* section. Expect: your line is still there, only the requested
-   section changed, exactly one attachment left.
-4. **A research question** — comment `/revise Does the library we use support
+   section changed. Your upload stays on the ticket as a record; the hub's new
+   file is the newest, so it's the plan.
+4. **An upload during a revision** — start a `/revise`, then upload a plan
+   file while it runs. Expect: ❌ "A newer … was uploaded while this run was
+   working", nothing changed; `/revise` again revises your upload.
+5. **A research question** — comment `/revise Does the library we use support
    retries?` Expect: the 🔁 reply answers it with evidence; the plan changes
    only if the answer affects it.
-5. **Needs a decision** — `/revise` asking for something the work order
+6. **Needs a decision** — `/revise` asking for something the work order
    leaves to the product owner (e.g. "also notify customers — decide which
    channel"). Expect: back to Work Order with questions, `needs-clarification`
    and `needs-human`; your comment stays open. Answer, approve again: a new
    plan, both comments resolved.
-6. **Two requests, one run** — post two `/revise` comments a few seconds
+7. **Two requests, one run** — post two `/revise` comments a few seconds
    apart. Expect: the first run is cancelled (its ⏳ comment removed); the
    second handles both.
-7. **Start over** — move Implementation Plan → Work Order Approved. Expect: a
-   fresh plan; still one attachment.
-8. **Work order changed after the plan** — move to Work Order and `/revise` a
+8. **Start over** — move Implementation Plan → Work Order Approved. Expect: a
+   fresh plan, replacing the hub's previous file.
+9. **Work order changed after the plan** — move to Work Order and `/revise` a
    change. Expect: the work order revised, its Implementation Plan section
    saying the attached plan is out of date. Approve: a new plan replaces it.
-9. **Failure and retry** — set `AGENT_HUB_IMPLEMENTATION_PLAN_REVISION_MAX_BUDGET_USD` to `0.01` and
+10. **Failure and retry** — set `AGENT_HUB_IMPLEMENTATION_PLAN_REVISION_MAX_BUDGET_USD` to `0.01` and
    `/revise`. Expect: ❌ with a **Why:** line, `needs-human`, still in
    Implementation Plan. Delete the variable, `/revise` again: a normal
    revision.

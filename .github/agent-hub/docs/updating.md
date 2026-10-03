@@ -40,10 +40,12 @@ stops (`--force` overwrites them).
 
 ## Installing
 
-From the root of the repository to install into, on a new branch:
+From the root of the repository to install into, on a new branch — with
+`vX.Y.Z` replaced by the release you want (the newest is the top entry of
+[CHANGELOG.md](../CHANGELOG.md), and the newest tag):
 
 ```sh
-git clone --depth 1 --branch v1.0.0 https://github.com/dkmyta/agent-hub /tmp/agent-hub
+git clone --depth 1 --branch vX.Y.Z https://github.com/dkmyta/agent-hub /tmp/agent-hub
 /tmp/agent-hub/.github/agent-hub/scripts/update.sh /tmp/agent-hub
 # GitHub Projects as the tracker? Add --with-issue-form.
 ```
@@ -61,7 +63,7 @@ files, commit them, and continue with [setup.md](setup.md) from step 2
 2. From the repository's root, on a new branch:
 
    ```sh
-   git clone --depth 1 --branch v1.1.0 https://github.com/dkmyta/agent-hub /tmp/agent-hub
+   git clone --depth 1 --branch vX.Y.Z https://github.com/dkmyta/agent-hub /tmp/agent-hub
    /tmp/agent-hub/.github/agent-hub/scripts/update.sh /tmp/agent-hub
    ```
 
@@ -114,5 +116,5 @@ In the hub repository, as part of the pull request with the changes:
 After it merges, tag the merge commit and push the tag:
 
 ```sh
-git tag v1.1.0 <merge commit> && git push origin v1.1.0
+git tag vX.Y.Z <merge commit> && git push origin vX.Y.Z
 ```

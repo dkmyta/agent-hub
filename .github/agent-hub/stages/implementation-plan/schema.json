@@ -372,15 +372,22 @@
     },
     "revision_responses": {
       "type": "array",
-      "description": "Only when revising after change requests: one entry per request, saying how it was handled.",
+      "description": "Only when revising after change requests: one entry per request, with its id, saying how it was handled.",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "request_id",
           "request",
           "response"
         ],
         "properties": {
+          "request_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "description": "The id of the change request this answers, as the ticket gives it (\"request 411\" \u2192 \"411\")."
+          },
           "request": {
             "type": "string",
             "minLength": 1,

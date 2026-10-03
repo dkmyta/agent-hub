@@ -44,6 +44,9 @@ tracker_issue() { jira "$ISSUE_URL?fields=$1"; }
 
 tracker_status() { tracker_issue status | jq -r '.fields.status.name'; }
 
+# The automation account's own id (to tell its uploads from people's).
+tracker_account_id() { jira "https://$JIRA_DOMAIN/rest/api/3/myself" | jq -r '.accountId'; }
+
 # Succeeds only while the ticket is in the given status, so a run never writes
 # to a ticket someone has moved on since the run started. Callers use it as
 # `tracker_require_status X || exit 0`, which disables `set -e` inside, so API
@@ -87,7 +90,25 @@ tracker_update_comment() {
 
 tracker_delete_comment() { jira -X DELETE "$ISSUE_URL/comment/$1"; }
 
-tracker_comments() { jira "$ISSUE_URL/comment?maxResults=100"; }
+# All the ticket's comments, oldest first, a page of 100 at a time — so the
+# newest (often a fresh /revise) are never missed. Past 1,000 it stops with an
+# error rather than silently reading only some.
+tracker_comments() {
+  local start=0 page all='[]' total
+  while :; do
+    if [ "$start" -eq 0 ]; then page=$(jira "$ISSUE_URL/comment?maxResults=100")
+    else page=$(jira "$ISSUE_URL/comment?maxResults=100&startAt=$start"); fi || return 1
+    all=$(jq -c --argjson page "$page" '. + $page.comments' <<< "$all")
+    total=$(jq -r '.total // (.comments | length)' <<< "$page")
+    start=$((start + 100))
+    [ "$start" -lt "$total" ] || break
+    if [ "$start" -ge 1000 ]; then
+      echo "::error::$TICKET_KEY has more than 1,000 comments, so they can't all be read." >&2
+      return 1
+    fi
+  done
+  jq -c '{comments: .}' <<< "$all"
+}
 
 # Attach Markdown file $1 to the ticket (a multipart upload; Jira requires the
 # X-Atlassian-Token header). Prints the new attachment's id.

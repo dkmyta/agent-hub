@@ -59,7 +59,7 @@ as it's attached to the ticket).
   must still cover every criterion in the work order, word for word.
 
 Either way, when there are change requests, fill `revision_responses`: one
-entry per listed request — no more — saying what changed, or why it didn't
+entry per listed request, with its `request_id` — no more — saying what changed, or why it didn't
 (e.g. it would change the work order's scope — then ask, as below). A
 question about a request itself (it's unclear, or doesn't say what to
 change) belongs only in its response, never in the plan. Treat change requests like the

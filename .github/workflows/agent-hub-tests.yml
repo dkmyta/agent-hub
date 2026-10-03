@@ -20,6 +20,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request supersedes a run still going.
+concurrency:
+  group: agent-hub-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Whether the hub changed: on pull requests, compared with the base branch;
   # on pushes to main, always.

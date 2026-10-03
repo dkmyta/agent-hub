@@ -59,9 +59,9 @@ render() { # <mode> <heading level>
 }
 
 # Revisions splice updated sections into the attached Markdown.
-splice() { # <updates json>
+splice() { # <updates json> [plan markdown file]
   jq -nr -L "$HUB_LIB" -f "$RENDER" --arg mode splice --arg file "" --argjson level 2 \
-    --rawfile md "$FIXTURES/previous-plan.md" --slurpfile updates <(echo "$1")
+    --rawfile md "${2:-$FIXTURES/previous-plan.md}" --slurpfile updates <(echo "$1")
 }
 
 @test "splice: an updated section replaces its namesake; the rest, and people's edits, stay" {
@@ -82,6 +82,65 @@ splice() { # <updates json>
   assert_line --index 6 "## Dependencies & Configuration"
   assert_line --index 7 "## Testing"
   refute_output --partial "## Risks"
+}
+
+# A "## " line inside a code sample isn't a heading: replacing the section
+# replaces the whole sample, and it's not a section a revision can need.
+@test "splice: headings inside fenced code blocks aren't sections" {
+  local plan="$BATS_TEST_TMPDIR/plan.md"
+  awk '{ print } /^## Testing$/ { print ""; print "```sh"; print "## shell comment"; print "echo OLD"; print "```" }' \
+    "$FIXTURES/previous-plan.md" > "$plan"
+  run splice '{"testing": {"automated": ["echo NEW"], "commands": [], "manual": []}}' "$plan"
+  assert_success
+  refute_output --partial "echo OLD"
+  refute_output --partial "## shell comment"
+  assert_output --partial "echo NEW"
+  # Every fence opened is closed.
+  assert [ $(( $(grep -c '^```' <<< "$output") % 2 )) -eq 0 ]
+  run jq -nr -L "$HUB_LIB" -f "$RENDER" --arg mode missing --arg file "" --argjson level 2 \
+    --rawfile md "$plan" --slurpfile updates <(echo '{"testing": {"automated": [], "commands": [], "manual": []}}')
+  assert_success
+  assert_output "[]"
+}
+
+# CommonMark fences: a longer fence holds shorter ones, and only a bare fence of
+# the same character, at least as long, closes it.
+@test "splice: a four-backtick block holding a shorter fence stays one block" {
+  local plan="$BATS_TEST_TMPDIR/plan.md"
+  awk '{ print } /^## Testing$/ { print ""; print "````md"; print "```sh"; print "## shell comment"; print "```"; print "## still in the block"; print "echo OLD"; print "````" }' \
+    "$FIXTURES/previous-plan.md" > "$plan"
+  run splice '{"testing": {"automated": ["echo NEW"], "commands": [], "manual": []}}' "$plan"
+  assert_success
+  refute_output --partial "echo OLD"
+  refute_output --partial "still in the block"
+  refute_output --partial '````'
+  assert_output --partial "echo NEW"
+}
+
+# A file edited on Windows (CRLF line endings) and headings written with a
+# closing "#" sequence or stray spaces read the same.
+@test "splice: CRLF line endings and '## Testing ##' headings are matched" {
+  local plan="$BATS_TEST_TMPDIR/plan.md"
+  sed -e 's/^## Testing$/##  Testing ##  /' -e 's/$/\r/' "$FIXTURES/previous-plan.md" > "$plan"
+  run splice '{"testing": {"automated": ["echo NEW"], "commands": [], "manual": []}}' "$plan"
+  assert_success
+  assert_output --partial "echo NEW"
+  assert_equal "$(grep -c '^## Testing' <<< "$output")" 1
+  refute_output --partial $'\r'
+}
+
+# Two sections with the name a revision changes: which to change would be a
+# guess, so the run names them instead.
+@test "duplicated sections: a revision's section appearing twice is named" {
+  local plan="$BATS_TEST_TMPDIR/plan.md"
+  { cat "$FIXTURES/previous-plan.md"; printf '\n## Testing\n\nA second one.\n'; } > "$plan"
+  run jq -nr -L "$HUB_LIB" -f "$RENDER" --arg mode duplicated --arg file "" --argjson level 2 \
+    --rawfile md "$plan" --slurpfile updates <(echo '{"testing": {"automated": [], "commands": [], "manual": []}, "estimate": {"size": "S", "reason": "x"}}')
+  assert_success
+  assert_equal "$(jq -c . <<< "$output")" '["Testing"]'
+  run jq -nr -L "$HUB_LIB" -f "$RENDER" --arg mode duplicated --arg file "" --argjson level 2 \
+    --rawfile md "$plan" --slurpfile updates <(echo '{"assumptions": ["x"]}')
+  assert_equal "$(jq -c . <<< "$output")" '[]'
 }
 
 @test "summary patch: only updated parts are re-rendered; the pointer stays last" {

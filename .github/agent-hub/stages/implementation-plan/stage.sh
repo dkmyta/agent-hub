@@ -33,14 +33,21 @@ step_fetch() {
 
   stage_ticket_markdown --with-comments
 
+  # The plan files on the ticket as the run starts, oldest first: a
+  # revision starts from the newest, and apply checks that no newer one
+  # arrived meanwhile and replaces only these.
+  ATTACHMENTS=$(tracker_attachments) \
+    || stage_fail "Couldn't read the ticket's attachments from $TRACKER_NAME, so nothing was changed."
+  jq --arg name "$TICKET_KEY-$PLAN_FILE_SUFFIX" '[.[] | select(.filename == $name)] | sort_by(.created)' \
+    <<< "$ATTACHMENTS" > "$RUNNER_TEMP/plan-attachments.json"
+
   # Revising: Claude starts from the attached plan (the description only
   # has its summary). Without one (e.g. deleted), write a new plan.
   MODE=new
   if [ "$(stage_start_status)" = "$PLAN_STATUS" ]; then
     # The newest one, and who uploaded it when — said in the version
     # line and the 🔁 reply, so a revision of a stale upload is visible.
-    tracker_attachments | jq --arg name "$TICKET_KEY-$PLAN_FILE_SUFFIX" \
-      '[.[] | select(.filename == $name)] | sort_by(.created) | last // {}' > "$RUNNER_TEMP/current-plan-attachment.json"
+    jq '.[-1] // {}' "$RUNNER_TEMP/plan-attachments.json" > "$RUNNER_TEMP/current-plan-attachment.json"
     PLAN_ID=$(jq -r '.id // empty' "$RUNNER_TEMP/current-plan-attachment.json")
     if [ -n "$PLAN_ID" ]; then
       # The attached file is the plan's source of truth: people may have
@@ -64,6 +71,72 @@ step_fetch() {
     stage_progress_comment "⏳ Writing implementation plan" \
       " — usually takes 5–10 minutes. Refresh the page to see the result. "
   fi
+}
+
+# _stop_if_newer_plan [ours] [restore]: fail if a plan file was uploaded
+# since the run started (a person's edit, which an older basis would bury),
+# or if that can't be checked — first taking back this run's upload <ours>
+# and, with <restore>, its description and label change, so the person's
+# file stays the plan.
+_stop_if_newer_plan() {
+  local attachments newer why next done="nothing was changed"
+  if attachments=$(tracker_attachments); then
+    newer=$(jq -r --arg name "$(basename "$PLAN_FILE")" --arg ours "${1:-}" \
+      --slurpfile start "$RUNNER_TEMP/plan-attachments.json" \
+      '[.[] | select(.filename == $name) | .id] - [$start[0][].id] - [$ours] | join(", ")' <<< "$attachments")
+    [ -n "$newer" ] || return 0
+    why="A newer $(basename "$PLAN_FILE") was uploaded while this run was working"
+    next="the run started from an older version. Comment $REVISE_COMMAND to revise the newest one."
+  else
+    why="Couldn't check $TRACKER_NAME for a newer $(basename "$PLAN_FILE") uploaded while this run was working"
+    next="re-run it, or comment $REVISE_COMMAND."
+  fi
+  if [ -n "${1:-}" ]; then
+    if tracker_delete_attachment "$1"; then
+      done="this run's plan was removed again and nothing else was changed"
+    else
+      done="this run's plan couldn't be removed again — delete the newest $(basename "$PLAN_FILE") by hand"
+    fi
+  fi
+  if [ -n "${2:-}" ]; then
+    if tracker_set_description "$(jq -r --arg label "$NEEDS_CLARIFICATION_LABEL" \
+        'if .fields.labels // [] | index($label) then "+" + $label else "" end' "$RUNNER_TEMP/ticket-before.json")" \
+        < "$RUNNER_TEMP/description-before.json"; then
+      case "$done" in
+        *"nothing else was changed") done="${done% and nothing else was changed} and the description put back" ;;
+        *) done="$done; the description was put back" ;;
+      esac
+    else
+      done="$done; the description couldn't be put back — the run's summary is in it"
+    fi
+  fi
+  stage_fail "$why, so $done: $next"
+}
+
+# _plan_path_problem <action> <path>: why the plan can't change this path —
+# "outside the repository" (absolute, "..", or a link leading out of it),
+# "doesn't exist" (a file to modify or delete must be one) or "already exists"
+# (a file to add must be new — not even a link) — or nothing.
+_plan_path_problem() {
+  local path=${2#./} root dir real
+  case "$path" in "" | /* | .. | ../* | */.. | */../*) echo "outside the repository"; return ;; esac
+  root=$(pwd -P)
+  if [ "$1" = add ]; then
+    # A new file: nothing there yet, and the nearest folder that exists
+    # inside — with no link on the way to it (one that doesn't resolve could
+    # lead anywhere once it's created).
+    if [ -e "$path" ] || [ -L "$path" ]; then echo "already exists"; return; fi
+    dir=$(dirname "$path")
+    while [ ! -d "$dir" ]; do
+      if [ -L "$dir" ]; then echo "outside the repository"; return; fi
+      dir=$(dirname "$dir")
+    done
+    real=$(cd "$dir" && pwd -P)
+  else
+    [ -f "$path" ] || { echo "doesn't exist"; return; }
+    if [ -L "$path" ]; then real=$(realpath "$path"); else real=$(cd "$(dirname "$path")" && pwd -P); fi
+  fi
+  case "$real/" in "$root"/*) ;; *) echo "outside the repository" ;; esac
 }
 
 # step_agent: The agent: draft, check, expert review, check, and this stage's own checks.
@@ -93,12 +166,15 @@ step_agent() {
     if [ -n "$MISSING" ]; then
       stage_fail "The plan didn't cover acceptance criteria $MISSING (by position in the work order), so it wasn't applied. Comment $REVISE_COMMAND to try again."
     fi
-    MISSING_FILES=$(jq -r '(.changes // [])[] | select(.action != "add") | .path' "$RUNNER_TEMP/plan-checked.json" \
-      | while read -r FILE; do [ -e "${FILE#./}" ] || echo "$FILE"; done)
-    if [ -n "$MISSING_FILES" ]; then
+    BAD_FILES=$(jq -r '(.changes // [])[] | "\(.action)\t\(.path)"' "$RUNNER_TEMP/plan-checked.json" \
+      | while IFS=$'\t' read -r ACTION FILE; do
+          PROBLEM=$(_plan_path_problem "$ACTION" "$FILE")
+          [ -z "$PROBLEM" ] || echo "$FILE ($PROBLEM)"
+        done)
+    if [ -n "$BAD_FILES" ]; then
       # The paths come from Claude, so they go only on the ticket.
-      stage_fail "The plan changes $(echo "$MISSING_FILES" | wc -l | tr -d ' ') file(s) that don't exist, so it wasn't applied. Comment $REVISE_COMMAND to try again." \
-        "Files: $(echo "$MISSING_FILES" | paste -sd ',' - | sed 's/,/, /g')."
+      stage_fail "The plan names $(echo "$BAD_FILES" | wc -l | tr -d ' ') file(s) it can't change — missing, already there to add, or outside the repository — so it wasn't applied. Comment $REVISE_COMMAND to try again." \
+        "Files: $(echo "$BAD_FILES" | paste -sd ',' - | sed 's/,/, /g')."
     fi
   fi
   agent_summary "Implementation plan"
@@ -126,6 +202,10 @@ step_apply() {
     MISSING_SECTIONS=$(revision_missing_sections "$RUNNER_TEMP/updates.json" "$RUNNER_TEMP/current-plan.md")
     if [ -n "$MISSING_SECTIONS" ]; then
       stage_fail "The revision changes sections the attached plan no longer has: $MISSING_SECTIONS. Nothing was changed. Put the heading(s) back in the file (same name, as a \"## \" heading), upload it with the same name, then comment $REVISE_COMMAND again."
+    fi
+    DUPLICATED_SECTIONS=$(revision_duplicated_sections "$RUNNER_TEMP/updates.json" "$RUNNER_TEMP/current-plan.md")
+    if [ -n "$DUPLICATED_SECTIONS" ]; then
+      stage_fail "The attached plan has more than one section the revision changes: $DUPLICATED_SECTIONS. Nothing was changed. Merge or rename them in the file, upload it with the same name, then comment $REVISE_COMMAND again."
     fi
   else
     jq '.structured_output.plan' "$RUNNER_TEMP/agent-output.json" > "$RUNNER_TEMP/plan.json"
@@ -170,24 +250,46 @@ step_apply() {
       --arg file "$(basename "$PLAN_FILE")" --argjson level 5 "$RUNNER_TEMP/plan.json"
   fi | jq -L "$HUB_DIR/lib" --slurpfile review "$RUNNER_TEMP/review.json" 'include "adf";
         . + [para([em("Expert review: \($review[0].note)")])]' > "$RUNNER_TEMP/plan-summary.json"
-  tracker_issue description \
-    | jq -L "$HUB_DIR/lib" --arg section "$PLAN_SECTION" --slurpfile blocks "$RUNNER_TEMP/plan-summary.json" \
-        'include "adf"; .fields.description | replace_section($section; $blocks[0])' \
+  # The description and labels as they are now are kept, to put back if the
+  # plan can't be published after all (see below).
+  tracker_issue description,labels > "$RUNNER_TEMP/ticket-before.json"
+  jq '.fields.description' "$RUNNER_TEMP/ticket-before.json" > "$RUNNER_TEMP/description-before.json"
+  jq -L "$HUB_DIR/lib" --arg section "$PLAN_SECTION" --slurpfile blocks "$RUNNER_TEMP/plan-summary.json" \
+      'include "adf"; replace_section($section; $blocks[0])' "$RUNNER_TEMP/description-before.json" \
     > "$RUNNER_TEMP/description.json"
   SIZE=$(jq -r -L "$HUB_DIR/lib" 'include "adf"; to_markdown | length' "$RUNNER_TEMP/description.json")
   if [ "$SIZE" -gt "$DESCRIPTION_MAX_CHARS" ]; then
     stage_fail "With the plan summary, the description would be $SIZE characters — over $TRACKER_NAME's limit ($DESCRIPTION_MAX_CHARS) — so nothing was changed. Shorten the work order, or comment $REVISE_COMMAND asking for a shorter plan."
   fi
 
+  # A plan file uploaded since the run started stops the run before
+  # anything changes.
+  _stop_if_newer_plan
+  # The earlier plan files this one replaces: the hub's own uploads only.
+  # A person's upload is never deleted — it stays on the ticket as a
+  # record; the newest file is always the plan.
+  PREVIOUS=""
+  if [ "$(jq length "$RUNNER_TEMP/plan-attachments.json")" -gt 0 ]; then
+    PREVIOUS=$(jq -r --arg me "$(tracker_account_id)" '.[] | select(.author.accountId == $me) | .id' "$RUNNER_TEMP/plan-attachments.json")
+  fi
+
   # Upload the new plan first: if anything fails after this, the ticket
-  # still has a plan. Earlier plans are removed only once the new one
-  # is in place, so the build stage always finds exactly one.
-  PREVIOUS=$(tracker_attachments | jq -r --arg name "$(basename "$PLAN_FILE")" '.[] | select(.filename == $name) | .id')
-  tracker_attach "$PLAN_FILE" > /dev/null
+  # still has a plan. The hub's earlier ones are removed only once the new
+  # one is in place.
+  OURS=$(tracker_attach "$PLAN_FILE")
+  # One can still land while this one publishes: checked again after each
+  # write, and this run's changes taken back.
+  _stop_if_newer_plan "$OURS"
   # Waiting for a person to review and approve the plan; questions answered.
   tracker_set_description "-$NEEDS_CLARIFICATION_LABEL" "+$NEEDS_HUMAN_LABEL" < "$RUNNER_TEMP/description.json"
-  for ATTACHMENT in $PREVIOUS; do tracker_delete_attachment "$ATTACHMENT"; done
-  [ -z "$TRANSITION_ID" ] || tracker_transition "$TRANSITION_ID"
+  _stop_if_newer_plan "$OURS" restore
+  # Cleanup: an earlier file left behind is harmless (the newest is the
+  # plan), so it doesn't stop the run.
+  for ATTACHMENT in $PREVIOUS; do
+    tracker_delete_attachment "$ATTACHMENT" > /dev/null \
+      || echo "::warning::Couldn't remove the hub's earlier plan file (attachment $ATTACHMENT); the newest file is the plan."
+  done
+  [ -z "$TRANSITION_ID" ] || stage_move "$TRANSITION_ID" "$PLAN_STATUS"
 
   # Say how each change request was handled, then mark them and the
   # clarification requests as resolved.
@@ -217,7 +319,7 @@ step_return() {
            | [strong(.question), text(" Why it matters: \(.why) Best answered by: \(.who).")]])])' \
     "$RUNNER_TEMP/agent-output.json" | tracker_comment > /dev/null
   tracker_labels "+$NEEDS_CLARIFICATION_LABEL" "+$NEEDS_HUMAN_LABEL"
-  tracker_transition "$TRANSITION_ID"
+  stage_move "$TRANSITION_ID" "$WORK_ORDER_STATUS"
 
   echo "[$TICKET_KEY]($TICKET_URL) returned to $WORK_ORDER_STATUS as $NEEDS_CLARIFICATION_LABEL." >> "$GITHUB_STEP_SUMMARY"
 }

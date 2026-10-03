@@ -62,14 +62,15 @@ interface.
 
 The ticket model is Jira's REST shape, so a new tracker's adapter maps its own
 data to it: `{fields: {summary, description (ADF), status: {name}, attachment:
-[{id, filename, created, author: {displayName}}]}}`, and comments as
-`{comments: [{id, created, author: {displayName, accountType}, body (ADF)}]}`
+[{id, filename, created, author: {displayName, accountId}}]}}`, and comments as
+`{comments: [{id, created, updated, author: {displayName, accountType, accountId}, body (ADF)}]}`
 (`accountType: "app"` marks the automation's own).
 
 | Function | Does |
 |---|---|
 | `tracker_issue <fields>` | The ticket, with the given fields (comma-separated) |
 | `tracker_status`, `tracker_require_status <status>` | The status name; succeed only in that status |
+| `tracker_account_id` | The automation account's id (`author.accountId` on its comments and attachments) |
 | `tracker_set_description [+label\|-label]...` | Replace the description with the ADF on stdin, changing labels in the same update |
 | `tracker_comments`, `tracker_comment`, `tracker_update_comment <id>`, `tracker_delete_comment <id>` | Read comments; post the ADF on stdin (prints the id); replace; delete |
 | `tracker_labels <+label\|-label>...` | Add and remove labels, in one update |
@@ -218,8 +219,18 @@ the same way (the tracker side, and every path, is in
   fails before changing anything, naming it.
 - **Say what changed.** `revision_responses` → a "🔁 Change requests to the …"
   comment (`stage_revision_reply`); the requests are marked ✅ Resolved
-  (`stage_resolve_revisions`) so later runs leave them out. A request that
-  needs a decision takes the stage's send-back path and stays open.
+  (`stage_resolve_revisions`) so later runs leave them out — only the requests
+  the run read at the start, unchanged since, and answered: each request is
+  given to Claude with its id, and each answer names the id it answers. One
+  added or edited during the run was never seen, and one left unanswered
+  wasn't handled, so each stays open for the next (the log counts the
+  unanswered). A request that needs a decision takes the stage's send-back
+  path and stays open.
+- **People's edits during a run are kept.** A revision replaces only its
+  updated sections of the description as it is when the run writes; if a
+  person edited one of those sections during the run, the run stops,
+  naming it, rather than replace their edit with a revision of the older
+  text.
 - **The workflow decides what's a request, not Claude.** Claude gets the
   comments (minus the automation's own: ⏳, ❌, ✅ Resolved, 🔁) in two
   sections: "Change requests" — exactly the unresolved comments the tracker's rule
@@ -259,24 +270,38 @@ re-running the automated review after changes.
   through a file only the runner's user can read, removed when the step ends.
 - **Downloads are pinned**: third-party binaries are checked against pinned
   checksums, `npm ci` runs with `--ignore-scripts`, and Dependabot keeps actions
-  and packages current.
+  and packages current. The workflows use only GitHub's own actions
+  (`actions/*`), by major version; pin them to commit SHAs if your policy
+  requires it (Dependabot updates SHA pins too).
 - `actions/checkout` with `persist-credentials: false`, and a sparse checkout
   that leaves out recorded test data (`tests/*/fixtures`, `scenarios`, `evals`,
   `expected`), so Claude can't copy a past answer. The evals mirror it.
 - Claude: `--permission-mode dontAsk`, tools limited to
   `Read(./**),Grep(./**),Glob(./**),WebSearch` plus `WebFetch(domain:…)` for an
-  allowlist of documentation sites (no fetching arbitrary URLs, so ticket text
-  can't get repository content sent anywhere), pinned `--model` with
-  `--fallback-model`, and a `--max-budget-usd` cap.
-- Claude isolation: `--disallowedTools "Bash,Write,Edit,NotebookEdit"` (deny
-  rules also bind subagents; an allowlist alone doesn't when a subagent's
-  definition grants a tool), `--setting-sources project` (the repository's
-  settings and `CLAUDE.md`, never the runner owner's personal ones), and no hooks or MCP
-  servers (`disableAllHooks`, `--strict-mcp-config`), which would run outside
-  the tool rules. Subagents (Claude Code's built-in ones, and any in the
-  repository's `.claude/agents/`) and skills are always available — the tool
-  allowlist doesn't gate them — and run under the same rules: read-only,
-  inside the repository.
+  allowlist of documentation sites (no fetching arbitrary URLs), pinned
+  `--model` with `--fallback-model`, and a `--max-budget-usd` cap. Web
+  **search** isn't restricted: its queries, which can contain ticket text,
+  leave the runner — treat web research as deliberate egress.
+- Claude isolation, independent of any settings file: `--restricted`
+  (Claude Code ignores the repository's and the runner owner's settings
+  files, so neither can add permissions or directories, and confines the
+  file tools to the repository; a Claude Code without it stops the run),
+  `--tools "Read,Grep,Glob,WebSearch,WebFetch,Agent,Skill"` (the only
+  built-in tools there are — the allowlist above then scopes them),
+  `--disallowedTools "Bash,Write,Edit,NotebookEdit"` (deny rules also bind
+  subagents; an allowlist alone doesn't when a subagent's definition grants
+  a tool), `--setting-sources project` (the repository's `CLAUDE.md` and
+  agents, never the runner owner's), and no hooks or MCP servers
+  (`disableAllHooks`, `--strict-mcp-config`), which would run outside the
+  tool rules. Subagents (Claude Code's built-in ones, the repository's
+  `.claude/agents/` and extensions') and skills run under the same rules:
+  read-only, inside the repository.
+- **What this guarantees, and what it doesn't.** The agents can't run
+  commands, write files, read outside the repository, or fetch pages outside
+  the allowlist. Web search queries do leave the runner (above). The tests
+  check that every pass gets these flags; Claude Code enforces them, so
+  check a Claude Code upgrade with the evals ([evals.md](evals.md)) before
+  relying on it.
 - **Nothing outlives the job.** Claude Code keeps per-session files outside
   the repository — a temp folder (`/tmp/claude-<uid>/<project>/`) that agents
   are allowed to read, linking to session records in `~/.claude/projects` —
@@ -284,12 +309,18 @@ re-running the automated review after changes.
   ticket's content). Every call runs with `--no-session-persistence` and a
   session id chosen by the runner, and an `if: always()` step deletes those
   sessions' folders (`agent_cleanup`), even after a failure, timeout or
-  cancellation. Tests check both.
+  cancellation. Tests check both. The one case it can't cover is the runner
+  machine itself going down mid-job: then the folders stay until deleted by
+  hand ([runners.md](runners.md#clearing-old-session-files-one-time-for-runners-set-up-before-this-was-fixed)
+  shows how).
 - Anything a later run needs to recognise (e.g. the Original Request comment)
   carries a fixed marker from the stage's `settings.sh`, so re-runs are idempotent.
   The prompt treats ticket text and web pages as data, never instructions.
-- The agent step fails unless the output is complete and valid for its
-  status (some jq versions treat empty input as success — check for output explicitly).
+- The agent step fails unless the output has a status and that status's
+  content (some jq versions treat empty input as success — check for output
+  explicitly). The output's full shape is enforced by Claude Code's
+  `--json-schema`, not checked again by the hub; each stage adds its own
+  checks of what matters (e.g. every acceptance criterion covered).
 
 ### Visibility
 - A progress comment ("⏳ …" with a link to the run) while the run is active,
@@ -330,10 +361,23 @@ replace them or show up on other work.
 
 ## Known gaps (every stage)
 
+- **A change in the last seconds before a write can still be overwritten.**
+  Each stage checks for edits, uploads and new requests just before it
+  writes — the plan stage after each write too — and stops, changing
+  nothing (or taking back its own writes), when it finds one. Jira can't
+  refuse a write that comes after someone else's change, so a change
+  landing between the last check and the write isn't seen: a plan file
+  uploaded then is still the newest, so it's the plan, but the summary
+  describes the run's; a description edit then can be replaced by the
+  run's (or, after a conflict, by the description put back).
+- **No lock across stages.** Each stage runs one at a time per ticket, and
+  checks the ticket's status before writing, but two stages' runs aren't
+  kept apart, and a ticket moved away and back during a run looks
+  unchanged.
 - **No automatic retries** for transient tracker or Claude errors — comment
   `/revise` to retry.
-- **Only the first 100 comments** on a ticket are read (for Claude and for
-  resolving).
+- **More than 1,000 comments** on a ticket stops a run, with a clear error,
+  rather than reading only some.
 - **Anyone who can comment can start a run** with `/revise` — restrict it in
   the tracker's rule if needed (Jira: [jira.md](jira.md#rule-revision-requested)).
 - **Expired credentials fail quietly.** An expired tracker token also stops the

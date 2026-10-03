@@ -1,10 +1,20 @@
 [
   {
+    "id": "8003",
+    "filename": "PROJ-99-implementation-plan.md",
+    "created": "2026-09-30T08:00:00.000+0000",
+    "author": {
+      "displayName": "Agent hub",
+      "accountId": "agent-hub-bot"
+    }
+  },
+  {
     "id": "8001",
     "filename": "PROJ-99-implementation-plan.md",
     "created": "2026-09-30T09:00:00.000+0000",
     "author": {
-      "displayName": "Dana Lead"
+      "displayName": "Dana Lead",
+      "accountId": "dana-lead"
     }
   },
   {

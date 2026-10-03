@@ -257,7 +257,8 @@ label by hand if it matters (e.g. for a `needs-human` filter).
 The account behind `AGENT_HUB_JIRA_EMAIL`: Browse Projects, Edit work items, Transition
 work items, Add comments, Delete own comments, Edit all comments (to resolve
 the rule's comments), Create attachments, Delete own attachments (to replace
-plans). In team-managed projects the Member role has these by default. Use a
+its own earlier plan files; a person's upload is never deleted, so Delete all
+attachments isn't needed). In team-managed projects the Member role has these by default. Use a
 dedicated service account.
 
 ## Checklist for a new installation

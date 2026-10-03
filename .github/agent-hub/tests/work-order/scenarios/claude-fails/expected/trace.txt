@@ -10,5 +10,6 @@ Remove agent session files: success
 GET ?fields=summary,description,status
 GET /comment?maxResults=100
 POST /comment — comment: ⏳ Generating work order
+GET ?fields=status
 PUT /comment/5001 — comment: ❌ Work order generation failed
 PUT  — {"update":{"labels":[{"add":"needs-human"}]}}

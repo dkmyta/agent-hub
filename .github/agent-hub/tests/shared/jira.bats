@@ -55,6 +55,31 @@ with_jira() {
 {"path":"?notifyUsers=true","body":{"fields":{"description":{"type":"doc"}}}}'
 }
 
+# Comments come a page of 100 at a time; the newest (often a fresh /revise)
+# must never be missed, and too many to read is an error, not a silent cut.
+comment_page() { # <first id> <count> <total>
+  jq -nc --argjson first "$1" --argjson n "$2" --argjson total "$3" \
+    '{total: $total, comments: [range($first; $first + $n) | {id: tostring}]}'
+}
+
+@test "comments: every page is read" {
+  comment_page 1 100 150 > "$BATS_TEST_TMPDIR/page1.json"
+  comment_page 101 50 150 > "$BATS_TEST_TMPDIR/page2.json"
+  COMMENTS_FIXTURE="$BATS_TEST_TMPDIR/page1.json" COMMENTS_PAGE2_FIXTURE="$BATS_TEST_TMPDIR/page2.json" \
+    run with_jira PROJ-1 'tracker_comments | jq -c "[.comments | length, .[-1].id]"'
+  assert_output '[150,"150"]'
+  run jq -r .path "$CALLS"
+  assert_output $'/comment?maxResults=100\n/comment?maxResults=100&startAt=100'
+}
+
+@test "comments: more than 1,000 stops with an error instead of reading only some" {
+  comment_page 1 100 1500 > "$BATS_TEST_TMPDIR/page.json"
+  COMMENTS_FIXTURE="$BATS_TEST_TMPDIR/page.json" COMMENTS_PAGE2_FIXTURE="$BATS_TEST_TMPDIR/page.json" \
+    run with_jira PROJ-1 'tracker_comments > /dev/null || echo failed'
+  assert_output --partial "more than 1,000 comments"
+  assert_line failed
+}
+
 # The real jira() with a fake curl that records its arguments and the config
 # file it was given (no mock-jira here).
 @test "credentials reach curl through a private file, never its command line" {

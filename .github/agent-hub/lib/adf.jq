@@ -109,6 +109,17 @@ def is_command($cmd):
   | ascii_downcase | sub("^\\s+"; "") as $t
   | $c != "" and ($t | startswith($c)) and ($t[($c | length):] | test("^(\\s|$)"));
 
+# Whether a comment is the automation's own: posted by an app (a tracker rule),
+# or one of the workflows' progress (⏳), failure (❌), resolved (✅) or reply
+# (🔁) comments.
+def automation_comment:
+  (.author.accountType == "app") or (.body | first_text | test("^(⏳|❌|✅ Resolved|🔁)"));
+
+# Whether a comment is a person's change request: not the automation's own,
+# and starting with the command word $cmd. The one rule for both what the agent
+# is given and what's marked resolved afterwards.
+def change_request($cmd): (automation_comment | not) and (.body | first_text | is_command($cmd));
+
 # --- ADF → Markdown ---------------------------------------------------------
 
 def md_inline:

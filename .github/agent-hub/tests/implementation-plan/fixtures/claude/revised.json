@@ -17,10 +17,12 @@
     "status": "ready",
     "revision_responses": [
       {
+        "request_id": "511",
         "request": "Keep the README change to one short section",
         "response": "Merged the steps into a single README section."
       },
       {
+        "request_id": "511",
         "request": "Manual check that every link resolves",
         "response": "Added a manual check to Testing."
       }
@@ -28,7 +30,7 @@
     "updates": {
       "testing": {
         "automated": [
-          "None \u2014 this is a documentation-only change and adds no code, so no new automated tests are needed. The repository's local pre-push hook (`npm test --prefix tests`) only triggers on changes under .github/ or tests/ (see .pre-commit-config.yaml line 59), which this change doesn't touch."
+          "None — this is a documentation-only change and adds no code, so no new automated tests are needed. The repository's local pre-push hook (`npm test --prefix tests`) only triggers on changes under .github/ or tests/ (see .pre-commit-config.yaml line 59), which this change doesn't touch."
         ],
         "commands": [
           "pre-commit run --all-files (formatting/whitespace/EOF checks on the touched Markdown files; actionlint/shellcheck/tests hooks won't fire since no .github/ or tests/ file changed)"

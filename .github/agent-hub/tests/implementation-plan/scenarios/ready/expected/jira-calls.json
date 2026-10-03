@@ -10,6 +10,11 @@
     "body": null
   },
   {
+    "method": "GET",
+    "path": "?fields=attachment",
+    "body": null
+  },
+  {
     "method": "POST",
     "path": "/comment",
     "body": {
@@ -63,7 +68,7 @@
   },
   {
     "method": "GET",
-    "path": "?fields=description",
+    "path": "?fields=description,labels",
     "body": null
   },
   {
@@ -77,6 +82,11 @@
     "body": {
       "upload": "PROJ-99-implementation-plan.md"
     }
+  },
+  {
+    "method": "GET",
+    "path": "?fields=attachment",
+    "body": null
   },
   {
     "method": "PUT",
@@ -1565,6 +1575,11 @@
         ]
       }
     }
+  },
+  {
+    "method": "GET",
+    "path": "?fields=attachment",
+    "body": null
   },
   {
     "method": "POST",

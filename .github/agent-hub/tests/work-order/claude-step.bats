@@ -97,6 +97,23 @@ arg() { # value passed to the stub after flag $1
   assert_equal "$(arg --setting-sources)" project
   assert_equal "$(arg --settings)" '{"disableAllHooks": true}'
   grep -qx -- --strict-mcp-config "$RUNNER_TEMP/claude-args.txt"
+  # Whatever the repository's settings say: restricted mode (no settings
+  # files, file tools confined to the repository) and only these tools —
+  # for the review as well as the draft.
+  local args
+  for args in claude-args.txt claude-review-args.txt; do
+    grep -qx -- --restricted "$RUNNER_TEMP/$args"
+    assert_equal "$(grep -A1 -x -- --tools "$RUNNER_TEMP/$args" | sed -n 2p)" "Read,Grep,Glob,WebSearch,WebFetch,Agent,Skill"
+  done
+}
+
+@test "a Claude Code without restricted mode stops the run before Claude runs" {
+  export CLAUDE_NO_RESTRICTED=1
+  claude_step ready.json
+  assert_failure
+  [ ! -e "$RUNNER_TEMP/claude-args.txt" ]
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "has no restricted mode, which keeps the agents inside the repository"
 }
 
 # Security: Claude Code's session files on the runner (its temp folder, which

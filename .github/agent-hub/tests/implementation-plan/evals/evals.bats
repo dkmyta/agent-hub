@@ -43,7 +43,7 @@ run_eval() { # <case>
   eval_budget_check "$1"
   use_run_env "$BATS_TEST_TMPDIR"
   export TICKET_KEY=EVAL-1 MOCK_STATUS="Work Order Approved" TICKET_FIXTURE="$BATS_TEST_TMPDIR/eval-ticket.json"
-  export COMMENTS_FIXTURE="$FIXTURES/comments-none.json"
+  export COMMENTS_FIXTURE=""  # no comments
   jq -L "$HUB_LIB" -f "$HUB_DIR/stages/work-order/render.jq" "$dir/work-order.json" \
     | jq --arg title "$TITLE" '{fields: {summary: $title, description: .}}' > "$TICKET_FIXTURE"
 

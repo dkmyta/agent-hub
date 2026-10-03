@@ -28,7 +28,8 @@ exactly the draft's format) and `review` (what you did).
 3. **Check change requests.** If the ticket lists change requests (its
    "Change requests" section), every one must be handled in the result, and
    `result.revision_responses` must have exactly one accurate entry per
-   listed request — none for "Other comments". When
+   listed request, with that request's `request_id` — none for "Other
+   comments". A request left without one stays open. When
    revising, anything the requests didn't touch should be unchanged unless it
    was wrong.
 4. **Check the decision.** If the draft's outcome is wrong — it proceeds when a

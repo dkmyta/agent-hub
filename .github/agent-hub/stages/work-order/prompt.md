@@ -41,7 +41,7 @@ revising the one in the description.
   stages; never change them.
 
 Either way, when there are change requests, fill `revision_responses`: one
-entry per listed request — no more — saying what changed, or why it didn't
+entry per listed request, with its `request_id` — no more — saying what changed, or why it didn't
 (out of scope, or it needs a decision only the requester can make — then
 also add that decision to `open_questions`). A question about a request
 itself (it's unclear, or doesn't say what to change) belongs only in its

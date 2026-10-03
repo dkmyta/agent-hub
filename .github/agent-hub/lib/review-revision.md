@@ -12,7 +12,8 @@ them applied. The ticket's current version may include people's own edits.
   test, a criterion without coverage, a summary that no longer matches) —
   fix it by adding that section to `updates`.
 - Check every listed change request is handled and `revision_responses`
-  says accurately how — one entry each, none for other comments — and that
+  says accurately how — one entry each, with its `request_id`, none for
+  other comments — and that
   nothing about the requests themselves (e.g. "the request was unclear")
   was added to the document.
 - Don't rewrite sections the change doesn't affect, even to improve them:
