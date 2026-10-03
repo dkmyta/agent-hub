@@ -35,6 +35,14 @@ revision_missing_sections() {
     --rawfile md "$2" --slurpfile updates "$1" | jq -r 'map("\"\(.)\"") | join(", ")'
 }
 
+# revision_duplicated_sections <updates.json> <current plan.md>: the headings
+# of sections the revision changes that the file has more than once,
+# comma-separated; nothing if none.
+revision_duplicated_sections() {
+  jq -nr -L "$HUB_DIR/lib" -f "$STAGE_DIR/render.jq" --arg mode duplicated --arg file "" --argjson level 2 \
+    --rawfile md "$2" --slurpfile updates "$1" | jq -r 'map("\"\(.)\"") | join(", ")'
+}
+
 # revision_summary <updates.json> <plan file name> < description.json: the
 # blocks for the description's Implementation Plan section, with only the
 # updated parts of the summary re-rendered.

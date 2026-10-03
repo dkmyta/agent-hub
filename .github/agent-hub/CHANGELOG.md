@@ -5,6 +5,60 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.0.1 — 2026-10-03
+
+Fixes from a review of the existing stages: runs no longer act on things
+that changed while they worked, and the agents' limits no longer depend on
+the repository's settings.
+
+- **A person's plan upload is never lost or deleted.** A revision stops,
+  changing nothing, if a newer plan file was uploaded while it worked; if
+  one lands while it publishes, or the check itself fails, it takes back its
+  own upload and description change. The hub deletes only its own earlier
+  plan files, so `Delete own attachments` is enough; failing to remove one
+  is a warning, not a stopped run (the newest file is the plan).
+- **People's edits during a run are kept.** A work-order revision stops,
+  naming the section, if a person edited a section it changes while it
+  worked.
+- **Only requests the agent saw and answered are marked resolved.** Each
+  request goes to Claude with its id and each answer names it; a `/revise`
+  added or edited during a run, or left unanswered, stays open for the next
+  one. What counts as a request is one rule for the prompt and for
+  resolving.
+- **The agents' limits hold whatever the repository's settings say:**
+  Claude Code runs in restricted mode (no settings file can add permissions
+  or directories; file tools confined to the repository) with an explicit
+  list of tools.
+- **Failure notices are accurate:** they name the ticket's current status, add
+  `needs-human` only while the ticket is still the stage's, and are posted as
+  a new comment if the progress comment is gone. A failure resolving comments
+  now fails the run instead of passing unnoticed.
+- **Every comment is read**, a page at a time (more than 1,000 stops with a
+  clear error) — the newest were missed past 100.
+- Plan files: `## ` lines inside code blocks (CommonMark fences) no longer
+  split sections; Windows line endings and `## Testing ##` headings read the
+  same; a section a revision changes appearing twice stops the run. Plan
+  file paths must stay inside the repository, and a file to add must not
+  exist yet (not even as a link) nor sit beneath a link that doesn't
+  resolve. A request using "Overview" or "Scope" as headings is no longer
+  mistaken for an existing work order.
+- Evals: the work-order cases' setup is fixed, each case's setup is now
+  checked in CI without Claude, and the spend total no longer drops a
+  draft's cost when there's no review.
+- Tests: the Jira mock fails on unexpected requests, follows transitions and
+  can fail any call from its Nth time; variants of a scenario replace
+  near-copies; every stage must be in the test suite. CI cancels superseded
+  runs.
+- Docs: install commands no longer name old releases; security claims say
+  exactly what's enforced and what isn't (web search queries leave the
+  runner; changes in the last seconds before a write; no lock across
+  stages).
+
+**Updating:** the runner needs a Claude Code with restricted mode (`claude
+--help` lists `--restricted`); without it, runs stop and say so. On
+GitHub-hosted runners, an `AGENT_HUB_CLAUDE_CODE_VERSION` pinned to an older
+version needs raising.
+
 ## 2.0.0 — 2026-10-02
 
 Preparation for the next stages: consistent settings, fewer Jira updates,

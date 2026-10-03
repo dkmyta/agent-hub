@@ -49,6 +49,7 @@ run_eval() { # <case>
   eval_budget_check "$1"
   use_run_env "$BATS_TEST_TMPDIR"
   export TICKET_KEY=EVAL-1 MOCK_STATUS="Work Order" TICKET_FIXTURE="$BATS_TEST_TMPDIR/eval-ticket.json"
+  export COMMENTS_FIXTURE=""  # no comments
   jq -Rn --arg title "$TITLE" '{fields: {summary: $title, description: {type: "doc", version: 1,
     content: [inputs | select(length > 0) | {type: "paragraph", content: [{type: "text", text: .}]}]}}}' \
     < "$dir/description.txt" > "$TICKET_FIXTURE"

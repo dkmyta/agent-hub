@@ -159,25 +159,37 @@ run_stage() {
   step "Remove agent session files" remove-agent-session-files  # always()
 }
 
-# run_scenario <name> [--full]
+# writes: the run's Jira writes, one "METHOD path" per line.
+writes() { jq -r 'select(.method != "GET") | "\(.method) \(.path)"' "$CALLS"; }
+
+# failure_notice: the failure notice on the progress comment, as ADF JSON.
+failure_notice() { jq -r 'select(.path == "/comment/5001" and .method == "PUT") | .body.body | tostring' "$CALLS"; }
+
+# run_scenario <name> [--full | VAR=value...]
 # Runs $SUITE_DIR/scenarios/<name>/scenario.env through the workflow and
-# snapshots a trace of step results and Jira calls. --full also snapshots every
+# snapshots a trace of step results and Jira calls. VAR=value runs a variant
+# of the scenario — those settings on top of its own — without a snapshot:
+# the test asserts what the variant changes, rather than near-copies of a
+# scenario and its snapshot. --full also snapshots every
 # Jira request body and the run summary (kept to the two "ready" paths, so a
 # layout change updates a few snapshots, not all of them). Claude's prompts
 # aren't snapshotted: the agent-step tests check what matters in them. Every
 # document sent to Jira must be valid ADF.
 run_scenario() {
-  local full=${2:-} dir="$SUITE_DIR/scenarios/$1" var
-  export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" CLAUDE_FIXTURE=none CANCEL_AFTER=""
+  local full="" dir="$SUITE_DIR/scenarios/$1" var overrides=() arg
+  shift
+  for arg in "$@"; do case "$arg" in --full) full=--full ;; *) overrides+=("$arg") ;; esac; done
+  export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" MOCK_FAIL_FROM="" CLAUDE_FIXTURE=none CANCEL_AFTER=""
   export CLAUDE_REVIEW_FIXTURE=approve CLAUDE_REVIEW_EXIT=0 CLAUDE_FIXTURE_EDIT="" CLAUDE_REVIEW_FIXTURE_EDIT=""
-  export TICKET_FIXTURE=tickets/ready.json COMMENTS_FIXTURE=comments-none.json
-  export TRANSITIONS_FIXTURE=transitions.json ATTACHMENTS_FIXTURE="" ATTACHMENT_CONTENT_FIXTURE=""
+  export TICKET_FIXTURE=tickets/ready.json TICKET_LATER_FIXTURE="" COMMENTS_FIXTURE="" COMMENTS_LATER_FIXTURE=""
+  export TRANSITIONS_FIXTURE=transitions.json ATTACHMENTS_FIXTURE="" ATTACHMENTS_LATER_FIXTURE="" ATTACHMENTS_LATER_FROM="" ATTACHMENT_CONTENT_FIXTURE=""
   set -a  # scenario.env overrides the defaults above
   # shellcheck source=/dev/null
   source "$dir/scenario.env"
   set +a
-  for var in TICKET_FIXTURE COMMENTS_FIXTURE TRANSITIONS_FIXTURE CLAUDE_FIXTURE ATTACHMENTS_FIXTURE ATTACHMENT_CONTENT_FIXTURE CLAUDE_REVIEW_FIXTURE; do
-    case "${!var}" in none | approve | "") ;; *) export "$var=$FIXTURES/${!var}" ;; esac
+  for arg in "${overrides[@]}"; do export "${arg?}"; done
+  for var in TICKET_FIXTURE TICKET_LATER_FIXTURE COMMENTS_FIXTURE COMMENTS_LATER_FIXTURE TRANSITIONS_FIXTURE CLAUDE_FIXTURE ATTACHMENTS_FIXTURE ATTACHMENTS_LATER_FIXTURE ATTACHMENT_CONTENT_FIXTURE CLAUDE_REVIEW_FIXTURE; do
+    case "${!var}" in none | approve | "" | /*) ;; *) export "$var=$FIXTURES/${!var}" ;; esac
   done
 
   # Variants of a recorded output are the recording plus a jq edit, rather
@@ -196,7 +208,8 @@ run_scenario() {
   if [ -n "$CANCEL_AFTER" ] && [ ! -f "$STEPS/$CANCEL_AFTER.sh" ]; then
     fail "CANCEL_AFTER=$CANCEL_AFTER: no such step in the stage workflow"
   fi
-  use_run_env "$BATS_TEST_TMPDIR"
+  # Each run starts clean (a fresh RUNNER_TEMP), so a test can run several.
+  use_run_env "$(mktemp -d "$BATS_TEST_TMPDIR/run.XXXXXX")"
   run_stage > "$RUNNER_TEMP/trace.txt"
   {
     echo "--- Jira calls"
@@ -208,7 +221,7 @@ run_scenario() {
         elif .body then " — \(.body | tostring)"
         else "" end)' "$CALLS"
   } >> "$RUNNER_TEMP/trace.txt"
-  assert_snapshot "$dir/expected/trace.txt" "$RUNNER_TEMP/trace.txt"
+  [ "${#overrides[@]}" -gt 0 ] || assert_snapshot "$dir/expected/trace.txt" "$RUNNER_TEMP/trace.txt"
 
   if [ "$full" = --full ]; then
     jq -s . "$CALLS" > "$RUNNER_TEMP/jira-calls.json"
@@ -240,21 +253,41 @@ eval_budget_check() {
 }
 
 # eval_claude_step <steps dir>: the agent step with the real Claude, adding
-# what it cost to the run's total whether it passed or not.
+# what it cost to the run's total whether it passed or not. With
+# EVALS_SETUP_ONLY=1 the case stops here, before any Claude usage, having
+# checked its setup and the ticket fetch (the tests run every case this way).
 eval_claude_step() {
-  local status=0 outputs=()
+  local status=0
+  [ "${EVALS_SETUP_ONLY:-}" != 1 ] || skip "setup checked (EVALS_SETUP_ONLY)"
   REAL_CLAUDE=1 run_step "$1" agent || status=$?
   # As the workflow does after every run: remove the sessions' files.
   run_step "$1" remove-agent-session-files || true
   if [ -n "${EVALS_SPENT_FILE:-}" ]; then
-    # The draft is moved aside when the review starts; count both passes.
-    if [ -e "$RUNNER_TEMP/agent-draft.json" ]; then
-      outputs=("$RUNNER_TEMP/agent-draft.json" "$RUNNER_TEMP/agent-review-output.json")
-    else
-      outputs=("$RUNNER_TEMP/agent-output.json")
-    fi
-    jq -s --argjson spent "$(cat "$EVALS_SPENT_FILE")" '$spent + (map(.total_cost_usd // 0) | add // 0)' \
-      "${outputs[@]}" > "$EVALS_SPENT_FILE.new" 2>/dev/null && mv "$EVALS_SPENT_FILE.new" "$EVALS_SPENT_FILE"
+    eval_add_cost "$(eval_cost)"
   fi
   return "$status"
+}
+
+# eval_cost: what this case's passes cost. The draft is moved aside when a
+# review starts, and a draft that sends the ticket back has no review; each
+# pass's output is counted once, from whichever exist, and an unreadable one
+# counts as 0 rather than losing the others.
+eval_cost() {
+  local file total=0 cost
+  if [ -e "$RUNNER_TEMP/agent-draft.json" ]; then
+    set -- "$RUNNER_TEMP/agent-draft.json" "$RUNNER_TEMP/agent-review-output.json"
+  else
+    set -- "$RUNNER_TEMP/agent-output.json"
+  fi
+  for file; do
+    cost=$(jq -r '.total_cost_usd // 0' "$file" 2> /dev/null) || cost=0
+    total=$(jq -n --argjson a "$total" --argjson b "${cost:-0}" '$a + $b')
+  done
+  echo "$total"
+}
+
+# eval_add_cost <dollars>: add to the run's total.
+eval_add_cost() {
+  jq -n --argjson spent "$(cat "$EVALS_SPENT_FILE")" --argjson cost "$1" '$spent + $cost' > "$EVALS_SPENT_FILE.new" \
+    && mv "$EVALS_SPENT_FILE.new" "$EVALS_SPENT_FILE"
 }

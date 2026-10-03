@@ -9,6 +9,7 @@ Remove agent session files: success
 --- Jira calls
 GET ?fields=summary,description,status
 GET /comment?maxResults=100
+GET ?fields=attachment
 POST /comment — comment: ⏳ Writing implementation plan
 GET ?fields=status
 DELETE /comment/5001

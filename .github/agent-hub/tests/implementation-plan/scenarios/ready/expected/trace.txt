@@ -9,13 +9,16 @@ Remove agent session files: success
 --- Jira calls
 GET ?fields=summary,description,status
 GET /comment?maxResults=100
+GET ?fields=attachment
 POST /comment — comment: ⏳ Writing implementation plan
 GET ?fields=status
 GET /transitions
-GET ?fields=description
+GET ?fields=description,labels
 GET ?fields=attachment
 POST /attachments — {"upload":"PROJ-99-implementation-plan.md"}
+GET ?fields=attachment
 PUT ?notifyUsers=true — description: 21 headings, labels: [{"remove":"needs-clarification"},{"add":"needs-human"}]
+GET ?fields=attachment
 POST /transitions — {"transition":{"id":"31"}}
 GET /comment?maxResults=100
 PUT /comment/501 — comment: ✅ Resolved

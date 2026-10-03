@@ -67,19 +67,22 @@ stage_start_status() { cat "$RUNNER_TEMP/start-status" 2>/dev/null || echo "${1:
 # as the first word; resolved ones are already left out) — and "Other
 # comments", which are background. The workflow decides what's a request, not
 # Claude, so every stage and model treats the same comments the same way.
+# The comments are kept as read (comments-seen.json): only those can be
+# marked resolved afterwards — never one that arrived, or was edited, after the
+# agent saw them.
 stage_ticket_markdown() {
   local comments='{"comments": []}'
   [ "${1:-}" = --with-comments ] && comments=$(tracker_comments)
+  printf '%s\n' "$comments" > "$RUNNER_TEMP/comments-seen.json"
   jq -r -L "$HUB_DIR/lib" --argjson all "$comments" --arg command "${REVISE_COMMAND:-}" 'include "adf";
     def entry: "**\(.author.displayName // "Someone")** (\(.created[0:10])):\n\(.body | to_markdown)";
+    def request: "**\(.author.displayName // "Someone")** (\(.created[0:10]), request \(.id)):\n\(.body | to_markdown)";
     def section($title): if length > 0 then "\n\($title):\n\n" + join("\n\n---\n\n") else empty end;
-    [$all.comments[]
-      | select(.author.accountType != "app")
-      | select(.body | first_text | test("^(⏳|❌|✅ Resolved|🔁)") | not)] as $people
+    [$all.comments[] | select(automation_comment | not)] as $people
     | "Key: \(env.TICKET_KEY)\nTitle: \(.fields.summary)\n\nDescription:\n\(.fields.description | to_markdown)",
-      ([$people[] | select(.body | first_text | is_command($command)) | entry]
-        | section("Change requests (comments starting with \($command); answer each one)")),
-      ([$people[] | select(.body | first_text | is_command($command) | not) | entry]
+      ([$people[] | select(change_request($command)) | request]
+        | section("Change requests (comments starting with \($command); answer each one, by its request id)")),
+      ([$people[] | select(change_request($command) | not) | entry]
         | section("Other comments (background only; not change requests, even if they mention \($command))"))' \
     "$RUNNER_TEMP/ticket.json" > "$RUNNER_TEMP/ticket.md"
 }
@@ -99,26 +102,38 @@ stage_clear_progress() {
   tracker_delete_comment "$(cat "$RUNNER_TEMP/progress-comment-id")"
 }
 
-# stage_report_failure <title> <status>: turn the progress comment into the
-# failure notice (or post one if the run failed before it existed), with the
-# reason when a step gave one (stage_fail), saying how to retry from the ticket, and
-# add NEEDS_HUMAN_LABEL: a person has to act.
+# stage_move <transition id> <status>: move the ticket, and remember where to
+# (moved-to), so a failure later in the run is reported accurately.
+stage_move() {
+  tracker_transition "$1"
+  echo "$2" > "$RUNNER_TEMP/moved-to"
+}
+
+# stage_report_failure <title> <start status>: turn the progress comment into
+# the failure notice (or post one if there's no progress comment — never
+# posted, or already gone), with the reason when a step gave one (stage_fail)
+# and how to retry, naming the status the ticket is in now. Adds
+# NEEDS_HUMAN_LABEL — a person has to act — only while the ticket is where the
+# run started or moved it; a ticket a person has moved on isn't relabelled.
 stage_report_failure() {
-  local body
-  body=$(jq -n -L "$HUB_DIR/lib" --arg title "$1" --arg status "$2" --arg run "$RUN_URL" \
+  local body current moved
+  current=$(tracker_status 2> /dev/null) || current=$2
+  moved=$(cat "$RUNNER_TEMP/moved-to" 2> /dev/null || true)
+  body=$(jq -n -L "$HUB_DIR/lib" --arg title "$1" --arg status "$current" --arg run "$RUN_URL" \
     --rawfile reason <(cat "$RUNNER_TEMP/failure-reason" 2>/dev/null) 'include "adf";
     doc((if ($reason | rtrimstr("\n")) != "" then [para([strong("Why: "), text($reason | rtrimstr("\n"))])] else [] end) as $why
       | [para([strong($title),
-      text(" — the ticket is still in \($status). "),
+      text(" — the ticket is in \($status). "),
       link("View the run log"; $run),
       text(". To try again, comment "), code(env.REVISE_COMMAND),
       text(" (with any extra details) on this ticket, or re-run the workflow from GitHub Actions.")])] + $why)')
-  if [ -s "$RUNNER_TEMP/progress-comment-id" ]; then
-    tracker_update_comment "$(cat "$RUNNER_TEMP/progress-comment-id")" <<< "$body"
-  else
+  if [ ! -s "$RUNNER_TEMP/progress-comment-id" ] \
+     || ! tracker_update_comment "$(cat "$RUNNER_TEMP/progress-comment-id")" <<< "$body" 2> /dev/null; then
     tracker_comment <<< "$body" > /dev/null
   fi
-  tracker_labels "+$NEEDS_HUMAN_LABEL"
+  if [ "$current" = "$2" ] || [ "$current" = "$moved" ]; then
+    tracker_labels "+$NEEDS_HUMAN_LABEL"
+  fi
 }
 
 # stage_transition_id <status>: the id of the transition into <status>, or
@@ -134,22 +149,32 @@ stage_transition_id() {
 }
 
 # _resolve_matching <comments.json> <resolution text> <jq filter on a
-# comment's first text> [args for the filter...]: mark the matching comments as
-# resolved — a "✅ Resolved" line on top, the original struck through, so later
-# runs leave them out. Changing their text also lets a tracker rule's
-# comment-once action post again later. Prints the count.
+# comment, given $args> [args...]: mark the matching comments as resolved —
+# a "✅ Resolved" line on top, the original struck through, so later runs leave
+# them out. Only comments the run read at the start (comments-seen.json) and
+# unchanged since: one that arrived or was edited during the run was never
+# seen by the agent, so it stays open. Changing their text also lets a tracker
+# rule's comment-once action post again later. Prints the count.
 _resolve_matching() {
-  local comments=$1 resolution=$2 filter=$3 comment
+  local comments=$1 resolution=$2 filter=$3 comment seen="$RUNNER_TEMP/comments-seen.json"
   shift 3
-  jq -c -L "$HUB_DIR/lib" --arg resolution "$resolution" --arg command "${REVISE_COMMAND:-}" --args "include \"adf\";
-    \$ARGS.positional as \$titles
-    | .comments[] | select(.body | first_text | $filter)
+  if [ ! -s "$seen" ]; then seen="$RUNNER_TEMP/comments-none.json"; echo '{"comments": []}' > "$seen"; fi
+  jq -c -L "$HUB_DIR/lib" --arg resolution "$resolution" --arg command "${REVISE_COMMAND:-}" \
+      --slurpfile seen "$seen" --args "include \"adf\";
+    \$ARGS.positional as \$args
+    | (\$seen[0].comments // []) as \$seen
+    | .comments[] | select(. as \$c | \$seen | any(.id == \$c.id and .updated == \$c.updated))
+    | select($filter)
     | {id, body: doc([para([strong(\"✅ Resolved\"), text(\" — \\(\$resolution)\")])]
         + (.body.content | strike_all))}" "$@" < "$comments" > "$RUNNER_TEMP/resolved-comments.jsonl"
+  local failed=0
   while read -r comment; do
-    jq -c '.body' <<< "$comment" | tracker_update_comment "$(jq -r '.id' <<< "$comment")"
+    jq -c '.body' <<< "$comment" | tracker_update_comment "$(jq -r '.id' <<< "$comment")" || failed=1
   done < "$RUNNER_TEMP/resolved-comments.jsonl"
   wc -l < "$RUNNER_TEMP/resolved-comments.jsonl" | tr -d ' '
+  # Every comment is tried; then a failure fails the step (it's reported on
+  # the ticket) rather than passing unnoticed.
+  return "$failed"
 }
 
 # stage_resolve_comments <comments.json> <resolution text> <title>...: mark
@@ -158,14 +183,23 @@ _resolve_matching() {
 stage_resolve_comments() {
   local comments=$1 resolution=$2
   shift 2
-  _resolve_matching "$comments" "$resolution" 'IN($titles[])' "$@"
+  _resolve_matching "$comments" "$resolution" '.body | first_text | IN($args[])' "$@"
 }
 
-# stage_resolve_revisions <comments.json>: mark change requests (comments
-# starting with the REVISE_COMMAND word, any case) as resolved once a run has
-# handled them. Prints the count.
+# stage_resolve_revisions <comments.json>: mark the change requests the run
+# was given (change_request in adf.jq — the same rule as the prompt's) and
+# answered (a revision_responses entry with its id) as resolved. One left
+# unanswered stays open for the next run; the log gives the count. Prints the
+# count resolved.
 stage_resolve_revisions() {
-  _resolve_matching "$1" "handled — see the 🔁 comment for what changed." 'is_command($command)'
+  local answered unanswered
+  answered=$(jq -r '.structured_output.revision_responses[]?.request_id' "$RUNNER_TEMP/agent-output.json")
+  unanswered=$(jq -r -L "$HUB_DIR/lib" --arg command "${REVISE_COMMAND:-}" --arg answered "$answered" 'include "adf";
+    [.comments[] | select((automation_comment | not) and change_request($command))
+     | select(.id as $id | $answered | split("\n") | index($id) | not)] | length' "$RUNNER_TEMP/comments-seen.json" 2>/dev/null || echo 0)
+  [ "$unanswered" = 0 ] || echo "::warning::$unanswered change request(s) weren't answered, so they stay open for the next run." >&2
+  # shellcheck disable=SC2086 # one id per word
+  _resolve_matching "$1" "handled — see the 🔁 comment for what changed." 'change_request($command) and (.id | IN($args[]))' $answered
 }
 
 # stage_revision_reply <what> [note]: when the result answers change requests

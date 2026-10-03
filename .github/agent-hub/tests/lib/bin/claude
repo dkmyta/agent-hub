@@ -10,6 +10,8 @@
 # $CLAUDE_REVIEW_FIXTURE — or, if that's unset or "approve", a review that
 # returns the draft unchanged; exits $CLAUDE_REVIEW_EXIT.
 if [ "$1" = --version ]; then echo "9.9.9 (Claude Code)"; exit 0; fi
+# `--help` lists restricted mode unless CLAUDE_NO_RESTRICTED=1 (an older version).
+if [ "$1" = --help ]; then [ "${CLAUDE_NO_RESTRICTED:-}" = 1 ] || echo "  --restricted  Restricted mode"; exit 0; fi
 
 case " $* " in
   *review-prompt.md*) pass=review ;;

@@ -77,6 +77,8 @@ to the agent step's `env` in `agent-hub-stage.yml`).
 
 ## Clearing old session files (one-time, for runners set up before this was fixed)
 
+Also after a runner machine went down mid-run: its cleanup step couldn't run.
+
 Runs now delete their Claude Code session files when they end (see
 [architecture.md](architecture.md#safety)), but a runner that ran the agents
 before that keeps their session records — full transcripts of real tickets —
@@ -108,6 +110,10 @@ instead:
 2. To upgrade: run `claude update` on the runner, then run **Agent hub: Evals** with stage **all**.
 
 On GitHub-hosted runners, pin `AGENT_HUB_CLAUDE_CODE_VERSION` and change it deliberately.
+
+The hub needs a Claude Code with restricted mode (`claude --help` lists
+`--restricted`): it keeps the agents inside the repository whatever the
+repository's settings say. A version without it stops the run, saying so.
 
 ## When Claude is used
 

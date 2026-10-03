@@ -14,12 +14,17 @@
 # step_fetch: Fetch the ticket, decide new or revision, and post the progress comment.
 step_fetch() {
   stage_fetch "$WORK_ORDER_STATUS" || exit 0
-  # A description that's already a work order (it has any of the work
-  # order's group headings — one removed by hand doesn't change that)
-  # is revised rather than replaced.
+  # A description that's already a work order is revised rather than
+  # replaced. It's recognised by the review line the workflow writes first
+  # ("Expert review: …"), or by at least three of the work order's five group
+  # headings at their level (h3) — so a request that happens to use
+  # "Overview" or "Scope" as a heading isn't mistaken for one, while a work
+  # order with a heading or the review line removed by hand still is.
   if jq -e -L "$HUB_DIR/lib" 'include "adf";
-       .fields.description // {content: []} | . as $d
-       | any("Overview", "Scope", "Developer Notes", "Risk & Open Questions", "Delivery"; . as $title | $d | section_index($title) != null)' \
+       .fields.description // {content: []}
+       | ((.content[0] // {} | plain_text) | startswith("Expert review:"))
+         or ([.content[] | select(.type == "heading" and .attrs.level == 3) | plain_text
+              | select(IN("Overview", "Scope", "Developer Notes", "Risk & Open Questions", "Delivery"))] | length >= 3)' \
        "$RUNNER_TEMP/ticket.json" > /dev/null; then
     MODE=revision
   else
@@ -61,7 +66,9 @@ step_apply() {
   # The reviewed work order, with the review's note at the top. A
   # revision changes only its updated sections of the current
   # description (read fresh, so people's edits — even during the run —
-  # are kept), and replaces the previous review note.
+  # are kept), and replaces the previous review note. A section it changes
+  # that a person edited during the run would lose their edit to a
+  # revision of the older text: that stops the run instead.
   if [ "$MODE" = revision ]; then
     source "$STAGE_DIR/revise.sh"
     jq '.structured_output.updates' "$RUNNER_TEMP/agent-output.json" > "$RUNNER_TEMP/updates.json"
@@ -71,6 +78,10 @@ step_apply() {
     MISSING_SECTIONS=$(revision_missing_sections "$RUNNER_TEMP/updates.json" < "$RUNNER_TEMP/current-description.json")
     if [ -n "$MISSING_SECTIONS" ]; then
       stage_fail "The revision changes sections this work order no longer has: $MISSING_SECTIONS. Nothing was changed. Put the heading(s) back in the description (same name and heading level as the other sections), then comment $REVISE_COMMAND again."
+    fi
+    EDITED_SECTIONS=$(revision_edited_sections "$RUNNER_TEMP/updates.json" < "$RUNNER_TEMP/current-description.json")
+    if [ -n "$EDITED_SECTIONS" ]; then
+      stage_fail "Sections this revision changes were edited while it was working: $EDITED_SECTIONS. Nothing was changed, so those edits are kept; comment $REVISE_COMMAND again to revise the current text."
     fi
     revision_description "$RUNNER_TEMP/updates.json" < "$RUNNER_TEMP/current-description.json"
   else
@@ -160,7 +171,7 @@ step_return() {
     "$RUNNER_TEMP/agent-output.json" | tracker_comment > /dev/null
   # Waiting on the requester now, not a reviewer (set when revising).
   tracker_labels "+$NEEDS_DETAILS_LABEL" "-$NEEDS_HUMAN_LABEL"
-  tracker_transition "$TRANSITION_ID"
+  stage_move "$TRANSITION_ID" "$INTAKE_STATUS"
 
   echo "[$TICKET_KEY]($TICKET_URL) returned to $INTAKE_STATUS as $NEEDS_DETAILS_LABEL." >> "$GITHUB_STEP_SUMMARY"
 }

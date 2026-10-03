@@ -41,8 +41,125 @@ setup() {
   run_scenario jira-rejects-description
 }
 
-@test "re-plan: new plan attached before the previous one is removed" {
+@test "re-plan: new plan attached before the hub's previous one is removed; a person's upload stays" {
+  # 8003 is the hub's earlier upload, 8001 a person's; the snapshot pins the order.
   run_scenario replan-replaces-previous-plan
+  run jq -r 'select(.method == "DELETE" and (.path | startswith("/attachment/"))) | .path' "$CALLS"
+  assert_output "/attachment/8003"
+}
+
+@test "failures after publishing: a cleanup failure is a warning; a failed transition is reported" {
+  # Removing the hub's earlier file fails: the run still moves the ticket on.
+  run_scenario replan-replaces-previous-plan MOCK_FAIL="DELETE /attachment/8003"
+  run writes
+  assert_line "POST /transitions"
+  run grep -c "::warning::Couldn't remove the hub's earlier plan file" "$RUNNER_TEMP/log.txt"
+  assert_output 1
+  # The transition fails: the plan is written; the notice says where the ticket is.
+  run_scenario ready MOCK_FAIL="POST /transitions"
+  run writes
+  assert_line "POST /attachments"
+  run failure_notice
+  assert_output --partial "the ticket is in Work Order Approved"
+}
+
+# uploaded_mid_run: the revise scenario's attachments, plus the plan file a
+# person uploads while the run works (8888) — as ATTACHMENTS_LATER_FIXTURE.
+uploaded_mid_run() {
+  jq '. + [{id: "8888", filename: "PROJ-99-implementation-plan.md", created: "2026-09-30T10:30:00.000+0000",
+    author: {displayName: "Dana Lead", accountId: "dana-lead"}}]' \
+    "$FIXTURES/attachments-previous-plan.json" > "$BATS_TEST_TMPDIR/attachments-later.json"
+  echo "ATTACHMENTS_LATER_FIXTURE=$BATS_TEST_TMPDIR/attachments-later.json"
+}
+
+@test "a plan uploaded during a revision: nothing written, the failure says why, the upload stays" {
+  run_scenario revise "$(uploaded_mid_run)"
+  run writes
+  refute_line "POST /attachments"
+  refute_line --partial "DELETE /attachment/"
+  refute_line --regexp "^PUT \\?notifyUsers"
+  run failure_notice
+  assert_output --partial "newer PROJ-99-implementation-plan.md was uploaded while this run was working"
+}
+
+@test "a plan uploaded while the revision publishes: its own upload is taken back, the person's stays" {
+  # Lands after the last check before publishing (lookup 3: after the upload).
+  run_scenario revise "$(uploaded_mid_run)" ATTACHMENTS_LATER_FROM=3
+  run writes
+  assert_line "POST /attachments"
+  assert_line "DELETE /attachment/9001"
+  refute_line "DELETE /attachment/8001"
+  refute_line "DELETE /attachment/8888"
+  refute_line --regexp "^PUT \\?notifyUsers"
+  run failure_notice
+  assert_output --partial "this run's plan was removed again and nothing else was changed"
+}
+
+@test "a plan uploaded after the description was written: the description and labels are put back" {
+  # Lands after the description write (lookup 4), on a ticket carrying
+  # needs-clarification, which that write removed.
+  jq '.fields.labels = ["needs-clarification"]' "$FIXTURES/tickets/plan-written.json" > "$BATS_TEST_TMPDIR/ticket-fixture.json"
+  run_scenario revise "$(uploaded_mid_run)" ATTACHMENTS_LATER_FROM=4 TICKET_FIXTURE="$BATS_TEST_TMPDIR/ticket-fixture.json"
+  run writes
+  assert_line "DELETE /attachment/9001"
+  refute_line "DELETE /attachment/8001"
+  refute_line "DELETE /attachment/8888"
+  refute_line "POST /transitions"
+  # The second description write puts back the one read before publishing.
+  run jq -c 'select(.method == "PUT" and (.path | startswith("?notifyUsers"))) | [.body.fields.description, .body.update]' "$CALLS"
+  assert_equal "${#lines[@]}" 2
+  assert_equal "${lines[1]}" "$(jq -c '[.fields.description, {labels: [{add: "needs-clarification"}]}]' "$BATS_TEST_TMPDIR/ticket-fixture.json")"
+  run failure_notice
+  assert_output --partial "this run's plan was removed again and the description put back"
+  # Without the label, nothing extra is added back.
+  run_scenario revise "$(uploaded_mid_run)" ATTACHMENTS_LATER_FROM=4
+  run jq -c 'select(.method == "PUT" and (.path | startswith("?notifyUsers"))) | .body.update' "$CALLS"
+  assert_equal "${lines[1]}" "null"
+}
+
+@test "attachments that can't be checked stop the run, taking back what it published" {
+  # Lookup 1 is the fetch; 4 the check after the description write, which
+  # has the most to take back (2 and 3 share its code).
+  run_scenario revise MOCK_FAIL="GET ?fields=attachment" MOCK_FAIL_FROM=1
+  run writes
+  refute_line "POST /attachments"
+  refute_line --regexp "^PUT \\?notifyUsers"
+  run jq -r 'select(.method == "PUT" or .method == "POST") | .body.body | tostring' "$CALLS"
+  assert_output --partial "Couldn't read the ticket's attachments from Jira, so nothing was changed"
+
+  run_scenario revise MOCK_FAIL="GET ?fields=attachment" MOCK_FAIL_FROM=4
+  run writes
+  assert_line "DELETE /attachment/9001"
+  refute_line --partial "DELETE /attachment/80"
+  run jq -c 'select(.method == "PUT" and (.path | startswith("?notifyUsers")))' "$CALLS"
+  assert_equal "${#lines[@]}" 2
+  run failure_notice
+  assert_output --partial "so this run's plan was removed again and the description put back"
+}
+
+@test "taking back a publication that only partly undoes says what's left to do" {
+  run_scenario revise "$(uploaded_mid_run)" ATTACHMENTS_LATER_FROM=4 MOCK_FAIL="DELETE /attachment/9001"
+  run failure_notice
+  assert_output --partial "this run's plan couldn't be removed again — delete the newest PROJ-99-implementation-plan.md by hand; the description was put back"
+}
+
+@test "a revision of a plan file with a section it changes twice: nothing written, the section named" {
+  { cat "$FIXTURES/previous-plan.md"; printf '\n## Testing\n\nA second one.\n'; } > "$BATS_TEST_TMPDIR/plan-fixture.md"
+  run_scenario revise ATTACHMENT_CONTENT_FIXTURE="$BATS_TEST_TMPDIR/plan-fixture.md"
+  run writes
+  refute_line "POST /attachments"
+  refute_line --regexp "^PUT \\?notifyUsers"
+  run failure_notice
+  assert_output --partial 'more than one section the revision changes: \"Testing\"'
+}
+
+@test "a failure after the ticket moved: the notice names where it is now; needs-human added" {
+  # The ready path, failing to resolve a comment once the ticket has moved.
+  run_scenario ready MOCK_FAIL="PUT /comment/501"
+  run failure_notice
+  assert_output --partial "the ticket is in Implementation Plan"
+  run jq -c 'select(.body.update.labels) | .body.update.labels' "$CALLS"
+  assert_line '[{"add":"needs-human"}]'
 }
 
 @test "plan upload fails: description untouched, failure reported" {
@@ -151,9 +268,11 @@ setup() {
 }
 
 @test "revise a section renamed by hand: nothing changed, the failure names the section" {
-  run_scenario revise-section-renamed
+  # The revise scenario, with Testing renamed to Tests in the attached file.
+  sed 's/^## Testing$/## Tests/' "$FIXTURES/previous-plan.md" > "$BATS_TEST_TMPDIR/plan-fixture.md"
+  run_scenario revise ATTACHMENT_CONTENT_FIXTURE="$BATS_TEST_TMPDIR/plan-fixture.md"
   run jq -r 'select(.path == "/attachments" or .body.fields.description) | .path' "$CALLS"
   assert_output ""
-  run jq -r 'select(.path == "/comment/5001" and .method == "PUT") | .body.body | tostring' "$CALLS"
+  run failure_notice
   assert_output --partial 'no longer has: \"Testing\"'
 }

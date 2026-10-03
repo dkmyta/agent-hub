@@ -9,9 +9,11 @@ Remove agent session files: success
 --- Jira calls
 GET ?fields=summary,description,status
 GET /comment?maxResults=100
+GET ?fields=attachment
 POST /comment — comment: ⏳ Writing implementation plan
 GET ?fields=status
 GET /transitions
-GET ?fields=description
+GET ?fields=description,labels
+GET ?fields=status
 PUT /comment/5001 — comment: ❌ Implementation plan failed
 PUT  — {"update":{"labels":[{"add":"needs-human"}]}}

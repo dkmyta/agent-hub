@@ -42,8 +42,9 @@ version by hand — treat it as the source of truth, not a draft to redo.
   same — the workflow keeps those exactly as they are, including people's
   edits. `updates` may be empty if a request needs no change (say why in its
   response).
-- **`revision_responses`**: one entry per listed change request — no entries
-  for other comments — saying what changed,
+- **`revision_responses`**: one entry per listed change request, with its
+  `request_id` (the id the ticket gives it) — no entries for other
+  comments — saying what changed,
   the answer to a question, or why nothing changed (and what's needed).
 - If a request needs a decision only a person can make, use this stage's
   "send back" status with the question instead, and leave `updates` out.

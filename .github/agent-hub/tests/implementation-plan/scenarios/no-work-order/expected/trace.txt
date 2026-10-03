@@ -8,5 +8,6 @@ Report failure: success
 Remove agent session files: success
 --- Jira calls
 GET ?fields=summary,description,status
+GET ?fields=status
 POST /comment — comment: ❌ Implementation plan failed
 PUT  — {"update":{"labels":[{"add":"needs-human"}]}}

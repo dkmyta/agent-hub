@@ -126,14 +126,40 @@ def always: ["current_state", "approach", "acceptance_criteria", "changes", "ste
 
 def markdown(blocks): {content: [blocks]} | to_markdown;
 
+# A plan's Markdown split at its "## " headings — only those outside fenced
+# code blocks, so a "## comment" in a code sample isn't a section:
+# [text before the first heading, "Heading\nbody", ...]. Fences follow
+# CommonMark: 3+ backticks or tildes (up to 3 spaces in) open one; only the
+# same character, at least as many, with nothing after but spaces, closes it.
+# Windows line endings (a file edited and re-uploaded) read the same.
+def md_sections:
+  reduce (gsub("\r\n"; "\n") | split("\n")[]) as $line ({parts: [[]], fence: null};
+    ([$line | capture("^ {0,3}(?<run>`{3,}|~{3,})(?<rest>.*)$")?][0]) as $mark
+    | if .fence == null and ($line | startswith("## ")) then .parts += [[$line[3:]]]
+      else .parts[(.parts | length) - 1] += [$line]
+        | if $mark == null then .
+          elif .fence == null then
+            # A backtick fence's info string can't contain backticks.
+            if ($mark.run[0:1] == "`" and ($mark.rest | contains("`"))) then .
+            else .fence = {char: $mark.run[0:1], length: ($mark.run | length)} end
+          elif $mark.run[0:1] == .fence.char and ($mark.run | length) >= .fence.length
+               and ($mark.rest | test("^\\s*$")) then .fence = null
+          else . end
+      end)
+  | .parts | map(join("\n"));
+
+# A section's name, as CommonMark reads its heading line: without the
+# spaces around it or a closing "#" sequence ("## Testing ##" is "Testing").
+def heading_key: split("\n")[0] | sub("^[ \t]+"; "") | sub("[ \t]+#+[ \t]*$"; "") | sub("[ \t]+$"; "");
+
 # Splice updated sections into the attached plan's Markdown: it's split at its
-# "## " headings; each updated section replaces its namesake, or is inserted
-# before the first later section in plan order; the estimate line is replaced
-# in place.
+# "## " headings (md_sections); each updated section replaces its namesake, or
+# is inserted before the first later section in plan order; the estimate line
+# is replaced in place.
 def splice($md; $updates):
-  ($md | split("\n## ")) as $parts
+  ($md | md_sections) as $parts
   | ($parts[0] | rtrimstr("\n")) as $head
-  | [$parts[1:][] | rtrimstr("\n") | {heading: (split("\n")[0]), text: .}
+  | [$parts[1:][] | rtrimstr("\n") | {heading: heading_key, text: .}
      | select(.heading != "Expert review")] as $sections
   | [fields[] | full_heading(.) // empty] as $order
   | (if $updates | has("estimate") then
@@ -180,9 +206,15 @@ def summary_patch($updates):
     + [pointer];
 
 if $mode == "missing" then
-  [$ARGS.named.md | split("\n")[] | select(startswith("## ")) | ltrimstr("## ")] as $present
+  [$ARGS.named.md | md_sections[1:][] | heading_key] as $present
   | [$ARGS.named.updates[0] | keys_unsorted[] | select(IN(always[])) | full_heading(.)
      | select(IN($present[]) | not)]
+elif $mode == "duplicated" then
+  # Sections the revision changes that the file has more than once: which to
+  # change would be a guess.
+  [$ARGS.named.md | md_sections[1:][] | heading_key] as $present
+  | [$ARGS.named.updates[0] | keys_unsorted[] | select(. != "estimate") | full_heading(.) // empty
+     | select(. as $h | [$present[] | select(. == $h)] | length > 1)]
 elif $mode == "splice" then splice($ARGS.named.md; $ARGS.named.updates[0])
 elif $mode == "summary-patch" then summary_patch($ARGS.named.updates[0])
 else

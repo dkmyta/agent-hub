@@ -10,6 +10,9 @@
 #   jq -L "$HUB_DIR/lib" -f render.jq --arg mode missing --slurpfile updates U description.json
 #       the headings U needs that the description no longer has (e.g. removed
 #       by hand), so the run can say so before changing anything
+#   jq -L "$HUB_DIR/lib" -f render.jq --arg mode edited --slurpfile updates U --slurpfile before B description.json
+#       the headings U changes whose text differs from B (the description
+#       the run started from): edited by a person while the run worked
 #
 # Later stages replace the Delivery placeholders by heading, so keep those
 # headings stable.
@@ -45,8 +48,20 @@ def section($group; $field; $value): h4(field_heading($group; $field)), field_bl
 def updated_headings: [$ARGS.named.updates[0] | to_entries[] | .key as $group | .value | keys_unsorted[]
   | if . == "summary" then "Overview" else field_heading($group; .) end];
 
+# The blocks an update to the section titled $h replaces: the Overview's
+# introduction (its summary), or the whole section.
+def updated_blocks($h):
+  if $h == "Overview" then
+    section_index($h) as $i
+    | if $i == null then [] else .content[$i + 1:([.content | to_entries[]
+        | select(.key > $i and .value.type == "heading") | .key][0] // (.content | length))] end
+  else section_blocks($h) end;
+
 if ($ARGS.named.mode // "full") == "missing" then
   . as $doc | [updated_headings[] | select(. as $h | $doc | section_index($h) == null)]
+elif ($ARGS.named.mode // "full") == "edited" then
+  . as $doc | $ARGS.named.before[0] as $before
+  | [updated_headings[] | select(. as $h | ($doc | updated_blocks($h)) != ($before | updated_blocks($h)))]
 elif ($ARGS.named.mode // "full") == "patch" then
   reduce ($ARGS.named.updates[0] | to_entries[] | .key as $group | .value | to_entries[] | {group: $group, field: .key, value: .value}) as $u
     (.; if $u.field == "summary" then replace_intro("Overview"; field_blocks("summary"; $u.value))

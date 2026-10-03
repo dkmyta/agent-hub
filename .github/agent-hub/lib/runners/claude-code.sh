@@ -94,6 +94,18 @@ _extension_text() {
 # public repositories), so they're never printed: logs show only outcomes and
 # counts. The content goes to the ticket.
 
+# The built-in tools an agent has: reading the repository, web research,
+# subagents and skills (the experts extensions add). No shell, no writes.
+AGENT_TOOLS="Read,Grep,Glob,WebSearch,WebFetch,Agent,Skill"
+
+# _require_restricted: the boundary rests on Claude Code's restricted mode,
+# so a version without it stops the run rather than running unconfined.
+_require_restricted() {
+  local help
+  help=$(claude --help 2>/dev/null) || true
+  [[ "$help" == *--restricted* ]] || stage_fail "Claude Code ${CLAUDE_VERSION:-(unknown version)} has no restricted mode, which keeps the agents inside the repository whatever its settings say, so nothing was changed. Update Claude Code on the runner (docs/runners.md), then comment $REVISE_COMMAND."
+}
+
 # _claude <model> <fallback> <budget> <system prompt file> <schema> <prompt> > output
 _claude() {
   local tools domain session
@@ -104,13 +116,18 @@ _claude() {
   # CLAUDE_FETCH_DOMAINS.
   tools="Read(./**),Grep(./**),Glob(./**),WebSearch"
   for domain in $CLAUDE_FETCH_DOMAINS; do tools="$tools,WebFetch(domain:$domain)"; done
-  # Isolation: only the repository's own settings (not the runner owner's),
-  # no hooks or MCP servers (they run outside the tool rules), and the write
-  # and shell tools denied outright — allowlists alone don't bind subagents
-  # whose definitions grant them.
+  # Isolation, whatever the repository's or the runner owner's settings say:
+  # restricted mode ignores every settings file (so none can add
+  # permissions or directories) and confines the file tools to the
+  # repository; --tools is the only built-in tools there are (subagents and
+  # skills, for extensions, included); no hooks or MCP servers (they run
+  # outside the tool rules); and the write and shell tools denied outright —
+  # allowlists alone don't bind subagents whose definitions grant them.
   claude -p "$6" \
     --session-id "$session" \
     --no-session-persistence \
+    --restricted \
+    --tools "$AGENT_TOOLS" \
     --setting-sources project \
     --settings '{"disableAllHooks": true}' \
     --strict-mcp-config \
@@ -157,6 +174,7 @@ agent_run() {
   _load_extensions
   # Claude Code can update itself on the runner; record which version ran.
   CLAUDE_VERSION=$(claude --version 2>/dev/null | head -n 1 | cut -d ' ' -f 1)
+  _require_restricted
   if agent_revising; then
     # shellcheck source=/dev/null
     source "$STAGE_DIR/revise.sh"

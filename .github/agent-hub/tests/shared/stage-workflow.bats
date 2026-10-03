@@ -83,6 +83,20 @@ check_extensions() { # <extensions folder>: prints each problem
 work_order: not shared or a stage"
 }
 
+# A new stage can't go untested by forgetting to add it to the suite.
+@test "every stage has its tests, and they run in npm test and update-snapshots" {
+  local stage
+  for stage in "$HUB_DIR"/stages/*/; do
+    stage=$(basename "$stage")
+    assert [ -f "$TESTS_DIR/$stage/scenarios.bats" ]
+    assert [ -f "$TESTS_DIR/$stage/claude-step.bats" ]
+    for script in test update-snapshots; do
+      run jq -r --arg s "$script" '.scripts[$s]' "$TESTS_DIR/package.json"
+      assert_regex "$output" "(^| )$stage( |$)"
+    done
+  done
+}
+
 @test "every stage folder has the files the shared workflow and agent runner need" {
   local stage file
   for stage in "$HUB_DIR"/stages/*/; do

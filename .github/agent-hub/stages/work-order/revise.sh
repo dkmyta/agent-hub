@@ -20,6 +20,15 @@ revision_missing_sections() {
     | jq -r 'map("\"\(.)\"") | join(", ")'
 }
 
+# revision_edited_sections <updates.json> < description.json: the headings
+# the updates change that were edited since the run started (the fetched
+# description), comma-separated; nothing if none were.
+revision_edited_sections() {
+  jq -r -L "$HUB_DIR/lib" -f "$STAGE_DIR/render.jq" --arg mode edited --slurpfile updates "$1" \
+      --slurpfile before <(jq '.fields.description' "$RUNNER_TEMP/ticket.json") \
+    | jq -r 'map("\"\(.)\"") | join(", ")'
+}
+
 # revision_preview <updates.json>: the whole revised work order as Markdown,
 # for the expert review.
 revision_preview() {

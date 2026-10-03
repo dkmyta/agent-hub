@@ -55,6 +55,46 @@ claude_step() { # <fixture> [jq edit to apply to it]
   assert_output --partial "docs/does-not-exist.md"
 }
 
+@test "rejects: a plan naming files outside the repository" {
+  claude_step ready.json '.structured_output.plan.changes += [
+    {path: "/etc/hosts", action: "modify", summary: "x", details: []},
+    {path: "../outside.md", action: "add", summary: "x", details: []}]'
+  assert_failure
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "names 2 file(s) it can't change"
+  assert_output --partial "/etc/hosts (outside the repository)"
+  assert_output --partial "../outside.md (outside the repository)"
+}
+
+# The path check itself, in a folder with links in and out of it.
+@test "plan paths: inside the repository only — no absolute paths, '..' or links leading out" {
+  mkdir -p "$BATS_TEST_TMPDIR/repo/docs" && cd "$BATS_TEST_TMPDIR/repo"
+  echo x > docs/real.md
+  ln -s /etc/hosts docs/out-link.md
+  ln -s real.md docs/in-link.md
+  ln -s /etc docs/out-dir
+  source "$HUB_DIR/stages/implementation-plan/stage.sh"
+  run _plan_path_problem modify docs/real.md;     assert_output ""
+  run _plan_path_problem modify ./docs/real.md;   assert_output ""
+  run _plan_path_problem modify docs/in-link.md;  assert_output ""
+  run _plan_path_problem add docs/new/deeper.md;  assert_output ""
+  run _plan_path_problem modify docs/missing.md;  assert_output "doesn't exist"
+  run _plan_path_problem modify docs;             assert_output "doesn't exist"
+  run _plan_path_problem modify /etc/hosts;       assert_output "outside the repository"
+  run _plan_path_problem delete docs/../../x.md;  assert_output "outside the repository"
+  run _plan_path_problem modify docs/out-link.md; assert_output "outside the repository"
+  run _plan_path_problem add docs/out-dir/new.md; assert_output "outside the repository"
+  # A file to add must be new — an existing file or link (even one leading out) isn't.
+  run _plan_path_problem add docs/real.md;        assert_output "already exists"
+  run _plan_path_problem add docs/out-link.md;    assert_output "already exists"
+  ln -s /nonexistent docs/dangling.md
+  run _plan_path_problem add docs/dangling.md;    assert_output "already exists"
+  # Nor beneath a link that doesn't resolve: it could lead anywhere.
+  ln -s /nonexistent/outside docs/dangling-dir
+  run _plan_path_problem add docs/dangling-dir/new.md;      assert_output "outside the repository"
+  run _plan_path_problem add docs/dangling-dir/deeper/x.md; assert_output "outside the repository"
+}
+
 @test "rejects: a clarification request without questions" {
   claude_step needs-clarification-without-questions.json
   assert_failure
@@ -128,7 +168,7 @@ revising() {
   claude_step ready.json '.structured_output.plan.changes += [{path: "docs/secret-sounding-name.md", action: "modify", summary: "x", details: []}]'
   assert_failure
   run cat "$RUNNER_TEMP/log.txt"
-  assert_output --partial "changes 1 file(s) that don't exist"
+  assert_output --partial "names 1 file(s) it can't change"
   refute_output --partial "secret-sounding-name"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "docs/secret-sounding-name.md"
