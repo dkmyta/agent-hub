@@ -118,9 +118,16 @@ step_apply() {
     fi
   fi
 
-  tracker_set_description < "$RUNNER_TEMP/description.json"
-  # Waiting for a person to review and approve the work order.
-  tracker_add_label "$NEEDS_HUMAN_LABEL"
+  # The work order and its labels in one update: waiting for a person to
+  # review and approve it — and, when the revision settled the plan stage's
+  # open questions, no longer waiting on a decision.
+  SETTLED=false
+  LABELS=("+$NEEDS_HUMAN_LABEL")
+  if jq -e '.structured_output.clarification_settled == true' "$RUNNER_TEMP/agent-output.json" > /dev/null; then
+    SETTLED=true
+    LABELS+=("-$NEEDS_CLARIFICATION_LABEL")
+  fi
+  tracker_set_description "${LABELS[@]}" < "$RUNNER_TEMP/description.json"
 
   # Say how each change request was handled, then mark them and earlier
   # needs-details comments (from the tracker's intake check or Claude) as resolved.
@@ -128,10 +135,7 @@ step_apply() {
   RESOLVED=$(stage_resolve_comments "$RUNNER_TEMP/comments.json" \
     "details were added and the work order was generated." "$NEEDS_DETAILS_TITLE")
   REVISIONS=$(stage_resolve_revisions "$RUNNER_TEMP/comments.json")
-  # The plan stage's open questions are now answered: no longer waiting
-  # on a decision, only on approval.
-  if jq -e '.structured_output.clarification_settled == true' "$RUNNER_TEMP/agent-output.json" > /dev/null; then
-    tracker_remove_label "$NEEDS_CLARIFICATION_LABEL"
+  if [ "$SETTLED" = true ]; then
     stage_resolve_comments "$RUNNER_TEMP/comments.json" \
       "settled in the work order; approve it to write the plan." "$NEEDS_CLARIFICATION_TITLE" > /dev/null
   fi
@@ -154,9 +158,8 @@ step_return() {
          para($message),
          para([strong("What’s missing: "), text(.structured_output.missing)])])' \
     "$RUNNER_TEMP/agent-output.json" | tracker_comment > /dev/null
-  tracker_add_label "$NEEDS_DETAILS_LABEL"
   # Waiting on the requester now, not a reviewer (set when revising).
-  tracker_remove_label "$NEEDS_HUMAN_LABEL"
+  tracker_labels "+$NEEDS_DETAILS_LABEL" "-$NEEDS_HUMAN_LABEL"
   tracker_transition "$TRANSITION_ID"
 
   echo "[$TICKET_KEY]($TICKET_URL) returned to $INTAKE_STATUS as $NEEDS_DETAILS_LABEL." >> "$GITHUB_STEP_SUMMARY"

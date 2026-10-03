@@ -13,7 +13,6 @@ POST /comment — comment: ⏳ Revising work order
 GET ?fields=status
 GET /transitions
 POST /comment — comment: Needs details
-PUT  — {"update":{"labels":[{"add":"needs-details"}]}}
-PUT  — {"update":{"labels":[{"remove":"needs-human"}]}}
+PUT  — {"update":{"labels":[{"add":"needs-details"},{"remove":"needs-human"}]}}
 POST /transitions — {"transition":{"id":"11"}}
 DELETE /comment/5001

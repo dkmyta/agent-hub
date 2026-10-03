@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Live evals: the work-order Claude step with the REAL Claude Code CLI against
+# Live evals: the work-order agent step with the REAL Claude Code CLI against
 # the sample tickets in cases/, with the tracker mocked. Uses Claude (a few minutes
 # and some cost per case), so it's excluded from `npm test`:
 #
@@ -60,7 +60,7 @@ run_eval() { # <case>
   assert_equal "$(step_output start proceed)" true
   grep -qF "$TITLE" "$RUNNER_TEMP/ticket.md" || fail "ticket not passed to Claude"
 
-  eval_claude_step "$STEPS" || fail "Claude step failed: $(grep -A1 -E '::error' "$RUNNER_TEMP/log.txt" | tail -4)"
+  eval_claude_step "$STEPS" || fail "Agent step failed: $(grep -A1 -E '::error' "$RUNNER_TEMP/log.txt" | tail -4)"
   result="$RUNNER_TEMP/agent-output.json"
   # Every result reaching people has been through the expert review.
   # (A draft that sends the ticket back isn't reviewed.)

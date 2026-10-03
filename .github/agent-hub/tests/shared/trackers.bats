@@ -47,7 +47,7 @@ setup() {
     run env TICKET_KEY=PROJ-1 RUNNER_TEMP="$BATS_TEST_TMPDIR" bash -c 'source "$1"
       declare -F tracker_issue tracker_status tracker_require_status tracker_set_description \
         tracker_comments tracker_comment tracker_update_comment tracker_delete_comment \
-        tracker_add_label tracker_remove_label tracker_attachments tracker_attach \
+        tracker_labels tracker_attachments tracker_attach \
         tracker_attachment_content tracker_delete_attachment tracker_transition_id tracker_transition > /dev/null
       [ -n "$TICKET_URL" ] && [ -n "$TRACKER_NAME" ] && [ -f "$HUB_DIR/$TRACKER_DOC" ]' _ "$tracker"
     assert_success "$tracker"

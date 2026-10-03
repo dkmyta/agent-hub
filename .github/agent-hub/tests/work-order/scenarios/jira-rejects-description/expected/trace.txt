@@ -14,6 +14,6 @@ GET ?fields=status
 GET /comment?maxResults=100
 GET ?fields=description
 POST /comment — comment: Original Request:
-PUT ?notifyUsers=true — description: 18 headings
+PUT ?notifyUsers=true — description: 18 headings, labels: [{"add":"needs-human"}]
 PUT /comment/5001 — comment: ❌ Work order generation failed
 PUT  — {"update":{"labels":[{"add":"needs-human"}]}}

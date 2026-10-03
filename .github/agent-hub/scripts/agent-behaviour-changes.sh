@@ -20,7 +20,7 @@ EXT=.github/agent-hub-extensions
 
 changes() {
   git diff --name-only "$base"...HEAD -- "$HUB/stages/*/prompt.md" "$HUB/stages/*/schema.json" \
-    "$HUB/stages/*/review.md" "$HUB/lib/*.md" "$HUB/lib/runners/*" "$EXT/*" ":(exclude)$EXT/*/README.md"
+    "$HUB/stages/*/review.md" "$HUB/lib/*.md" "$HUB/lib/runners/*" "$EXT/*" ":(exclude,glob)$EXT/**/README.md"
 
   # Claude settings — model, fallback, budget, fetch domains, allowed tools —
   # in the settings files and the agent-hub workflows.

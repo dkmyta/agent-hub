@@ -57,10 +57,22 @@ tracker_require_status() {
   fi
 }
 
-# Replace the description with the ADF document on stdin.
+# _label_changes <+name|-name>...: Jira's label update operations.
+_label_changes() { printf '%s\n' "$@" | jq -R 'select(. != "") | if startswith("-") then {remove: .[1:]} else {add: ltrimstr("+")} end' | jq -sc .; }
+
+# tracker_set_description [+label|-label]...: replace the description with the
+# ADF document on stdin, and change labels in the same request — one update,
+# so one "work item updated" event for Jira automation, not several.
 tracker_set_description() {
-  jq -c '{fields: {description: .}}' \
+  jq -c --argjson labels "$(_label_changes "$@")" \
+      '{fields: {description: .}} + (if ($labels | length) > 0 then {update: {labels: $labels}} else {} end)' \
     | jira -X PUT "$ISSUE_URL?notifyUsers=${JIRA_NOTIFY_USERS:-true}" -d @-
+}
+
+# tracker_labels <+label|-label>...: add (+) and remove (-) labels in one request.
+tracker_labels() {
+  jq -nc --argjson labels "$(_label_changes "$@")" '{update: {labels: $labels}}' \
+    | jira -X PUT "$ISSUE_URL" -d @-
 }
 
 # Post the ADF document on stdin as a comment and print the new comment's id.
@@ -77,11 +89,6 @@ tracker_delete_comment() { jira -X DELETE "$ISSUE_URL/comment/$1"; }
 
 tracker_comments() { jira "$ISSUE_URL/comment?maxResults=100"; }
 
-tracker_add_label() {
-  jq -nc --arg name "$1" '{update: {labels: [{add: $name}]}}' \
-    | jira -X PUT "$ISSUE_URL" -d @-
-}
-
 # Attach Markdown file $1 to the ticket (a multipart upload; Jira requires the
 # X-Atlassian-Token header). Prints the new attachment's id.
 tracker_attach() {
@@ -97,11 +104,6 @@ tracker_delete_attachment() { jira -X DELETE "https://$JIRA_DOMAIN/rest/api/3/at
 # Print attachment $1's content. Jira redirects to its media store, which curl
 # follows without resending the credentials (they're only for the Jira host).
 tracker_attachment_content() { jira_request -L "https://$JIRA_DOMAIN/rest/api/3/attachment/content/$1"; }
-
-tracker_remove_label() {
-  jq -nc --arg name "$1" '{update: {labels: [{remove: $name}]}}' \
-    | jira -X PUT "$ISSUE_URL" -d @-
-}
 
 # Print the id of the transition into status $1, or nothing if unavailable.
 tracker_transition_id() {

@@ -70,9 +70,9 @@ data to it: `{fields: {summary, description (ADF), status: {name}, attachment:
 |---|---|
 | `tracker_issue <fields>` | The ticket, with the given fields (comma-separated) |
 | `tracker_status`, `tracker_require_status <status>` | The status name; succeed only in that status |
-| `tracker_set_description` | Replace the description with the ADF on stdin |
+| `tracker_set_description [+label\|-label]...` | Replace the description with the ADF on stdin, changing labels in the same update |
 | `tracker_comments`, `tracker_comment`, `tracker_update_comment <id>`, `tracker_delete_comment <id>` | Read comments; post the ADF on stdin (prints the id); replace; delete |
-| `tracker_add_label <name>`, `tracker_remove_label <name>` | Labels |
+| `tracker_labels <+label\|-label>...` | Add and remove labels, in one update |
 | `tracker_attachments`, `tracker_attach <file>`, `tracker_attachment_content <id>`, `tracker_delete_attachment <id>` | Attachments (the plan file) |
 | `tracker_transition_id <status>`, `tracker_transition <id>` | Move the ticket to a status (empty id: not allowed from here) |
 
@@ -153,10 +153,10 @@ sequenceDiagram
   content, as the plan stage does.
 - Everything a repository might need to change (runner labels, Claude model
   and limits, tracker status and label names) is a **repository variable**, read
-  with its default by `setting NAME default` — in `lib/settings.sh` if it's
-  shared, in the stage's `settings.sh` if not — so installing in a new
-  repository needs no edits. Text that must match a tracker rule's comment is
-  fixed there too.
+  with its default by `setting NAME default` in `lib/settings.sh` if it's
+  shared, or by `stage_setting NAME default` (`AGENT_HUB_<STAGE>_<NAME>`) in
+  the stage's `settings.sh` — so installing in a new repository needs no
+  edits. Text that must match a tracker rule's comment is fixed there too.
 - `runs-on` comes from `AGENT_HUB_RUNS_ON`; a `runner.environment == 'github-hosted'`
   step installs Claude Code; the agent step gets the `AGENT_HUB_ANTHROPIC_API_KEY`
   secret as `ANTHROPIC_API_KEY` (empty unless set) — so the same workflow runs
@@ -178,7 +178,8 @@ sequenceDiagram
   check the decision, simplify, improve clarity, keep the format); each stage
   adds a checklist in `stages/<stage>/review.md`.
 - The reviewer may change the outcome (e.g. ready → needs clarification), with
-  a reason. Its model and budget are `AGENT_HUB_REVIEW_CLAUDE_*` repository variables.
+  a reason. Its model is `AGENT_HUB_REVIEW_MODEL` (shared) and its budget
+  `AGENT_HUB_<STAGE>_REVIEW_MAX_BUDGET_USD`.
 - People see a short "Expert review: …" note with the result; detailed notes
   go only where they stay private (e.g. the plan attachment) — never logs,
   summaries or artifacts, which are public in public repositories.

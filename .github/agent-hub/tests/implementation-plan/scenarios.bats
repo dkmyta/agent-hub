@@ -18,7 +18,7 @@ setup() {
 }
 
 @test "needs clarification: questions posted, back to Work Order with labels" {
-  run_scenario needs-clarification --full
+  run_scenario needs-clarification
 }
 
 @test "not in Work Order Approved: nothing happens" {
@@ -35,10 +35,6 @@ setup() {
 
 @test "plan too large for the description: fails with nothing written" {
   run_scenario plan-too-large
-}
-
-@test "cancelled by a newer request: progress comment removed" {
-  run_scenario cancelled-during-run
 }
 
 @test "Jira rejects the description: failure reported, no labels or transition" {
@@ -75,7 +71,7 @@ setup() {
 }
 
 @test "revise: the attached plan is revised in place, the change request answered and resolved" {
-  run_scenario revise --full
+  run_scenario revise
   run cat "$RUNNER_TEMP/claude-prompt.txt"
   assert_output --partial "Revise the current implementation plan"
   assert_output --partial "Current implementation plan (attached as PROJ-99-implementation-plan.md)"

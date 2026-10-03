@@ -15,7 +15,6 @@ POST /comment — comment: ⏳ Revising implementation plan
 GET ?fields=status
 GET /transitions
 POST /comment — comment: Needs clarification
-PUT  — {"update":{"labels":[{"add":"needs-clarification"}]}}
-PUT  — {"update":{"labels":[{"add":"needs-human"}]}}
+PUT  — {"update":{"labels":[{"add":"needs-clarification"},{"add":"needs-human"}]}}
 POST /transitions — {"transition":{"id":"21"}}
 DELETE /comment/5001

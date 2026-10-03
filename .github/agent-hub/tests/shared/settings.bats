@@ -30,7 +30,7 @@ Work Order Approved"
 }
 
 @test "a repository variable overrides the default; an empty one doesn't" {
-  run settings work-order '{"AGENT_HUB_WORK_ORDER_STATUS": "Ready to plan", "AGENT_HUB_REVISE_COMMAND": "", "AGENT_HUB_CLAUDE_MODEL": "x"}' \
+  run settings work-order '{"AGENT_HUB_WORK_ORDER_STATUS": "Ready to plan", "AGENT_HUB_REVISE_COMMAND": "", "AGENT_HUB_WORK_ORDER_MODEL": "x"}' \
     WORK_ORDER_STATUS HOME_STATUS REVISE_COMMAND CLAUDE_MODEL
   assert_output "Ready to plan
 Ready to plan
@@ -38,12 +38,17 @@ Ready to plan
 x"
 }
 
-@test "stage settings read their own variables: AGENT_HUB_PLAN_* only affects the plan stage" {
-  local vars='{"AGENT_HUB_PLAN_CLAUDE_MODEL": "plan-model", "AGENT_HUB_CLAUDE_MODEL": "work-order-model"}'
-  run settings implementation-plan "$vars" CLAUDE_MODEL
-  assert_output plan-model
-  run settings work-order "$vars" CLAUDE_MODEL
-  assert_output work-order-model
+@test "each stage reads its own AGENT_HUB_<STAGE>_* settings; one stage's never changes another's" {
+  local vars='{"AGENT_HUB_IMPLEMENTATION_PLAN_MODEL": "plan-model", "AGENT_HUB_WORK_ORDER_REVIEW_MAX_BUDGET_USD": "9.00"}'
+  run settings implementation-plan "$vars" CLAUDE_MODEL REVIEW_CLAUDE_MAX_BUDGET_USD
+  assert_output "plan-model
+5.00"
+  run settings work-order "$vars" CLAUDE_MODEL REVIEW_CLAUDE_MAX_BUDGET_USD
+  assert_output "claude-sonnet-5
+9.00"
+  # The review model is shared by every stage.
+  run settings work-order '{"AGENT_HUB_REVIEW_MODEL": "reviewer"}' REVIEW_CLAUDE_MODEL
+  assert_output reviewer
 }
 
 @test "values with spaces, quotes and shell syntax are kept as text" {

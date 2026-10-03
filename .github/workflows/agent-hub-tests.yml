@@ -59,7 +59,7 @@ jobs:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ hashFiles('.github/agent-hub/.pre-commit-config.yaml') }}
 
-      # Runs the commit-stage hooks; the tests (a push-stage hook) run below.
+      # The lint hooks; the tests run in the Test job below.
       - name: pre-commit (formatting, actionlint, shellcheck)
         run: pipx run --spec pre-commit==4.6.2 pre-commit run --config .github/agent-hub/.pre-commit-config.yaml --all-files --show-diff-on-failure
 

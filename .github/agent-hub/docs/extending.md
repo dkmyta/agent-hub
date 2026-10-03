@@ -8,6 +8,8 @@ stage, without editing the hub.
 They live in **`.github/agent-hub-extensions/`**, which belongs to your
 repository: hub updates replace `.github/agent-hub/` and never touch it.
 Everything here is optional; with no extensions the stages work as they are.
+Installing the hub creates the folder with a README if it doesn't exist yet
+(people read it; the stages only load the folders below).
 
 ## What you can add
 

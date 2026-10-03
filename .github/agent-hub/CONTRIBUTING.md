@@ -10,7 +10,7 @@ You need `bash`, `jq`, Node 22 and [pre-commit](https://pre-commit.com).
 ```sh
 brew install pre-commit jq     # or: pipx install pre-commit
 npm ci --prefix .github/agent-hub/tests --ignore-scripts   # test dependencies (pinned)
-pre-commit install --config .github/agent-hub/.pre-commit-config.yaml   # lint on commit, tests on push
+pre-commit install --config .github/agent-hub/.pre-commit-config.yaml   # lint on every commit
 ```
 
 ## Checks
@@ -21,8 +21,9 @@ hub's files (this folder, `.github/workflows/agent-hub-*.yml` and
 (`.github/agent-hub-extensions/`), and run in two places:
 
 - **Locally, for fast feedback**: formatting and lint on every commit (a few
-  seconds), the test suite on every push (~20s). These can be skipped
-  (`--no-verify`), so they're a convenience, not the gate.
+  seconds; skippable with `--no-verify`, so a convenience, not the gate). Run
+  the test suite yourself before opening a pull request when you've changed
+  code (a few minutes: `npm test --prefix .github/agent-hub/tests`).
 - **In CI, as the gate**: `.github/workflows/agent-hub-tests.yml` runs the
   same checks on every pull request that changes the hub, and the tests on jq
   1.7 and 1.8. The required status checks for merging are **Agent hub: Lint**
@@ -35,7 +36,7 @@ hub's files (this folder, `.github/workflows/agent-hub-*.yml` and
 | Formatting (`pre-commit-hooks`) | commit, CI | Trailing whitespace, missing final newlines, CRLF, merge markers, invalid YAML/JSON, non-executable scripts |
 | `actionlint` | commit, CI | Workflow syntax, bad expressions, unknown runner labels, and ShellCheck on every `run:` script |
 | `shellcheck` | commit, CI | The shared libraries and test scripts |
-| Tests (`npm test --prefix .github/agent-hub/tests`) | push, CI | Every path through the stages, with the tracker (Jira) mocked — see [tests/README.md](tests/README.md) |
+| Tests (`npm test --prefix .github/agent-hub/tests`) | by hand, CI | Every path through the stages, with the tracker (Jira) mocked — see [tests/README.md](tests/README.md) |
 
 Run them by hand with
 `pre-commit run --config .github/agent-hub/.pre-commit-config.yaml --all-files` (lint) and

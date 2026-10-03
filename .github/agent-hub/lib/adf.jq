@@ -23,6 +23,7 @@ def doc($content): {type: "doc", version: 1, content: $content};
 def heading($level; $t): {type: "heading", attrs: {level: $level}, content: [text($t)]};
 def h3($t): heading(3; $t);
 def h4($t): heading(4; $t);
+def h5($t): heading(5; $t);
 def divider: {type: "rule"};
 
 # A paragraph from a string or from an array of inline nodes.
@@ -107,8 +108,6 @@ def is_command($cmd):
   ($cmd | ascii_downcase) as $c
   | ascii_downcase | sub("^\\s+"; "") as $t
   | $c != "" and ($t | startswith($c)) and ($t[($c | length):] | test("^(\\s|$)"));
-
-def h5($t): heading(5; $t);
 
 # --- ADF → Markdown ---------------------------------------------------------
 

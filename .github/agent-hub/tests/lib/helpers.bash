@@ -204,6 +204,7 @@ run_scenario() {
       "\(.method) \(.path)" + (
         if .body.body then " — comment: \(.body.body | first_text)"
         elif .body.fields.description then " — description: \([.body.fields.description.content[] | select(.type == "heading")] | length) headings"
+          + (if .body.update.labels then ", labels: \(.body.update.labels | tostring)" else "" end)
         elif .body then " — \(.body | tostring)"
         else "" end)' "$CALLS"
   } >> "$RUNNER_TEMP/trace.txt"
@@ -238,7 +239,7 @@ eval_budget_check() {
   fi
 }
 
-# eval_claude_step <steps dir>: the Claude step with the real Claude, adding
+# eval_claude_step <steps dir>: the agent step with the real Claude, adding
 # what it cost to the run's total whether it passed or not.
 eval_claude_step() {
   local status=0 outputs=()

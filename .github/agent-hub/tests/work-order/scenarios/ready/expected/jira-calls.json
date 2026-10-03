@@ -1064,13 +1064,7 @@
             }
           ]
         }
-      }
-    }
-  },
-  {
-    "method": "PUT",
-    "path": "",
-    "body": {
+      },
       "update": {
         "labels": [
           {

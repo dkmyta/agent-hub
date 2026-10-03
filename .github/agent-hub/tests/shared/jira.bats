@@ -43,8 +43,16 @@ with_jira() {
 }
 
 @test "request bodies" {
-  run with_jira PROJ-1 'tracker_add_label needs-details; tracker_transition 11; echo "{\"type\":\"doc\"}" | tracker_comment; jq -c .body "$CALLS"'
-  assert_output $'5001\n{"update":{"labels":[{"add":"needs-details"}]}}\n{"transition":{"id":"11"}}\n{"body":{"type":"doc"}}'
+  run with_jira PROJ-1 'tracker_labels +needs-details -needs-human; tracker_transition 11; echo "{\"type\":\"doc\"}" | tracker_comment; jq -c .body "$CALLS"'
+  assert_output $'5001\n{"update":{"labels":[{"add":"needs-details"},{"remove":"needs-human"}]}}\n{"transition":{"id":"11"}}\n{"body":{"type":"doc"}}'
+}
+
+# One update for the description and its labels, so Jira automation sees one
+# "work item updated" event rather than several.
+@test "the description and label changes go in one request" {
+  run with_jira PROJ-1 'echo "{\"type\":\"doc\"}" | tracker_set_description +needs-human -needs-clarification; echo "{\"type\":\"doc\"}" | tracker_set_description; jq -c "{path, body}" "$CALLS"'
+  assert_output '{"path":"?notifyUsers=true","body":{"fields":{"description":{"type":"doc"}},"update":{"labels":[{"add":"needs-human"},{"remove":"needs-clarification"}]}}}
+{"path":"?notifyUsers=true","body":{"fields":{"description":{"type":"doc"}}}}'
 }
 
 # The real jira() with a fake curl that records its arguments and the config
@@ -74,7 +82,7 @@ EOF
 }
 
 @test "a failed request fails the calling pipeline" {
-  MOCK_FAIL="PUT " run with_jira PROJ-1 'tracker_add_label x > /dev/null || echo failed'
+  MOCK_FAIL="PUT " run with_jira PROJ-1 'tracker_labels +x > /dev/null || echo failed'
   assert_output failed
 }
 

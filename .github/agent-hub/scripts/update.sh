@@ -20,6 +20,7 @@ set -euo pipefail
 
 HUB=.github/agent-hub
 FORM=.github/ISSUE_TEMPLATE/agent-hub-request.yml
+EXTENSIONS=.github/agent-hub-extensions
 RECORD=$HUB/.installed
 
 fail() { echo "update.sh: $1" >&2; exit 1; }
@@ -50,7 +51,16 @@ if [ -n "$(git status --porcelain -- "$HUB" ":(glob).github/workflows/agent-hub-
   fail "commit or discard the changes to the hub's files first (git status shows them)."
 fi
 
-checksum() { if command -v sha256sum > /dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+# checksums: a checksum line ("<sum>  <path>") for each path on stdin, in one
+# call rather than one per file.
+checksums() {
+  local tool=(shasum -a 256)
+  if command -v sha256sum > /dev/null; then tool=(sha256sum); fi
+  tr '\n' '\0' | xargs -0 "${tool[@]}"
+}
 
 # hub_files <root>: the hub's files under <root>, relative, one per line —
 # regular files only (no links), without installed test dependencies or the
@@ -65,14 +75,13 @@ hub_files() {
 # Hub files changed here since the last install or update — edited, deleted
 # or added — would be overwritten or removed.
 if [ -f "$RECORD" ]; then
+  awk '{ print $2 }' "$RECORD" | while read -r path; do
+    if [ -f "$path" ]; then echo "$path"; else echo "$path" >> "$work/deleted"; fi
+  done | checksums > "$work/current"
   edited=$({
-    while read -r sum path; do
-      [ -f "$path" ] || { echo "$path (deleted)"; continue; }
-      [ "$(checksum "$path" | cut -d ' ' -f 1)" = "$sum" ] || echo "$path"
-    done < "$RECORD"
-    hub_files . | while read -r path; do
-      awk -v path="$path" '$2 == path { found = 1 } END { exit !found }' "$RECORD" || echo "$path (added)"
-    done
+    awk 'NR == FNR { sum[$2] = $1; next } ($2 in sum) && sum[$2] != $1 { print $2 }' "$RECORD" "$work/current"
+    sed 's/$/ (deleted)/' "$work/deleted" 2> /dev/null || true
+    hub_files . | awk 'NR == FNR { recorded[$2] = 1; next } !($1 in recorded) { print $1 " (added)" }' "$RECORD" -
   })
   if [ -n "$edited" ] && [ "$force" = false ]; then
     printf 'These hub files were changed in this repository since the hub was installed:\n%s\n' "$edited" >&2
@@ -87,8 +96,7 @@ to=$(cat "$source/$HUB/VERSION")
 install_form=false
 if [ "$with_form" = true ] || [ -f "$FORM" ]; then install_form=true; fi
 
-files=$(mktemp)
-trap 'rm -f "$files"' EXIT
+files="$work/files"
 hub_files "$source" > "$files"
 if [ "$install_form" = true ]; then
   [ -f "$source/$FORM" ] || fail "the hub copy has no intake form ($FORM)."
@@ -99,7 +107,29 @@ fi
 hub_files . | while read -r path; do rm -f "$path"; done
 rm -rf "$HUB"
 (cd "$source" && tar cf - -T "$files") | tar xf -
-while read -r path; do checksum "$path"; done < "$files" > "$RECORD"
+checksums < "$files" > "$RECORD"
+
+# A repository without extensions gets a note on where they go — read by
+# people only (the stages load shared/ and stage folders, never this file).
+# Never added to, or changed in, an existing extensions folder.
+if [ ! -e "$EXTENSIONS" ]; then
+  mkdir -p "$EXTENSIONS"
+  cat > "$EXTENSIONS/README.md" <<'EOF_README'
+# Agent hub extensions
+
+This repository's own additions to the agent hub's stages: codebase guidance,
+review checks, expert agents and skills. Optional — with none, the stages work
+as they are. Updating the hub never touches this folder.
+
+    shared/        for every stage
+    work-order/    for one stage (the folder name of a stage in .github/agent-hub/stages/)
+      guidance.md, review.md, agents/<name>.md, skills/<name>/SKILL.md
+
+How the stages use them, what they can't do, and examples:
+[.github/agent-hub/docs/extending.md](../agent-hub/docs/extending.md).
+EOF_README
+  echo "Added $EXTENSIONS/README.md: where this repository's own extensions go."
+fi
 
 echo "Agent hub: $from → $to ($(wc -l < "$RECORD" | tr -d ' ') files)."
 echo "What changed: $HUB/CHANGELOG.md. Your extensions and other files weren't touched."
