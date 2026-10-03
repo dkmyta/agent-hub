@@ -17,10 +17,8 @@ GET ?fields=description
 GET ?fields=description
 GET ?fields=attachment
 POST /attachments — {"upload":"PROJ-99-implementation-plan.md"}
-PUT ?notifyUsers=true — description: 21 headings
+PUT ?notifyUsers=true — description: 21 headings, labels: [{"remove":"needs-clarification"},{"add":"needs-human"}]
 DELETE /attachment/8001
-PUT  — {"update":{"labels":[{"remove":"needs-clarification"}]}}
-PUT  — {"update":{"labels":[{"add":"needs-human"}]}}
 POST /comment — comment: 🔁 Change requests to the implementation plan
 GET /comment?maxResults=100
 PUT /comment/511 — comment: ✅ Resolved

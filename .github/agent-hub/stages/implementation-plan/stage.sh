@@ -184,11 +184,9 @@ step_apply() {
   # is in place, so the build stage always finds exactly one.
   PREVIOUS=$(tracker_attachments | jq -r --arg name "$(basename "$PLAN_FILE")" '.[] | select(.filename == $name) | .id')
   tracker_attach "$PLAN_FILE" > /dev/null
-  tracker_set_description < "$RUNNER_TEMP/description.json"
+  # Waiting for a person to review and approve the plan; questions answered.
+  tracker_set_description "-$NEEDS_CLARIFICATION_LABEL" "+$NEEDS_HUMAN_LABEL" < "$RUNNER_TEMP/description.json"
   for ATTACHMENT in $PREVIOUS; do tracker_delete_attachment "$ATTACHMENT"; done
-  tracker_remove_label "$NEEDS_CLARIFICATION_LABEL"
-  # Waiting for a person to review and approve the plan.
-  tracker_add_label "$NEEDS_HUMAN_LABEL"
   [ -z "$TRANSITION_ID" ] || tracker_transition "$TRANSITION_ID"
 
   # Say how each change request was handled, then mark them and the
@@ -218,8 +216,7 @@ step_return() {
          bullets([.structured_output.questions[]
            | [strong(.question), text(" Why it matters: \(.why) Best answered by: \(.who).")]])])' \
     "$RUNNER_TEMP/agent-output.json" | tracker_comment > /dev/null
-  tracker_add_label "$NEEDS_CLARIFICATION_LABEL"
-  tracker_add_label "$NEEDS_HUMAN_LABEL"
+  tracker_labels "+$NEEDS_CLARIFICATION_LABEL" "+$NEEDS_HUMAN_LABEL"
   tracker_transition "$TRANSITION_ID"
 
   echo "[$TICKET_KEY]($TICKET_URL) returned to $WORK_ORDER_STATUS as $NEEDS_CLARIFICATION_LABEL." >> "$GITHUB_STEP_SUMMARY"

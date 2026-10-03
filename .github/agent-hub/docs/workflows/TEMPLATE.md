@@ -16,7 +16,7 @@ current is part of the definition of done (CONTRIBUTING.md).
 |---|---|
 | Trigger | `repository_dispatch` `agent-hub-<stage>-requested` (Jira: <rules>), or **Run workflow** with a ticket key |
 | Runs on | `AGENT_HUB_RUNS_ON` — see [runners.md](../runners.md) |
-| Model | <draft model>; review `AGENT_HUB_REVIEW_CLAUDE_MODEL` |
+| Model | <draft model>; review `AGENT_HUB_REVIEW_MODEL` |
 | Stage files | `stages/<stage>/` |
 | Extensions | `.github/agent-hub-extensions/<stage>/` and `shared/`, optional — see [extending.md](../extending.md) |
 | Tests | `tests/<stage>/` |
@@ -45,9 +45,12 @@ optional, and where each piece goes (description, comment, attachment).>
 
 ## Settings
 
-<The repository variables this stage reads (link setup.md for all), and any
-text fixed in the stage's settings that must match a tracker rule. Add the stage's rule
-to jira.md, and its statuses to the Revision Requested rule.>
+<The repository variables this stage reads (link setup.md for all) — its own
+are `AGENT_HUB_<STAGE>_<setting>` (`MODEL`, `FALLBACK_MODEL`, `MAX_BUDGET_USD`,
+`REVIEW_MAX_BUDGET_USD`, `REVISION_MAX_BUDGET_USD`; add a column for the stage
+to setup.md's per-stage table) — and any text fixed in the stage's settings
+that must match a tracker rule. Add the stage's rule to jira.md, and its
+statuses to the Revision Requested rule.>
 
 ## Constraints
 

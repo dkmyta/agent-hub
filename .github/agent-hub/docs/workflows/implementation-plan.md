@@ -9,7 +9,7 @@ a product or scope decision, it sends the ticket back with the questions.
 |---|---|
 | Trigger | `repository_dispatch` `agent-hub-implementation-plan-requested` (Jira: Implementation Plan Requested or Revision Requested rule), or **Run workflow** with a ticket key |
 | Runs on | `AGENT_HUB_RUNS_ON` (default `[self-hosted, claude]`) — see [runners.md](../runners.md) |
-| Model | `AGENT_HUB_PLAN_CLAUDE_MODEL` (default Opus); review `AGENT_HUB_REVIEW_CLAUDE_MODEL` (Opus) |
+| Model | `AGENT_HUB_IMPLEMENTATION_PLAN_MODEL` (default Opus); review `AGENT_HUB_REVIEW_MODEL` (Opus) |
 | Stage files | `stages/implementation-plan/` (steps, settings, prompt, schema, plan rendering, revisions) |
 | Extensions | `.github/agent-hub-extensions/implementation-plan/` and `shared/`, optional — see [extending.md](../extending.md) |
 | Tests | `tests/implementation-plan/` — see [Testing](#testing) |
@@ -140,9 +140,9 @@ Repository variables, defaults shown (all variables:
 |---|---|---|
 | `AGENT_HUB_WORK_ORDER_APPROVED_STATUS` / `AGENT_HUB_IMPLEMENTATION_PLAN_STATUS` | Work Order Approved / Implementation Plan | Where new plans are written from, and where plans go and are revised |
 | `AGENT_HUB_WORK_ORDER_STATUS` / `AGENT_HUB_NEEDS_CLARIFICATION_LABEL` | Work Order / needs-clarification | Where tickets go with questions |
-| `AGENT_HUB_PLAN_CLAUDE_MODEL` / `AGENT_HUB_PLAN_CLAUDE_FALLBACK_MODEL` | claude-opus-5-5 / claude-sonnet-5 | The draft |
-| `AGENT_HUB_PLAN_CLAUDE_MAX_BUDGET_USD` / `AGENT_HUB_REVIEW_CLAUDE_MAX_BUDGET_USD` | 5.00 / 5.00 | Per-pass caps, API-equivalent dollars ([claude-usage.md](../claude-usage.md)) |
-| `AGENT_HUB_PLAN_REVISION_MAX_BUDGET_USD` | 2.00 | Per-pass cap for revisions |
+| `AGENT_HUB_IMPLEMENTATION_PLAN_MODEL` / `AGENT_HUB_IMPLEMENTATION_PLAN_FALLBACK_MODEL` | claude-opus-5-5 / claude-sonnet-5 | The draft |
+| `AGENT_HUB_IMPLEMENTATION_PLAN_MAX_BUDGET_USD` / `AGENT_HUB_IMPLEMENTATION_PLAN_REVIEW_MAX_BUDGET_USD` | 5.00 / 5.00 | Per-pass caps, API-equivalent dollars ([claude-usage.md](../claude-usage.md)) |
+| `AGENT_HUB_IMPLEMENTATION_PLAN_REVISION_MAX_BUDGET_USD` | 2.00 | Per-pass cap for revisions |
 
 Fixed in the stage's settings: the section name (`Implementation Plan`), the
 attachment name (`KEY-implementation-plan.md`), and the "Needs clarification"
@@ -190,9 +190,10 @@ Shared ones (revisions, failures, retries) are in
 
 ## Testing
 
-- `npm test --prefix .github/agent-hub/tests` — `tests/implementation-plan/`: 19 scenarios
-  (every path above, with the tracker mocked and a recorded real plan replayed), the
-  agent step's checks, and the plan renderings and revision splicing.
+- `npm test --prefix .github/agent-hub/tests` — `tests/implementation-plan/`:
+  every path above (with the tracker mocked and a recorded real plan
+  replayed), the agent step's checks, and the plan renderings and revision
+  splicing.
 - **Agent hub: Evals**, stage `implementation-plan` — three cases: a clear work
   order (→ plan), an open product decision (→ asks), and a work order the
   code contradicts (→ asks). See [evals.md](../evals.md).
@@ -230,7 +231,7 @@ cost more than work orders.
 8. **Work order changed after the plan** — move to Work Order and `/revise` a
    change. Expect: the work order revised, its Implementation Plan section
    saying the attached plan is out of date. Approve: a new plan replaces it.
-9. **Failure and retry** — set `AGENT_HUB_PLAN_REVISION_MAX_BUDGET_USD` to `0.01` and
+9. **Failure and retry** — set `AGENT_HUB_IMPLEMENTATION_PLAN_REVISION_MAX_BUDGET_USD` to `0.01` and
    `/revise`. Expect: ❌ with a **Why:** line, `needs-human`, still in
    Implementation Plan. Delete the variable, `/revise` again: a normal
    revision.

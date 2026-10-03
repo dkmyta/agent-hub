@@ -8,6 +8,8 @@ stage, without editing the hub.
 They live in **`.github/agent-hub-extensions/`**, which belongs to your
 repository: hub updates replace `.github/agent-hub/` and never touch it.
 Everything here is optional; with no extensions the stages work as they are.
+Installing the hub creates the folder with a README if it doesn't exist yet
+(people read it; the stages only load the folders below).
 
 ## What you can add
 
@@ -148,7 +150,7 @@ description: The team's writing conventions for tickets and plans. Use whenever 
    files.
 2. **Open a pull request.** CI runs the hub's checks on extension changes,
    and posts the **Agent behaviour changed** notice naming the stages the
-   change affects (all of them for `shared/`).
+   change affects (all of them for `shared/`; README edits don't count).
 3. **Try it** on a real ticket, or — if it's worth the cost — run **Agent
    hub: Evals** for those stages ([evals.md](evals.md)). The run log's
    "Repository extensions: …" line shows what was loaded.

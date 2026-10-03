@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# The Claude step on its own: only a complete, usable plan may continue.
+# The agent step on its own: only a complete, usable plan may continue.
 
 setup_file() {
   load helpers

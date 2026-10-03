@@ -53,9 +53,6 @@ use its default. (The defaults are in `lib/settings.sh` and each stage's
 | `AGENT_HUB_RUNS_ON` | `["self-hosted", "claude"]` | Runner labels, as JSON. `["ubuntu-latest"]` for GitHub-hosted runners |
 | `AGENT_HUB_EVALS_MAX_COST_USD` | `10` | Total spend cap for one Agent hub: Evals run; remaining cases are skipped once reached |
 | `AGENT_HUB_CLAUDE_CODE_VERSION` | `latest` | Claude Code version installed on GitHub-hosted runners |
-| `AGENT_HUB_CLAUDE_MODEL` | `claude-sonnet-5` | Model for the agents |
-| `AGENT_HUB_CLAUDE_FALLBACK_MODEL` | `claude-opus-5-5` | Used when the model is overloaded |
-| `AGENT_HUB_CLAUDE_MAX_BUDGET_USD` | `2.00` | Per-run cap, in API-equivalent dollars |
 | `AGENT_HUB_CLAUDE_FETCH_DOMAINS` | GitHub, Atlassian, Anthropic, MDN, Node and npm docs | Space-separated sites Claude may fetch pages from |
 | `AGENT_HUB_WORK_ORDER_STATUS` | `Work Order` | Status a ticket is in while its work order is prepared |
 | `AGENT_HUB_INTAKE_STATUS` | `Intake` | Status for new tickets and tickets that need more detail |
@@ -65,15 +62,22 @@ use its default. (The defaults are in `lib/settings.sh` and each stage's
 | `AGENT_HUB_NEEDS_HUMAN_LABEL` | `needs-human` | Label for tickets waiting for a person |
 | `AGENT_HUB_NEEDS_CLARIFICATION_LABEL` | `needs-clarification` | Label for tickets the plan stage sent back with questions |
 | `AGENT_HUB_REVISE_COMMAND` | `/revise` | Comments starting with this word ask an agent to revise (or retry); must match the Revision Requested rule |
-| `AGENT_HUB_REVIEW_CLAUDE_MODEL` | `claude-opus-5-5` | Model for the expert review of every draft (needs Claude Code 2.1.280+) |
-| `AGENT_HUB_REVIEW_CLAUDE_FALLBACK_MODEL` | `claude-sonnet-5` | Used when the review model is overloaded or unsupported |
-| `AGENT_HUB_REVIEW_CLAUDE_MAX_BUDGET_USD` | `2.00` / `5.00` | Per-review cap (work orders / plans), API-equivalent dollars |
-| `AGENT_HUB_PLAN_CLAUDE_MODEL` | `claude-opus-5-5` | Model for implementation plans (needs Claude Code 2.1.280+) |
-| `AGENT_HUB_PLAN_CLAUDE_FALLBACK_MODEL` | `claude-sonnet-5` | Used when the plan model is overloaded or unsupported |
-| `AGENT_HUB_PLAN_CLAUDE_MAX_BUDGET_USD` | `5.00` | Per-plan cap, in API-equivalent dollars |
-| `AGENT_HUB_REVISION_MAX_BUDGET_USD` | `1.00` | Per-pass cap for work-order revisions (draft and review each) |
-| `AGENT_HUB_PLAN_REVISION_MAX_BUDGET_USD` | `2.00` | Per-pass cap for plan revisions (draft and review each) |
+| `AGENT_HUB_REVIEW_MODEL` | `claude-opus-5-5` | Model for the expert review of every draft (needs Claude Code 2.1.280+) |
+| `AGENT_HUB_REVIEW_FALLBACK_MODEL` | `claude-sonnet-5` | Used when the review model is overloaded or unsupported |
 | `AGENT_HUB_JIRA_NOTIFY_USERS` | `true` | `false` silences watcher notifications for description updates (needs Jira admin) |
+
+**Per stage**, named `AGENT_HUB_<STAGE>_<setting>`, where `<STAGE>` is the
+stage's folder name in capitals with `_` — e.g. `AGENT_HUB_WORK_ORDER_MODEL`,
+`AGENT_HUB_IMPLEMENTATION_PLAN_MAX_BUDGET_USD`. Budgets are caps in
+API-equivalent dollars ([claude-usage.md](claude-usage.md)):
+
+| Setting | Work order (`WORK_ORDER`) | Implementation plan (`IMPLEMENTATION_PLAN`) | Purpose |
+|---|---|---|---|
+| `MODEL` | `claude-sonnet-5` | `claude-opus-5-5` | Model for the draft (Opus needs Claude Code 2.1.280+) |
+| `FALLBACK_MODEL` | `claude-opus-5-5` | `claude-sonnet-5` | Used when the model is overloaded or unsupported |
+| `MAX_BUDGET_USD` | `2.00` | `5.00` | Cap for the draft |
+| `REVIEW_MAX_BUDGET_USD` | `2.00` | `5.00` | Cap for the expert review |
+| `REVISION_MAX_BUDGET_USD` | `1.00` | `2.00` | Cap for each pass of a revision, which is scoped to the requested changes |
 
 ## 5. Set up your tracker
 

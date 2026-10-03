@@ -28,17 +28,18 @@ and how the evals fit in.
 | A `/revise` comment on a ticket in Intake, Work Order, Work Order Approved or Implementation Plan (Revision Requested rule) | **Yes** — one run per comment. A revision is scoped to the requested changes, so it's usually well under a new run's cost; a retry or resubmission costs a normal run |
 | **Run workflow** on an agent workflow in the Actions tab | **Yes** |
 | Running the evals — **Agent hub: Evals** in the Actions tab, or `npm run evals --prefix .github/agent-hub/tests -- <stage>`, confirmed by typing `use-claude` | **Yes**, deliberately |
-| Committing or pushing (pre-commit / pre-push hooks) | No |
+| Committing (the pre-commit lint hooks) | No |
 | Opening or updating a pull request, or pushing to `main` (CI) | No |
 | Running the tests (`npm test --prefix .github/agent-hub/tests`) | No |
 
 Each run's summary (in the Actions run page) shows the models used, the
 Claude Code version, and the turns and **API-equivalent cost** of each pass —
 the draft and the expert review — so you can see which one costs what. Each
-pass has a cap: `AGENT_HUB_CLAUDE_MAX_BUDGET_USD` / `AGENT_HUB_PLAN_CLAUDE_MAX_BUDGET_USD` for the
-draft, `AGENT_HUB_REVIEW_CLAUDE_MAX_BUDGET_USD` for the review, and a lower
-`AGENT_HUB_REVISION_MAX_BUDGET_USD` / `AGENT_HUB_PLAN_REVISION_MAX_BUDGET_USD` for both passes of
-a revision, which is scoped to the requested changes.
+pass has a cap, set per stage: `AGENT_HUB_<STAGE>_MAX_BUDGET_USD` for the
+draft, `AGENT_HUB_<STAGE>_REVIEW_MAX_BUDGET_USD` for the review, and a lower
+`AGENT_HUB_<STAGE>_REVISION_MAX_BUDGET_USD` for both passes of a revision,
+which is scoped to the requested changes
+([setup.md](setup.md#4-set-variables-only-what-differs-from-the-defaults)).
 
 **Typical usage** (API-equivalent; the single source for these figures — other
 docs link here):

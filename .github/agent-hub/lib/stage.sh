@@ -118,7 +118,7 @@ stage_report_failure() {
   else
     tracker_comment <<< "$body" > /dev/null
   fi
-  tracker_add_label "$NEEDS_HUMAN_LABEL"
+  tracker_labels "+$NEEDS_HUMAN_LABEL"
 }
 
 # stage_transition_id <status>: the id of the transition into <status>, or

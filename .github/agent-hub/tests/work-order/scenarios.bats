@@ -22,7 +22,7 @@ setup() {
 }
 
 @test "needs details: comment, label, back to Intake" {
-  run_scenario needs-details --full
+  run_scenario needs-details
 }
 
 @test "ticket not in Work Order: nothing happens" {
@@ -74,7 +74,7 @@ setup() {
 }
 
 @test "revise: the work order is revised with the change requests, which are answered and resolved" {
-  run_scenario revise --full
+  run_scenario revise
   # Claude was told to revise, and got the change request but not the one
   # already handled.
   run cat "$RUNNER_TEMP/claude-prompt.txt"
@@ -146,7 +146,7 @@ setup() {
 
 @test "a revision that settles the plan's questions clears needs-clarification" {
   run_scenario revise-settles-clarification
-  run jq -c 'select(.body.update.labels) | .body.update.labels[0]' "$CALLS"
+  run jq -c 'select(.body.update.labels) | .body.update.labels[]' "$CALLS"
   assert_line '{"remove":"needs-clarification"}'
   run jq -r 'select(.path == "/comment/450") | .body.body | tostring' "$CALLS"
   assert_output --partial "settled in the work order"
@@ -154,6 +154,6 @@ setup() {
 
 @test "a revision that doesn't settle them leaves needs-clarification alone" {
   run_scenario revise
-  run jq -c 'select(.body.update.labels) | .body.update.labels[0]' "$CALLS"
+  run jq -c 'select(.body.update.labels) | .body.update.labels[]' "$CALLS"
   refute_line '{"remove":"needs-clarification"}'
 }

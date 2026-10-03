@@ -19,6 +19,11 @@ setting() {
   printf '%s' "${value:-$2}"
 }
 
+# stage_setting <name> <default>: the stage's own setting, from the repository
+# variable AGENT_HUB_<STAGE>_<name> (e.g. AGENT_HUB_WORK_ORDER_MODEL), so every
+# stage's settings are named the same way.
+stage_setting() { setting "AGENT_HUB_$(printf '%s' "$STAGE" | tr 'a-z-' 'A-Z_')_$1" "$2"; }
+
 set -a
 HUB_DIR=${HUB_DIR:-.github/agent-hub}
 STAGE_DIR="$HUB_DIR/stages/$STAGE"
@@ -34,8 +39,8 @@ AGENT_RUNNER=$(setting AGENT_HUB_RUNNER claude-code)
 
 # Expert review of every draft that goes ahead (docs/architecture.md): a
 # strong model reviewing a draft catches what the drafter missed.
-REVIEW_CLAUDE_MODEL=$(setting AGENT_HUB_REVIEW_CLAUDE_MODEL claude-opus-5-5)
-REVIEW_CLAUDE_FALLBACK_MODEL=$(setting AGENT_HUB_REVIEW_CLAUDE_FALLBACK_MODEL claude-sonnet-5)
+REVIEW_CLAUDE_MODEL=$(setting AGENT_HUB_REVIEW_MODEL claude-opus-5-5)
+REVIEW_CLAUDE_FALLBACK_MODEL=$(setting AGENT_HUB_REVIEW_FALLBACK_MODEL claude-sonnet-5)
 
 # The only sites Claude may fetch pages from (web search is unrestricted), so
 # a malicious ticket can't get repository content sent to an arbitrary URL.

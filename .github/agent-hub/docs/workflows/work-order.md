@@ -8,7 +8,7 @@ enough to work with.
 |---|---|
 | Trigger | `repository_dispatch` `agent-hub-work-order-requested` (Jira: Work Order Requested or Revision Requested rule), or **Run workflow** with a ticket key |
 | Runs on | `AGENT_HUB_RUNS_ON` (default `[self-hosted, claude]`) — see [runners.md](../runners.md) |
-| Model | `AGENT_HUB_CLAUDE_MODEL` (default `claude-sonnet-5`); review `AGENT_HUB_REVIEW_CLAUDE_MODEL` (Opus) |
+| Model | `AGENT_HUB_WORK_ORDER_MODEL` (default `claude-sonnet-5`); review `AGENT_HUB_REVIEW_MODEL` (Opus) |
 | Stage files | `stages/work-order/` (steps, settings, prompt, schema, ticket layout, revisions) |
 | Extensions | `.github/agent-hub-extensions/work-order/` and `shared/`, optional — see [extending.md](../extending.md) |
 | Tests | `tests/work-order/` — see [Testing](#testing) |
@@ -109,9 +109,9 @@ Repository variables, defaults shown (all variables:
 |---|---|---|
 | `AGENT_HUB_WORK_ORDER_STATUS` / `AGENT_HUB_INTAKE_STATUS` | Work Order / Intake | Where the run acts, and where needs-details tickets go |
 | `AGENT_HUB_NEEDS_DETAILS_LABEL` / `AGENT_HUB_NEEDS_HUMAN_LABEL` | needs-details / needs-human | Labels ([jira.md](../jira.md#labels)) |
-| `AGENT_HUB_CLAUDE_MODEL` / `AGENT_HUB_CLAUDE_FALLBACK_MODEL` | claude-sonnet-5 / claude-opus-5-5 | The draft |
-| `AGENT_HUB_CLAUDE_MAX_BUDGET_USD` / `AGENT_HUB_REVIEW_CLAUDE_MAX_BUDGET_USD` | 2.00 / 2.00 | Per-pass caps, API-equivalent dollars ([claude-usage.md](../claude-usage.md)) |
-| `AGENT_HUB_REVISION_MAX_BUDGET_USD` | 1.00 | Per-pass cap for revisions |
+| `AGENT_HUB_WORK_ORDER_MODEL` / `AGENT_HUB_WORK_ORDER_FALLBACK_MODEL` | claude-sonnet-5 / claude-opus-5-5 | The draft |
+| `AGENT_HUB_WORK_ORDER_MAX_BUDGET_USD` / `AGENT_HUB_WORK_ORDER_REVIEW_MAX_BUDGET_USD` | 2.00 / 2.00 | Per-pass caps, API-equivalent dollars ([claude-usage.md](../claude-usage.md)) |
+| `AGENT_HUB_WORK_ORDER_REVISION_MAX_BUDGET_USD` | 1.00 | Per-pass cap for revisions |
 
 Fixed in the stage's settings, and must match the tracker's rules: the "Needs details"
 comment title and message (`NEEDS_DETAILS_TITLE`, `NEEDS_DETAILS_MESSAGE`).
@@ -185,7 +185,7 @@ Claude costs a run.
 8. **Not a command, wrong status** — comment "/revised the title" (nothing
    runs); comment `/revise` on a ticket in Implementation Plan Approved
    ("Revision not started — …").
-9. **Failure and retry** — set `AGENT_HUB_REVISION_MAX_BUDGET_USD` to `0.01` and
+9. **Failure and retry** — set `AGENT_HUB_WORK_ORDER_REVISION_MAX_BUDGET_USD` to `0.01` and
    comment `/revise`. Expect: "❌ Work order generation failed" with a **Why:**
    line, `needs-human`. Delete the variable, `/revise` again: a normal revision.
 10. **A removed section** — delete the "Out of Scope" heading, then `/revise`

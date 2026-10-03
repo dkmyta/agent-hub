@@ -15,13 +15,14 @@ reach a real Claude login.
 
 ```sh
 npm ci --prefix .github/agent-hub/tests --ignore-scripts  # once
-npm test --prefix .github/agent-hub/tests                # everything (~20s on macOS, faster on Linux)
+npm test --prefix .github/agent-hub/tests                # everything (a few minutes)
 npx --prefix .github/agent-hub/tests bats .github/agent-hub/tests/shared   # one folder or file
 npm run update-snapshots --prefix .github/agent-hub/tests
 ```
 
-Needs `bash`, `jq` and Node 22. The pre-push hook and CI run the same suite;
-CI runs it on jq 1.7 (GitHub-hosted runners) and 1.8 (the self-hosted runner).
+Needs `bash`, `jq` and Node 22. CI runs the same suite on every pull request
+that changes the hub, on jq 1.7 (GitHub-hosted runners) and 1.8 (the
+self-hosted runner).
 
 ## Layout
 
@@ -54,19 +55,19 @@ tests/
 | `shared/claude-usage.bats` | Claude is only used on demand: Claude-using workflows only run on tracker requests or manual runs; `npm test` excludes the evals; evals refuse to run without `RUN_EVALS=1`, a named stage and a typed `use-claude` confirmation; the Agent hub: Evals workflow is skipped without it and lists every stage; the eval spend cap |
 | `shared/settings.bats` | Settings: the defaults with no repository variables, overrides (empty ones ignored), per-stage variables, values kept as text, malformed variables falling back to defaults; `lib/load.sh` refusing an unknown part |
 | `shared/stage-workflow.bats` | The shared stage workflow: its steps and conditions match `run_stage`; the checkout hides recorded test data from Claude; for every stage, step time limits fit the job's; every stage has its files, step functions and a caller workflow with its `agent-hub-<stage>-requested` event and a per-ticket concurrency group; the repository's extensions are named for a stage or `shared` and hold only what an extension may (and that check catches misnamed folders and disallowed files) |
-| `shared/update.bats` | Installing and updating: the hub's files and workflows and a record of them, nothing else; the intake form only when asked, then kept up to date; files a new version dropped removed; hub files changed in the repository (edited, deleted, added) stop the update unless `--force`; refusals (uncommitted changes, a hub not installed by the script, wrong folder, not a hub copy); `VERSION` matching the newest `CHANGELOG.md` entry |
+| `shared/update.bats` | Installing and updating: the hub's files and workflows and a record of them, nothing else; an extensions README only for repositories without extensions, never overwritten; the intake form only when asked, then kept up to date; files a new version dropped removed; hub files changed in the repository (edited, deleted, added) stop the update unless `--force`; refusals (uncommitted changes, a hub not installed by the script, wrong folder, not a hub copy); `VERSION` matching the newest `CHANGELOG.md` entry |
 | `shared/trackers.bats` | Every tracker and agent runner defines its interface; Jira and GitHub Projects stay in step: the GitHub issue form has the Jira template's fields, adds the `agent-hub` label and requires the request |
 | `shared/behaviour-changes.bats` | Which changes CI's eval notice flags (extension changes included), and which stages' evals they affect (`scripts/agent-behaviour-changes.sh`) |
-| `work-order/scenarios.bats` | 20 paths: ready (and without a description, and re-run after a failed update), needs details, not in Work Order, moved during run/review, cancelled by a newer request, no Intake transition, Claude fails, Jira rejects the description, Jira unreachable, invalid key, the review changing the outcome, the review failing; and the reverse paths: a `/revise` revision (only the updated sections replaced, every other section unchanged, the change request answered and resolved, the original request not captured again, earlier 🔁 replies left out), a revision with a plan attached (marked out of date), a revision sent back for details, a revision needing a section removed by hand (fails first, naming it), details added in a `/revise` comment |
+| `work-order/scenarios.bats` | Every path: ready (and without a description, and re-run after a failed update), needs details, not in Work Order, moved during run/review, cancelled by a newer request, no Intake transition, Claude fails, Jira rejects the description, Jira unreachable, invalid key, the review changing the outcome, the review failing; and the reverse paths: a `/revise` revision (only the updated sections replaced, every other section unchanged, the change request answered and resolved, the original request not captured again, earlier 🔁 replies left out), a revision with a plan attached (marked out of date), a revision sent back for details, a revision needing a section removed by hand (fails first, naming it), details added in a `/revise` comment, a revision that settles the plan's questions (clearing `needs-clarification`) and one that doesn't |
 | `work-order/claude-step.bats` | Only usable Claude output continues (6 kinds of bad output, incl. budget exceeded); ticket passed as data; read-only, repo-scoped tools and Claude isolation (write/shell tools denied, repo settings only, no hooks or MCP); model, fallback, budget; no tracker credentials; a session id per call, no saved sessions, and the cleanup removing exactly this job's session files (nothing for invalid entries, and nothing to do without a checkout); repository extensions — this stage's and the shared ones loaded for both passes (guidance, review checklists, experts and skills; for revisions after the revision instructions), other stages' not, nothing changing without any, and anything an extension can't contain stopping the run before Claude starts; the review's inputs, failure and output format; revision mode (only changed sections returned, the revision instructions, the review seeing the whole revised document, the revision formats for every stage) |
 | `work-order/schema.bats` | Schema works as a Claude Code `--json-schema`; recorded outputs match it; ticket headings; valid ADF |
-| `implementation-plan/scenarios.bats` | 19 paths (the review's outcome change and failure are covered once, by the work-order scenarios, since that logic is shared), with failure reasons on the ticket, including a revision needing a section renamed by hand, a `/revise` revision of the attached plan (only the updated sections spliced in, a person's edit kept, the summary untouched where not updated, stays in Implementation Plan), a revision with the attachment gone, a revision that needs a product decision, the expert review improving the plan or dropping a criterion; and: plan written (attached + summary), needs clarification, not in Work Order Approved, no work order (no Claude usage), moved during run, no transition, summary too large, missing criterion, cancelled, Jira rejects the description, re-plan replaces the previous plan, upload fails |
+| `implementation-plan/scenarios.bats` | Every path specific to plans (shared logic — the review changing the outcome or failing, cancellation — is covered once, by the work-order scenarios), with failure reasons on the ticket, including a revision needing a section renamed by hand, a `/revise` revision of the attached plan (only the updated sections spliced in, a person's edit kept, the summary untouched where not updated, stays in Implementation Plan), a revision with the attachment gone, a revision that needs a product decision, the expert review improving the plan or dropping a criterion; and: plan written (attached + summary), needs clarification, not in Work Order Approved, no work order (no Claude usage), moved during run, no transition, summary too large, missing criterion, Jira rejects the description, re-plan replaces the previous plan, upload fails |
 | `implementation-plan/claude-step.bats` | Only complete plans continue: every acceptance criterion covered, files to modify exist (for revisions, in the sections they change); the plan is never logged; the fallback warning; Opus by default, read-only tools; the review of a revision sees the whole revised plan |
 | `implementation-plan/schema.bats` | Plan schema; both renderings (full plan, ticket summary); the summary replaces only the Implementation Plan section; Markdown tables and emphasis; revisions: splicing sections into the attached plan (replace, insert in order, remove, estimate line) and patching the summary |
 
 Every scenario snapshots a **trace** — each step's result and every tracker call
 — and checks every document sent to the tracker against Atlassian's ADF schema. The
-main paths (ready, send back, revise) also snapshot the full request bodies
+two "ready" paths also snapshot the full request bodies
 and the run summary. Claude's prompts aren't snapshotted (the agent-step
 tests check what matters in them), so a prompt edit doesn't touch snapshots.
 
@@ -118,7 +119,7 @@ npm run evals --prefix .github/agent-hub/tests -- work-order --filter '^too-vagu
 
 or **Actions → Agent hub: Evals → Run workflow** with a stage and `use-claude` in
 the confirmation box. `lib/run-evals.sh` also enforces the run's spend cap
-(`EVALS_MAX_COST_USD`, default 10). Keep each stage to about two cases
+(`EVALS_MAX_COST_USD`, default 10). Keep each stage to about three cases
 ([why](../docs/evals.md#keeping-the-suite-small)).
 
 To add a work-order case: `work-order/evals/cases/<name>/case.env` (`TITLE`,

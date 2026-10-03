@@ -1553,28 +1553,12 @@
             }
           ]
         }
-      }
-    }
-  },
-  {
-    "method": "PUT",
-    "path": "",
-    "body": {
+      },
       "update": {
         "labels": [
           {
             "remove": "needs-clarification"
-          }
-        ]
-      }
-    }
-  },
-  {
-    "method": "PUT",
-    "path": "",
-    "body": {
-      "update": {
-        "labels": [
+          },
           {
             "add": "needs-human"
           }

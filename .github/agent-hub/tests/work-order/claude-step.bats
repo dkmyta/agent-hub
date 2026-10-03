@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# The Claude step on its own: only a usable result may continue the workflow.
+# The agent step on its own: only a usable result may continue the workflow.
 
 setup_file() {
   load helpers
@@ -84,7 +84,7 @@ arg() { # value passed to the stub after flag $1
   grep -A1 -x -- "$1" "$RUNNER_TEMP/claude-args.txt" | sed -n 2p
 }
 
-# Security: the Claude step is read-only, can't run commands, can't read
+# Security: the agent step is read-only, can't run commands, can't read
 # outside the repository, and can only fetch pages from allowed domains.
 @test "Claude is limited to read-only, repo-scoped tools and allowed fetch domains" {
   claude_step ready.json
@@ -263,7 +263,7 @@ $EXTENSIONS_DIR/work-order"
   assert_output --partial error_max_budget_usd
 }
 
-@test "the Claude step has no tracker credentials, only the optional API key" {
+@test "the agent step has no tracker credentials, only the optional API key" {
   run grep -c JIRA_API_TOKEN "$STEPS/agent.sh"
   assert_output 0
   run node "$TESTS_DIR/lib/workflow.mjs" shape "$WORKFLOW"

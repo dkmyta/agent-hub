@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Live evals: the implementation-plan Claude step with the REAL Claude Code CLI
+# Live evals: the implementation-plan agent step with the REAL Claude Code CLI
 # against sample work orders in cases/, with the tracker mocked. Each case is a work
 # order (the work-order stage's output format) rendered into a ticket exactly
 # as that stage writes it. Uses Claude (several minutes per case), so it's
@@ -54,9 +54,9 @@ run_eval() { # <case>
   assert_equal "$(step_output start proceed)" true
   grep -qF "Acceptance Criteria" "$RUNNER_TEMP/ticket.md" || fail "work order not passed to Claude"
 
-  # The Claude step itself rejects plans that miss a criterion or modify
+  # The agent step itself rejects plans that miss a criterion or modify
   # missing files, so a failure here can be one of those.
-  eval_claude_step "$STEPS" || fail "Claude step failed: $(grep -A1 -E '::error' "$RUNNER_TEMP/log.txt" | tail -4)"
+  eval_claude_step "$STEPS" || fail "Agent step failed: $(grep -A1 -E '::error' "$RUNNER_TEMP/log.txt" | tail -4)"
   result="$RUNNER_TEMP/agent-output.json"
   # Every result reaching people has been through the expert review.
   # (A draft that sends the ticket back isn't reviewed.)

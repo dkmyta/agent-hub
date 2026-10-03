@@ -48,8 +48,11 @@ git clone --depth 1 --branch v1.0.0 https://github.com/dkmyta/agent-hub /tmp/age
 # GitHub Projects as the tracker? Add --with-issue-form.
 ```
 
-Then review the new files, commit them, and continue with
-[setup.md](setup.md) from step 2 (runner, secrets, variables, tracker).
+A repository with no `.github/agent-hub-extensions/` folder also gets one,
+holding only a README on what goes there ([extending.md](extending.md));
+nothing in it is loaded until you add stage folders. Then review the new
+files, commit them, and continue with [setup.md](setup.md) from step 2
+(runner, secrets, variables, tracker).
 
 ## Updating
 

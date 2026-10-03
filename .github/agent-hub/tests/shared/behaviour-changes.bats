@@ -103,9 +103,12 @@ change() { # <file> <content>, committed on top of base
   change .github/agent-hub-extensions/shared/guidance.md "Use British English."
   run "$SCRIPT" --stages main~1
   assert_output "all"
-  # Notes for people only.
+  # Notes for people only, at any level.
   change .github/agent-hub-extensions/work-order/README.md "Maintained by the API team."
-  run "$SCRIPT" main~1
+  change .github/agent-hub-extensions/README.md "Our extensions."
+  run "$SCRIPT" main~2
+  assert_output ""
+  run "$SCRIPT" --stages main~2
   assert_output ""
 }
 

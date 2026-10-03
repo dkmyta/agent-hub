@@ -47,6 +47,29 @@ install() { "$UPDATE" "$REPO_DIR" "$@" && git add -A && git commit -qm "install 
   own_files_untouched
 }
 
+@test "a repository without extensions gets a README saying where they go; never overwritten" {
+  rm -rf .github/agent-hub-extensions && git add -A && git commit -qm "no extensions"
+  run "$UPDATE" "$REPO_DIR"
+  assert_success
+  assert_line "Added .github/agent-hub-extensions/README.md: where this repository's own extensions go."
+  run cat .github/agent-hub-extensions/README.md
+  assert_output --partial "docs/extending.md"
+  # Only the README: no stage folders, so nothing is added to any prompt.
+  run ls -A .github/agent-hub-extensions
+  assert_output README.md
+  echo "Ours now." > .github/agent-hub-extensions/README.md
+  git add -A && git commit -qm "the repository's own README"
+  "$UPDATE" "$REPO_DIR" > /dev/null
+  assert_equal "$(cat .github/agent-hub-extensions/README.md)" "Ours now."
+}
+
+@test "a repository with extensions gets no README added" {
+  run "$UPDATE" "$REPO_DIR"
+  assert_success
+  assert [ ! -e .github/agent-hub-extensions/README.md ]
+  own_files_untouched
+}
+
 @test "the GitHub Projects intake form only when asked, then kept up to date" {
   [ -f "$REPO_DIR/.github/ISSUE_TEMPLATE/agent-hub-request.yml" ] || skip "the GitHub Projects intake form isn't installed here"
   install --with-issue-form

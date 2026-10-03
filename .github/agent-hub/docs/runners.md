@@ -35,8 +35,10 @@ is used.
 
 Things to know:
 - **Usage limits are shared** with anyone else using that Claude login.
-  `AGENT_HUB_CLAUDE_MAX_BUDGET_USD` stops a runaway run (in API-equivalent dollars)
-  before it uses up the plan's allowance.
+  Each stage's budget caps (`AGENT_HUB_<STAGE>_MAX_BUDGET_USD` and the others
+  in [setup.md](setup.md#4-set-variables-only-what-differs-from-the-defaults),
+  in API-equivalent dollars) stop a runaway run before it uses up the plan's
+  allowance.
 - **If the login expires**, runs fail and the ticket gets the failure comment;
   log in again on the machine.
 - **Only the login is shared, not your personal Claude setup.** Runs ignore
@@ -65,7 +67,7 @@ Things to know:
    - **A self-hosted runner**: keep the default, but make sure Claude Code on
      that machine is **not logged in** — a login takes precedence over the API
      key.
-3. **Review `AGENT_HUB_CLAUDE_MAX_BUDGET_USD`** — it's now real money per run.
+3. **Review the stages' budget caps** (`AGENT_HUB_<STAGE>_*_BUDGET_USD`) — they're now real money per run.
 4. **Check it works**: run one real ticket through, or the evals (Actions →
    Agent hub: Evals, stage **all**) if the cost is acceptable.
 
