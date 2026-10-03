@@ -232,8 +232,10 @@ run_scenario() {
     local file
     for file in "$RUNNER_TEMP"/attached/*; do
       [ -e "$file" ] || continue
-      # The version line carries the run's time; snapshot it without.
-      sed -E 's/^_Version: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} UTC/_Version: <time>/' "$file" > "$file.snapshot"
+      # The version line's time and commit differ per run, so they're masked
+      # (a separate test checks the commit).
+      sed -E -e 's/^_Version: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} UTC/_Version: <time>/' \
+        -e 's/against commit [0-9a-f]{40}/against commit <commit>/' "$file" > "$file.snapshot"
       assert_snapshot "$dir/expected/attached-$(basename "$file")" "$file.snapshot"
     done
   fi

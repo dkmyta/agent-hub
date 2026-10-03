@@ -1,6 +1,6 @@
 # Implementation plan: PROJ-99 — Document the Jira to GitHub automation in the README
 
-_Version: <time> — written from the approved work order on PROJ-99, against commit 135e47ddce8b34bf3869aa3e7ef25aee8a66c0ff._
+_Version: <time> — written from the approved work order on PROJ-99, against commit <commit>._
 
 **Estimate:** S — One README change and one new docs page, following existing patterns.
 
