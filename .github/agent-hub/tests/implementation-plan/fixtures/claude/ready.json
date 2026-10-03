@@ -96,6 +96,27 @@
           ]
         }
       ],
+      "governance": {
+        "risk": {
+          "level": "low",
+          "reason": "Documentation only: no code paths change, and a wrong instruction is easy to spot and fix."
+        },
+        "includes": {
+          "dependencies": false,
+          "schema_or_migration": false,
+          "public_api": false,
+          "auth_or_permissions": false,
+          "sensitive_data": false,
+          "infrastructure": false,
+          "workflow_or_ci": false,
+          "configuration": false
+        },
+        "scope_patterns": [],
+        "must_not_touch": [
+          ".github/workflows/**"
+        ],
+        "manual_changes": []
+      },
       "steps": [
         {
           "title": "Update the shared pipeline intro and diagram in README.md",
@@ -258,6 +279,7 @@
         "tests.yml (CI lint/tests) is left as already documented in README's Workflows table; it isn't a Jira-triggered agent workflow and isn't one of the three Dana Lead asked to cover."
       ],
       "security": [],
+      "observability": [],
       "release": {
         "steps": [],
         "rollback": "Revert the single commit touching README.md and remove docs/workflows/implementation-plan.md (or `git revert` the commit) — no workflow, prompt, schema, script, or other runtime file is touched, so rollback has no effect on any running automation."

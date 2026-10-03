@@ -138,6 +138,7 @@ Shared ones (revisions, failures, retries) are in
 | No Work Order → Intake transition | Fails before changing anything |
 | The tracker rejects the description (e.g. too long) | Fails after the Original Request comment; a retry doesn't post it again |
 | Ticket moved back to Intake and edited | Revised against the edits; the original request isn't captured twice |
+| The request is edited while a new work order is being written | Fails before changing anything (no work order, no Original Request comment); `/revise` writes it from the current text |
 | A section a `/revise` changes is edited during the run | Fails before changing anything, naming the section; the edit is kept. Edits to other sections are kept and the run continues |
 | A change request the answer doesn't address | Stays open for the next `/revise`; the run log counts them |
 | Ticket text tries to instruct Claude | Treated as data (covered by an eval) |

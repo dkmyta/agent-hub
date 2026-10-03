@@ -1,6 +1,6 @@
 # Implementation plan: PROJ-99 — Document the Jira to GitHub automation in the README
 
-_Version: <time> — written from the approved work order on PROJ-99._
+_Version: <time> — written from the approved work order on PROJ-99, against commit 135e47ddce8b34bf3869aa3e7ef25aee8a66c0ff._
 
 **Estimate:** S — One README change and one new docs page, following existing patterns.
 
@@ -52,6 +52,33 @@ Per Dana Lead's comment, agent-evals.yml is covered too, but it already has a co
   - Known gaps: test coverage — only `tests/implementation-plan/helpers.bash` exists today; scenario, Claude-step and schema tests analogous to `tests/work-order/` haven't been added yet (see tests/README.md's 'For new agent stages'); no live eval cases exist yet for this stage (docs/evals.md's case table only covers work-order cases); same caveats as work-order.md apply otherwise (posts as the JIRA_EMAIL person, no automatic retries, expired credentials fail quietly, evals are non-deterministic).
   - Testing section: reference tests/README.md and note the current gap (helpers only), same structure as work-order.md's Testing section.
 
+## Scope & Governance
+
+**Risk:** low — Documentation only: no code paths change, and a wrong instruction is easy to spot and fix.
+
+| Change kind | In this plan |
+|---|---|
+| Dependencies | no |
+| Schema or migration | no |
+| Public API or contract | no |
+| Auth or permissions | no |
+| Sensitive data | no |
+| Infrastructure | no |
+| Workflow or CI | no |
+| Configuration | no |
+
+**Also in scope**
+
+Nothing beyond Changes by File.
+
+**Must not touch**
+
+- `.github/workflows/**`
+
+**Manual changes**
+
+None.
+
 ## Implementation Steps
 
 1. **Update the shared pipeline intro and diagram in README.md**
@@ -101,6 +128,10 @@ pre-commit run --all-files (formatting/whitespace/EOF checks on the touched Mark
 ## Security & Privacy
 
 No security or privacy impact identified.
+
+## Observability
+
+No observability changes needed.
 
 ## Risks
 

@@ -60,7 +60,7 @@ step_agent() {
 
 # step_apply: Write the result to the ticket.
 step_apply() {
-  tracker_require_status "$WORK_ORDER_STATUS" || exit 0
+  stage_require_status "$WORK_ORDER_STATUS"
   MODE=$(stage_mode)
 
   # The reviewed work order, with the review's note at the top. A
@@ -115,6 +115,13 @@ step_apply() {
   # request was already captured (a retry after a failed update).
   if [ "$MODE" = new ]; then
     tracker_issue description > "$RUNNER_TEMP/original-request.json"
+    # The work order was written from the description as fetched: one a
+    # person edited during the run would be replaced by a work order of the
+    # older text. Stop before changing anything instead.
+    if ! jq -e --slurpfile fetched "$RUNNER_TEMP/ticket.json" \
+        '.fields.description == $fetched[0].fields.description' "$RUNNER_TEMP/original-request.json" > /dev/null; then
+      stage_fail "The description was edited while this run was working, so nothing was changed: the work order was written from the earlier text. Comment $REVISE_COMMAND to write it from the current one."
+    fi
     ALREADY_CAPTURED=$(jq -L "$HUB_DIR/lib" --arg note "$ORIGINAL_REQUEST_NOTE" \
       --slurpfile issue "$RUNNER_TEMP/original-request.json" 'include "adf";
       ($issue[0].fields.description | to_markdown) as $current
@@ -152,11 +159,12 @@ step_apply() {
   fi
 
   echo "Work order $([ "$MODE" = revision ] && echo revised || echo written) on [$TICKET_KEY]($TICKET_URL); resolved $RESOLVED needs-details comment(s) and $REVISIONS change request(s)." >> "$GITHUB_STEP_SUMMARY"
+  stage_outcome "$(stage_written_outcome "$MODE")"
 }
 
 # step_return: Send the ticket back: the result says it can't go ahead yet.
 step_return() {
-  tracker_require_status "$WORK_ORDER_STATUS" || exit 0
+  stage_require_status "$WORK_ORDER_STATUS"
   # Before changing anything, so a misconfigured tracker workflow can't
   # leave a half-processed ticket.
   TRANSITION_ID=$(stage_transition_id "$INTAKE_STATUS")
@@ -174,4 +182,5 @@ step_return() {
   stage_move "$TRANSITION_ID" "$INTAKE_STATUS"
 
   echo "[$TICKET_KEY]($TICKET_URL) returned to $INTAKE_STATUS as $NEEDS_DETAILS_LABEL." >> "$GITHUB_STEP_SUMMARY"
+  stage_outcome "sent back"
 }

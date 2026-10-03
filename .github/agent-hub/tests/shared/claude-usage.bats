@@ -142,6 +142,6 @@ setup() {
   assert_success
   assert_line --index 0 "workflow_dispatch"
   assert_line --index 1 "true string no-default"
-  assert_line --index 2 "inputs.confirm == 'use-claude'"
+  assert_line --index 2 "inputs.confirm == 'use-claude' && vars.AGENT_HUB_ENABLED != 'false'"
   assert_line --index 3 "agent-hub-evals"
 }

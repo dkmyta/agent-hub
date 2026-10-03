@@ -50,10 +50,12 @@
         "approach",
         "acceptance_criteria",
         "changes",
+        "governance",
         "steps",
         "dependencies",
         "testing",
         "security",
+        "observability",
         "risks",
         "release",
         "resolved_questions",
@@ -165,6 +167,7 @@
         },
         "changes": {
           "type": "array",
+          "description": "Every file the build changes. Empty only when all the work is manual changes (governance.manual_changes).",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -199,8 +202,131 @@
                 }
               }
             }
-          },
-          "minItems": 1
+          }
+        },
+        "governance": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "What the plan's changes include, for the person approving it and for the build stage's checks: the build may make sensitive changes only as this plan describes them.",
+          "required": [
+            "risk",
+            "includes",
+            "scope_patterns",
+            "must_not_touch",
+            "manual_changes"
+          ],
+          "properties": {
+            "risk": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "level",
+                "reason"
+              ],
+              "properties": {
+                "level": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300,
+                  "description": "Why this level: what could go wrong and how widely it would be felt."
+                }
+              }
+            },
+            "includes": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "dependencies",
+                "schema_or_migration",
+                "public_api",
+                "auth_or_permissions",
+                "sensitive_data",
+                "infrastructure",
+                "workflow_or_ci",
+                "configuration"
+              ],
+              "properties": {
+                "dependencies": {
+                  "type": "boolean",
+                  "description": "Adds, removes or changes a dependency (name each in Dependencies & Configuration)"
+                },
+                "schema_or_migration": {
+                  "type": "boolean",
+                  "description": "Changes a database schema or adds a migration"
+                },
+                "public_api": {
+                  "type": "boolean",
+                  "description": "Changes a public API or contract other code or users rely on"
+                },
+                "auth_or_permissions": {
+                  "type": "boolean",
+                  "description": "Changes authentication, authorization or permissions"
+                },
+                "sensitive_data": {
+                  "type": "boolean",
+                  "description": "Changes how personal or other sensitive data is handled"
+                },
+                "infrastructure": {
+                  "type": "boolean",
+                  "description": "Changes infrastructure or deployment configuration"
+                },
+                "workflow_or_ci": {
+                  "type": "boolean",
+                  "description": "Changes CI or workflow files (the build can't; list them under manual_changes)"
+                },
+                "configuration": {
+                  "type": "boolean",
+                  "description": "Changes application configuration"
+                }
+              }
+            },
+            "scope_patterns": {
+              "type": "array",
+              "description": "Directories or glob patterns beyond Changes by File where changes are expected, e.g. tests/orders/** \u2014 empty if none.",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "must_not_touch": {
+              "type": "array",
+              "description": "Files, directories or areas the change must leave alone \u2014 empty if none.",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "manual_changes": {
+              "type": "array",
+              "description": "Changes the hub can't make (.github/**, .claude/**, CODEOWNERS) that the work needs: a person makes them. Empty if none.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "change"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "change": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
         },
         "steps": {
           "type": "array",
@@ -285,6 +411,14 @@
         },
         "security": {
           "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "observability": {
+          "type": "array",
+          "description": "Logs, metrics, alerts or dashboards the change needs \u2014 empty if none.",
           "items": {
             "type": "string",
             "minLength": 1

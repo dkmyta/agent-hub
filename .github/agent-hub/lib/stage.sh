@@ -40,7 +40,34 @@ stage_fetch() {
   done
   echo "::notice::$TICKET_KEY is in '$status', not $(printf "'%s' or " "$@" | sed 's/ or $//') — nothing to do."
   echo "proceed=false" >> "$GITHUB_OUTPUT"
+  stage_outcome "no change needed"
   return 1
+}
+
+# stage_outcome <outcome>: how the run ended, named the same in every stage —
+# written, revised, sent back, no change needed, superseded, stale or failed
+# (docs/architecture.md) — recorded for later steps and in the run summary.
+stage_outcome() {
+  echo "$1" > "$RUNNER_TEMP/outcome"
+  echo "**Outcome:** $1" >> "$GITHUB_STEP_SUMMARY"
+}
+
+# stage_written_outcome <mode>: written (new), revised, or no change needed
+# (a revision whose updates changed nothing).
+stage_written_outcome() {
+  if [ "$1" != revision ]; then echo written
+  elif jq -e '(.structured_output.updates // {}) | length == 0' "$RUNNER_TEMP/agent-output.json" > /dev/null 2>&1; then
+    echo "no change needed"
+  else echo revised; fi
+}
+
+# stage_require_status <status>: continue only while the ticket is still in
+# <status>; a person moved it during the run, so what the run read is stale:
+# stop without changing anything.
+stage_require_status() {
+  tracker_require_status "$1" && return 0
+  stage_outcome stale
+  exit 0
 }
 
 # stage_fail <reason> [detail]: fail the step with a reason people can act on
@@ -98,6 +125,9 @@ stage_progress_comment() {
 
 # stage_clear_progress: delete the progress comment, if one was posted.
 stage_clear_progress() {
+  # This step runs on success or cancellation. Every successful path has
+  # recorded its outcome, so none means a newer request cancelled the run.
+  [ -s "$RUNNER_TEMP/outcome" ] || stage_outcome superseded
   [ -s "$RUNNER_TEMP/progress-comment-id" ] || return 0
   tracker_delete_comment "$(cat "$RUNNER_TEMP/progress-comment-id")"
 }
@@ -116,6 +146,7 @@ stage_move() {
 # NEEDS_HUMAN_LABEL — a person has to act — only while the ticket is where the
 # run started or moved it; a ticket a person has moved on isn't relabelled.
 stage_report_failure() {
+  stage_outcome failed
   local body current moved
   current=$(tracker_status 2> /dev/null) || current=$2
   moved=$(cat "$RUNNER_TEMP/moved-to" 2> /dev/null || true)

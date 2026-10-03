@@ -143,6 +143,79 @@ splice() { # <updates json> [plan markdown file]
   assert_equal "$(jq -c . <<< "$output")" '[]'
 }
 
+# The build stage reads Scope & Governance back from the attached file, so
+# its labels and layout are fixed.
+@test "scope & governance: the risk, a fixed table of change kinds, scope, must-not-touch and manual changes" {
+  jq '.governance.includes.dependencies = true | .governance.manual_changes = [{path: ".github/workflows/ci.yml", change: "Run the new tests"}]' \
+    "$BATS_TEST_TMPDIR/plan.json" > "$BATS_TEST_TMPDIR/plan2.json" && mv "$BATS_TEST_TMPDIR/plan2.json" "$BATS_TEST_TMPDIR/plan.json"
+  render full 2 | jq -r -L "$HUB_LIB" 'include "adf"; {content: .} | to_markdown' > "$BATS_TEST_TMPDIR/plan.md"
+  run sed -n '/^## Scope & Governance/,/^## Implementation Steps/p' "$BATS_TEST_TMPDIR/plan.md"
+  assert_line --partial "**Risk:** low — Documentation only"
+  assert_line "| Change kind | In this plan |"
+  local kind
+  for kind in "Dependencies | yes" "Schema or migration | no" "Public API or contract | no" "Auth or permissions | no" \
+    "Sensitive data | no" "Infrastructure | no" "Workflow or CI | no" "Configuration | no"; do
+    assert_line "| $kind |"
+  done
+  assert_line "Nothing beyond Changes by File."
+  assert_line '- `.github/workflows/**`'
+  assert_line --partial '- `.github/workflows/ci.yml` — Run the new tests'
+  run grep -A2 '^## Observability' "$BATS_TEST_TMPDIR/plan.md"
+  assert_output --partial "No observability changes needed."
+}
+
+@test "changes by file: an all-manual plan says so (valid ADF, no empty list)" {
+  jq '.changes = []' "$BATS_TEST_TMPDIR/plan.json" > "$BATS_TEST_TMPDIR/p.json" && mv "$BATS_TEST_TMPDIR/p.json" "$BATS_TEST_TMPDIR/plan.json"
+  render full 2 | jq -c '{method: "PUT", path: "(render)", body: {fields: {description: {type: "doc", version: 1, content: .}}}}' > "$BATS_TEST_TMPDIR/render.jsonl"
+  assert_valid_adf "$BATS_TEST_TMPDIR/render.jsonl"
+  run bash -c "jq -r -L '$HUB_LIB' 'include \"adf\"; {content: .} | to_markdown' <<< \"\$(cat)\"" < <(render full 2)
+  assert_output --partial "None the build makes: every change is a manual change"
+}
+
+@test "summary: a risk line after the estimate names the sensitive kinds the plan includes" {
+  local line='.[1] | [.. | objects | select(.type == "text") | .text] | join("")'
+  output=$(render summary 5 | jq -r "$line")
+  assert_output "Risk: low — Documentation only: no code paths change, and a wrong instruction is easy to spot and fix. Includes: none of the sensitive kinds"
+  jq '.governance.includes.dependencies = true | .governance.includes.configuration = true' "$BATS_TEST_TMPDIR/plan.json" > "$BATS_TEST_TMPDIR/p.json"
+  output=$(jq -L "$HUB_LIB" -f "$RENDER" --arg mode summary --arg file x --argjson level 5 "$BATS_TEST_TMPDIR/p.json" | jq -r "$line")
+  assert_output --partial "Includes: dependencies, configuration"
+}
+
+@test "revisions: a governance update re-renders the risk line; an old plan gains the new sections in order" {
+  jq '.fields.description' "$FIXTURES/tickets/plan-written.json" > "$BATS_TEST_TMPDIR/description.json"
+  jq '{governance: (.governance | .risk.level = "high")}' "$BATS_TEST_TMPDIR/plan.json" > "$BATS_TEST_TMPDIR/updates.json"
+  output=$(jq -L "$HUB_LIB" -f "$RENDER" --arg mode summary-patch --arg file PROJ-99-implementation-plan.md --argjson level 5 \
+    --slurpfile updates "$BATS_TEST_TMPDIR/updates.json" "$BATS_TEST_TMPDIR/description.json" \
+    | jq -r -L "$HUB_LIB" 'include "adf"; {content: .} | to_markdown')
+  assert_output --partial "**Risk:** high"
+  # previous-plan.md predates these sections: the revision inserts them in plan order.
+  run splice "$(jq -c '{governance, observability}' "$BATS_TEST_TMPDIR/plan.json")"
+  assert_success
+  run grep -E '^## ' <<< "$output"
+  assert_output --partial $'## Changes by File\n## Scope & Governance\n## Implementation Steps'
+  assert_output --partial $'## Security & Privacy\n## Observability'
+}
+
+# Adding the new sections to an old plan is idempotent: revising the result
+# again replaces them in place — never a duplicate, never a new position.
+@test "revisions: adding the new sections to an old plan twice doesn't duplicate or move them" {
+  local updates
+  updates=$(jq -c '{governance, observability}' "$BATS_TEST_TMPDIR/plan.json")
+  splice "$updates" > "$BATS_TEST_TMPDIR/once.md"
+  splice "$(jq -c '.governance.risk.level = "medium" | .observability = ["A log line per retry"]' <<< "$updates")" \
+    "$BATS_TEST_TMPDIR/once.md" > "$BATS_TEST_TMPDIR/twice.md"
+  assert_equal "$(grep -c '^## Scope & Governance' "$BATS_TEST_TMPDIR/twice.md")" 1
+  assert_equal "$(grep -c '^## Observability' "$BATS_TEST_TMPDIR/twice.md")" 1
+  assert_equal "$(grep '^## ' "$BATS_TEST_TMPDIR/twice.md")" "$(grep '^## ' "$BATS_TEST_TMPDIR/once.md")"
+  run sed -n '/^## Scope & Governance/,/^## /p' "$BATS_TEST_TMPDIR/twice.md"
+  assert_output --partial "**Risk:** medium"
+  run sed -n '/^## Observability/,/^## /p' "$BATS_TEST_TMPDIR/twice.md"
+  assert_output --partial "A log line per retry"
+  # The same update applied twice gives the same file.
+  splice "$updates" "$BATS_TEST_TMPDIR/once.md" > "$BATS_TEST_TMPDIR/again.md"
+  assert_equal "$(cat "$BATS_TEST_TMPDIR/again.md")" "$(cat "$BATS_TEST_TMPDIR/once.md")"
+}
+
 @test "summary patch: only updated parts are re-rendered; the pointer stays last" {
   jq '.fields.description' "$FIXTURES/tickets/plan-written.json" > "$BATS_TEST_TMPDIR/description.json"
   jq '{steps: [.steps[0]]}' "$BATS_TEST_TMPDIR/plan.json" > "$BATS_TEST_TMPDIR/updates.json"

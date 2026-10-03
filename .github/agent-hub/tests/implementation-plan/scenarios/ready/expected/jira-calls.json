@@ -6,6 +6,11 @@
   },
   {
     "method": "GET",
+    "path": "/changelog?startAt=0&maxResults=100",
+    "body": null
+  },
+  {
+    "method": "GET",
     "path": "/comment?maxResults=100",
     "body": null
   },
@@ -955,6 +960,37 @@
               ]
             },
             {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Risk: ",
+                  "marks": [
+                    {
+                      "type": "strong"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "low — Documentation only: no code paths change, and a wrong instruction is easy to spot and fix. "
+                },
+                {
+                  "type": "text",
+                  "text": "Includes: ",
+                  "marks": [
+                    {
+                      "type": "strong"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "none of the sensitive kinds"
+                }
+              ]
+            },
+            {
               "type": "heading",
               "attrs": {
                 "level": 5
@@ -1501,7 +1537,7 @@
                 },
                 {
                   "type": "text",
-                  "text": " — current state, changes by file, detailed steps, testing, security, risks, release and rollback, resolved questions and assumptions."
+                  "text": " — current state, changes by file, scope and governance, detailed steps, testing, security, observability, risks, release and rollback, resolved questions and assumptions."
                 }
               ]
             },

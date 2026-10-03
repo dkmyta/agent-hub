@@ -31,6 +31,19 @@ step_fetch() {
     stage_fail "There's no work order to plan from: the description needs its Acceptance Criteria checklist and an \"$PLAN_SECTION\" section. Generate the work order first, or restore those sections, then move the ticket to Work Order Approved again."
   fi
 
+  # A new plan is written only from the work order exactly as approved: one
+  # edited after its approval (by anyone) needs approving again, and one
+  # whose approval can't be found or read isn't planned at all. Before Claude
+  # runs, so neither costs any Claude usage.
+  if [ "$(stage_start_status)" = "$WORK_ORDER_APPROVED_STATUS" ]; then
+    EDITED=$(tracker_edited_after "$WORK_ORDER_APPROVED_STATUS" description) \
+      || stage_fail "Couldn't read $TICKET_KEY's history from $TRACKER_NAME to check the work order is the one approved, so nothing was changed. Move the ticket to $WORK_ORDER_APPROVED_STATUS again to retry."
+    case "$EDITED" in
+      yes) _approval_stale; exit 0 ;;
+      unknown) stage_fail "$TICKET_KEY's history shows no move to $WORK_ORDER_APPROVED_STATUS, so there's no approval to plan from and nothing was changed. Move the ticket to $WORK_ORDER_APPROVED_STATUS to approve the work order." ;;
+    esac
+  fi
+
   stage_ticket_markdown --with-comments
 
   # The plan files on the ticket as the run starts, oldest first: a
@@ -71,6 +84,25 @@ step_fetch() {
     stage_progress_comment "⏳ Writing implementation plan" \
       " — usually takes 5–10 minutes. Refresh the page to see the result. "
   fi
+}
+
+# _approval_stale: the work order was edited after its approval — by anyone,
+# including a plan run that wrote its summary and then failed. Move the ticket
+# back to Work Order for a person to check and approve again; no plan is
+# written from a work order nobody approved.
+_approval_stale() {
+  local transition
+  transition=$(stage_transition_id "$WORK_ORDER_STATUS")
+  # shellcheck disable=SC1112 # curly apostrophe intended
+  jq -n -L "$HUB_DIR/lib" --arg status "$WORK_ORDER_STATUS" 'include "adf";
+    doc([para([strong("⚠️ Work order changed after approval"),
+      text(" — the description changed after it was approved, so no plan was written from it. It’s back in \($status): check the work order, then approve it again.")])])' \
+    | tracker_comment > /dev/null
+  tracker_labels "+$NEEDS_HUMAN_LABEL"
+  stage_move "$transition" "$WORK_ORDER_STATUS"
+  echo "proceed=false" >> "$GITHUB_OUTPUT"
+  echo "[$TICKET_KEY]($TICKET_URL) returned to $WORK_ORDER_STATUS: the work order was edited after its approval." >> "$GITHUB_STEP_SUMMARY"
+  stage_outcome stale
 }
 
 # _stop_if_newer_plan [ours] [restore]: fail if a plan file was uploaded
@@ -120,6 +152,10 @@ _stop_if_newer_plan() {
 _plan_path_problem() {
   local path=${2#./} root dir real
   case "$path" in "" | /* | .. | ../* | */.. | */../*) echo "outside the repository"; return ;; esac
+  # Workflows, Claude Code's settings and code owners are for a person to
+  # change: the plan lists them as manual changes (governance), never as
+  # changes the build makes.
+  case "$path" in .github/* | .claude/* | CODEOWNERS | */CODEOWNERS) echo "for a person to change: list it as a manual change"; return ;; esac
   root=$(pwd -P)
   if [ "$1" = add ]; then
     # A new file: nothing there yet, and the nearest folder that exists
@@ -166,6 +202,12 @@ step_agent() {
     if [ -n "$MISSING" ]; then
       stage_fail "The plan didn't cover acceptance criteria $MISSING (by position in the work order), so it wasn't applied. Comment $REVISE_COMMAND to try again."
     fi
+    # A new plan changes something: files the build changes, or manual
+    # changes for a person.
+    if jq -e 'has("changes") and has("governance") and (.changes | length) == 0
+        and (.governance.manual_changes | length) == 0' "$RUNNER_TEMP/plan-checked.json" > /dev/null; then
+      stage_fail "The plan names no changes — none for the build and no manual ones — so it wasn't applied. Comment $REVISE_COMMAND to try again."
+    fi
     BAD_FILES=$(jq -r '(.changes // [])[] | "\(.action)\t\(.path)"' "$RUNNER_TEMP/plan-checked.json" \
       | while IFS=$'\t' read -r ACTION FILE; do
           PROBLEM=$(_plan_path_problem "$ACTION" "$FILE")
@@ -173,7 +215,7 @@ step_agent() {
         done)
     if [ -n "$BAD_FILES" ]; then
       # The paths come from Claude, so they go only on the ticket.
-      stage_fail "The plan names $(echo "$BAD_FILES" | wc -l | tr -d ' ') file(s) it can't change — missing, already there to add, or outside the repository — so it wasn't applied. Comment $REVISE_COMMAND to try again." \
+      stage_fail "The plan names $(echo "$BAD_FILES" | wc -l | tr -d ' ') file(s) it can't change — missing, already there to add, outside the repository, or for a person to change — so it wasn't applied. Comment $REVISE_COMMAND to try again." \
         "Files: $(echo "$BAD_FILES" | paste -sd ',' - | sed 's/,/, /g')."
     fi
   fi
@@ -184,7 +226,7 @@ step_agent() {
 step_apply() {
   MODE=$(stage_mode)
   START_STATUS=$(stage_start_status)
-  tracker_require_status "$START_STATUS" || exit 0
+  stage_require_status "$START_STATUS"
   # Before changing anything, so a misconfigured tracker workflow can't
   # leave a half-processed ticket. A revision is already there.
   TRANSITION_ID=""
@@ -213,12 +255,15 @@ step_apply() {
   # A version line under the title says when and how this file was made,
   # so a stale download is easy to spot before editing it by hand.
   NOW=$(date -u '+%Y-%m-%d %H:%M UTC')
+  # The commit the plan describes (the code the agent read), so the build
+  # can tell what changed since.
+  BASE_COMMIT=$(git rev-parse HEAD 2> /dev/null) || BASE_COMMIT=unknown
   if [ "$MODE" = revision ]; then
     BASIS=$(jq -r '"the attachment uploaded \((.created // "")[0:16] | sub("T"; " ")) by \(.author.displayName // "someone")"' \
       "$RUNNER_TEMP/current-plan-attachment.json")
-    VERSION="_Version: $NOW — revised after change requests, from $BASIS._"
+    VERSION="_Version: $NOW — revised after change requests, from $BASIS; against commit $BASE_COMMIT._"
   else
-    VERSION="_Version: $NOW — written from the approved work order on $TICKET_KEY._"
+    VERSION="_Version: $NOW — written from the approved work order on $TICKET_KEY, against commit $BASE_COMMIT._"
   fi
   {
     if [ "$MODE" = revision ]; then
@@ -305,11 +350,12 @@ step_apply() {
   REVISIONS=$(stage_resolve_revisions "$RUNNER_TEMP/comments.json")
 
   echo "Implementation plan $([ "$MODE" = revision ] && echo revised || echo written) on [$TICKET_KEY]($TICKET_URL), in $PLAN_STATUS; resolved $RESOLVED clarification comment(s) and $REVISIONS change request(s)." >> "$GITHUB_STEP_SUMMARY"
+  stage_outcome "$(stage_written_outcome "$MODE")"
 }
 
 # step_return: Send the ticket back: the result says it can't go ahead yet.
 step_return() {
-  tracker_require_status "$(stage_start_status)" || exit 0
+  stage_require_status "$(stage_start_status)"
   TRANSITION_ID=$(stage_transition_id "$WORK_ORDER_STATUS")
 
   jq -L "$HUB_DIR/lib" --arg title "$NEEDS_CLARIFICATION_TITLE" --arg message "$NEEDS_CLARIFICATION_MESSAGE" 'include "adf";
@@ -322,4 +368,5 @@ step_return() {
   stage_move "$TRANSITION_ID" "$WORK_ORDER_STATUS"
 
   echo "[$TICKET_KEY]($TICKET_URL) returned to $WORK_ORDER_STATUS as $NEEDS_CLARIFICATION_LABEL." >> "$GITHUB_STEP_SUMMARY"
+  stage_outcome "sent back"
 }

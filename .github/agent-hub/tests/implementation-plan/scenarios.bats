@@ -41,6 +41,108 @@ setup() {
   run_scenario jira-rejects-description
 }
 
+# history <entry>...: a change history (Jira changelog page) of the given
+# entries, each "author:field[=status]" (e.g. dana-lead:status=Work Order
+# Approved, dana-lead:description), oldest first.
+history() {
+  local entry entries="[]"
+  for entry in "$@"; do
+    entries=$(jq -c --arg e "$entry" '. + [($e | capture("^(?<who>[^:]+):(?<field>[^=]+)(=(?<to>.*))?$"))
+      | {created: "2026-10-01T10:00:00.000+0000", author: {accountId: .who},
+         items: [{field: .field, toString: (.to // "")}]}]' <<< "$entries")
+  done
+  jq -c '{startAt: 0, maxResults: 100, total: length, isLast: true, values: .}' <<< "$entries"
+}
+
+@test "approval check: a work order edited after its approval goes back, before Claude runs" {
+  history "dana-lead:status=Work Order Approved" "dana-lead:description" > "$BATS_TEST_TMPDIR/changelog.json"
+  run_scenario ready CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/changelog.json"
+  [ ! -e "$RUNNER_TEMP/claude-args.txt" ]
+  run writes
+  refute_line "POST /attachments"
+  refute_line --regexp "^PUT \?notifyUsers"
+  run jq -c 'select(.method == "POST" and .path == "/transitions") | .body' "$CALLS"
+  assert_output '{"transition":{"id":"21"}}'
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | tostring' "$CALLS"
+  assert_output --partial "Work order changed after approval"
+  run jq -c 'select(.body.update.labels) | .body.update.labels' "$CALLS"
+  assert_line '[{"add":"needs-human"}]'
+  grep -qx '\*\*Outcome:\*\* stale' "$RUNNER_TEMP/summary.md"
+}
+
+@test "approval check: any edit after approval counts — the automation's own included" {
+  # The automation's account edits the work order after it was approved: the
+  # plan is still refused (the exact approved artifact is what counts).
+  history "dana-lead:status=Work Order Approved" "agent-hub-bot:description" > "$BATS_TEST_TMPDIR/changelog.json"
+  run_scenario ready CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/changelog.json"
+  [ ! -e "$RUNNER_TEMP/claude-args.txt" ]
+  run writes
+  refute_line "POST /attachments"
+  grep -qx '\*\*Outcome:\*\* stale' "$RUNNER_TEMP/summary.md"
+}
+
+@test "approval check: edits before the approval, or before a re-approval, are fine" {
+  history "dana-lead:description" "dana-lead:status=Work Order Approved" > "$BATS_TEST_TMPDIR/changelog.json"
+  run_scenario ready CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/changelog.json"
+  run writes
+  assert_line "POST /attachments"
+  history "dana-lead:status=Work Order Approved" "dana-lead:description" "dana-lead:status=Work Order" \
+    "dana-lead:status=Work Order Approved" > "$BATS_TEST_TMPDIR/changelog.json"
+  run_scenario ready CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/changelog.json"
+  run writes
+  assert_line "POST /attachments"
+}
+
+@test "approval check: the whole history is read, a page at a time" {
+  history "dana-lead:status=Work Order Approved" | jq '.isLast = false | .total = 101' > "$BATS_TEST_TMPDIR/page1.json"
+  history "dana-lead:description" | jq '.startAt = 100 | .total = 101' > "$BATS_TEST_TMPDIR/page2.json"
+  run_scenario ready CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/page1.json" CHANGELOG_PAGE2_FIXTURE="$BATS_TEST_TMPDIR/page2.json"
+  run writes
+  refute_line "POST /attachments"
+  grep -qx '\*\*Outcome:\*\* stale' "$RUNNER_TEMP/summary.md"
+}
+
+@test "approval check fails closed: no approval in the history, or a history that can't be read" {
+  # No move to Work Order Approved: no approval to plan from.
+  history "dana-lead:description" > "$BATS_TEST_TMPDIR/changelog.json"
+  run_scenario ready CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/changelog.json"
+  [ ! -e "$RUNNER_TEMP/claude-args.txt" ]
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "history shows no move to Work Order Approved, so there's no approval to plan from"
+  run jq -c 'select(.body.update.labels) | .body.update.labels' "$CALLS"
+  assert_line '[{"add":"needs-human"}]'
+  grep -qx '\*\*Outcome:\*\* failed' "$RUNNER_TEMP/summary.md"
+  # The history can't be read — on the first page, or a later one.
+  run_scenario ready MOCK_FAIL="GET /changelog?startAt=0&maxResults=100"
+  [ ! -e "$RUNNER_TEMP/claude-args.txt" ]
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "Couldn't read PROJ-99's history"
+  history "dana-lead:status=Work Order Approved" | jq '.isLast = false | .total = 101' > "$BATS_TEST_TMPDIR/page1.json"
+  run_scenario ready CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/page1.json" MOCK_FAIL="GET /changelog?startAt=100&maxResults=100"
+  [ ! -e "$RUNNER_TEMP/claude-args.txt" ]
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "Couldn't read PROJ-99's history"
+  # Revisions (Implementation Plan) aren't approvals of the work order: no check.
+  run_scenario revise
+  run jq -r 'select(.path | startswith("/changelog")) | .path' "$CALLS"
+  assert_output ""
+}
+
+@test "the plan records the commit it was written against, for the build" {
+  run_scenario ready
+  run grep '^_Version: ' "$RUNNER_TEMP/attached/PROJ-99-implementation-plan.md"
+  assert_output --partial "against commit $(git -C "$REPO_DIR" rev-parse HEAD)."
+}
+
+@test "every path ends in one of the shared outcomes" {
+  local pair
+  for pair in "ready:written" "revise:revised" "needs-clarification:sent back" "not-in-work-order-approved:no change needed" \
+    "moved-during-run:stale" "attachment-upload-fails:failed"; do
+    run_scenario "${pair%%:*}"
+    assert_equal "$(sed -n 's/^\*\*Outcome:\*\* //p' "$RUNNER_TEMP/summary.md")" "${pair#*:}"
+  done
+}
+
 @test "re-plan: new plan attached before the hub's previous one is removed; a person's upload stays" {
   # 8003 is the hub's earlier upload, 8001 a person's; the snapshot pins the order.
   run_scenario replan-replaces-previous-plan
@@ -235,12 +337,13 @@ uploaded_mid_run() {
   assert_output --partial "Open every link in the README section"
 
   # The summary in the description: none of its parts were updated, so they're
-  # unchanged; only the review note is new.
+  # unchanged; only the pointer to the attachment (always re-rendered) and the
+  # review note are new.
   local before after
   before=$(jq -c '.fields.description' "$FIXTURES/tickets/plan-written.json")
   after=$(jq -c 'select(.body.fields.description) | .body.fields.description' "$CALLS")
   run jq -rn -L "$HUB_LIB" --argjson a "$before" --argjson b "$after" 'include "adf";
-    ($a | section_blocks("Implementation Plan")[:-1]) == ($b | section_blocks("Implementation Plan")[:-1])'
+    ($a | section_blocks("Implementation Plan")[:-2]) == ($b | section_blocks("Implementation Plan")[:-2])'
   assert_output true
 }
 

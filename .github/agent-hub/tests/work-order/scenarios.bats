@@ -71,6 +71,27 @@ ticket() { jq -nc '{fields: {summary: "S", description: {type: "doc", version: 1
   run_scenario retry-after-failed-description
 }
 
+@test "a new work order: a description edited during the run stops it — nothing written" {
+  jq '.fields.description.content += [{type: "paragraph", content: [{type: "text", text: "A PERSON'"'"'S EDIT"}]}]' \
+    "$FIXTURES/tickets/ready.json" > "$BATS_TEST_TMPDIR/ticket-later.json"
+  run_scenario ready TICKET_LATER_FIXTURE="$BATS_TEST_TMPDIR/ticket-later.json"
+  run writes
+  refute_line --regexp "^PUT \?notifyUsers"
+  # Only the progress comment was posted: no Original Request comment.
+  assert_equal "$(grep -cx "POST /comment" <<< "$output")" 1
+  run failure_notice
+  assert_output --partial "The description was edited while this run was working, so nothing was changed"
+}
+
+@test "every path ends in one of the shared outcomes" {
+  local pair
+  for pair in "ready:written" "revise:revised" "needs-details:sent back" "not-in-work-order:no change needed" \
+    "moved-during-run:stale" "claude-fails:failed" "cancelled-during-run:superseded"; do
+    run_scenario "${pair%%:*}"
+    assert_equal "$(sed -n 's/^\*\*Outcome:\*\* //p' "$RUNNER_TEMP/summary.md")" "${pair#*:}"
+  done
+}
+
 @test "cancelled by a newer request: progress comment removed, nothing else changes" {
   run_scenario cancelled-during-run
 }

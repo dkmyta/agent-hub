@@ -41,7 +41,8 @@ concurrency:
 jobs:
   evals:
     # Without the confirmation the job is skipped: it never reaches a runner.
-    if: inputs.confirm == 'use-claude'
+    # Also skipped while the hub is switched off (AGENT_HUB_ENABLED=false).
+    if: inputs.confirm == 'use-claude' && vars.AGENT_HUB_ENABLED != 'false'
     # Add required reviewers to this environment (Settings → Environments) so
     # every run also waits for approval.
     environment: agent-hub-evals
@@ -49,7 +50,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.AGENT_HUB_RUNS_ON || '["self-hosted", "claude"]') }}
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 

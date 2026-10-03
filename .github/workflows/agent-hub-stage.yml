@@ -35,6 +35,10 @@ permissions:
 
 jobs:
   stage:
+    # The kill switch: the repository variable AGENT_HUB_ENABLED set to false
+    # skips every stage (the run shows the job as skipped). Only admins can
+    # change repository variables.
+    if: vars.AGENT_HUB_ENABLED != 'false'
     # Default: a self-hosted runner labelled `claude`, where Claude Code is
     # logged in with a Claude subscription. Set AGENT_HUB_RUNS_ON (a JSON
     # label list, e.g. ["ubuntu-latest"]) plus the AGENT_HUB_ANTHROPIC_API_KEY
@@ -53,7 +57,7 @@ jobs:
       # Leaves out recorded test data (past Claude outputs, snapshots, eval
       # tickets) so Claude works from the ticket and the code, not from a
       # recorded answer. The evals mirror these patterns.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout-cone-mode: false

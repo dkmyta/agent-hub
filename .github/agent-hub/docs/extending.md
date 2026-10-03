@@ -57,9 +57,12 @@ name in `.github/agent-hub/stages/`):
 - **The run log** names the folders loaded ("Repository extensions: …").
 
 Your repository's own Claude Code setup — `CLAUDE.md`, `.claude/agents/`,
-`.claude/skills/` — is also available to every stage, as it is to developers
-using Claude Code. Use extensions for what only the pipeline needs, or what
-differs per stage.
+`.claude/skills/` — is meant to be available to every stage too, as it is to
+developers using Claude Code. **Currently it isn't:** since 2.0.1 the agents
+run in Claude Code's restricted mode, which doesn't load it (a known gap,
+fixed in the next release). Until then, put anything the pipeline needs in
+extensions. Use extensions for what only the pipeline needs, or what differs
+per stage.
 
 ## What extensions can't do
 

@@ -46,6 +46,16 @@ claude_step() { # <fixture> [jq edit to apply to it]
   refute_output --partial "$(jq -r '.[0][0:40]' "$RUNNER_TEMP/acceptance-criteria.json")"
 }
 
+@test "a plan whose work is all manual changes is ready; one with no changes at all is rejected" {
+  claude_step ready.json '.structured_output.plan.changes = [] | .structured_output.plan.governance.manual_changes = [{path: ".github/agent-hub/README.md", change: "Add a Quick Start section"}]'
+  assert_success
+  assert_equal "$(step_output agent status)" ready
+  claude_step ready.json '.structured_output.plan.changes = [] | .structured_output.plan.governance.manual_changes = []'
+  assert_failure
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "The plan names no changes"
+}
+
 @test "rejects: a plan that modifies a file that doesn't exist" {
   claude_step ready.json '.structured_output.plan.changes += [{path: "docs/does-not-exist.md", action: "modify", summary: "x", details: []}]'
   assert_failure
@@ -78,6 +88,11 @@ claude_step() { # <fixture> [jq edit to apply to it]
   run _plan_path_problem modify ./docs/real.md;   assert_output ""
   run _plan_path_problem modify docs/in-link.md;  assert_output ""
   run _plan_path_problem add docs/new/deeper.md;  assert_output ""
+  # Workflows, Claude Code's settings and code owners are manual changes.
+  local refused
+  for refused in .github/workflows/ci.yml .claude/settings.json CODEOWNERS docs/CODEOWNERS; do
+    run _plan_path_problem modify "$refused"; assert_output "for a person to change: list it as a manual change"
+  done
   run _plan_path_problem modify docs/missing.md;  assert_output "doesn't exist"
   run _plan_path_problem modify docs;             assert_output "doesn't exist"
   run _plan_path_problem modify /etc/hosts;       assert_output "outside the repository"
