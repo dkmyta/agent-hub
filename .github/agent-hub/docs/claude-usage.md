@@ -28,6 +28,7 @@ and how the evals fit in.
 | A `/revise` comment on a ticket in Intake, Work Order, Work Order Approved or Implementation Plan (Revision Requested rule) | **Yes** — one run per comment. A revision is scoped to the requested changes, so it's usually well under a new run's cost; a retry or resubmission costs a normal run |
 | **Run workflow** on an agent workflow in the Actions tab | **Yes** |
 | Running the evals — **Agent hub: Evals** in the Actions tab, or `npm run evals --prefix .github/agent-hub/tests -- <stage>`, confirmed by typing `use-claude` | **Yes**, deliberately |
+| Checking the sandbox (`.github/agent-hub/scripts/check-sandbox.sh`, on a new runner and after Claude Code upgrades; confirmed by typing `use-claude`) | **Yes**, deliberately — two short sessions |
 | Committing (the pre-commit lint hooks) | No |
 | Opening or updating a pull request, or pushing to `main` (CI) | No |
 | Running the tests (`npm test --prefix .github/agent-hub/tests`) | No |
@@ -51,6 +52,7 @@ docs link here):
 | One eval case | As one real run of its stage | Each case runs the draft and the review |
 | Work order evals (3 cases) | $1–3 | A few minutes |
 | Implementation plan evals (3 cases) | $3–10 | 20–40 minutes |
+| The sandbox check | About $0.20 | Two short sessions, each capped (under $1 together) |
 | Every stage (**all**) | The sum; up to $4–13, over the $10 default cap: raise it for that run | Only after a model or Claude Code change |
 
 ## Tests vs evals

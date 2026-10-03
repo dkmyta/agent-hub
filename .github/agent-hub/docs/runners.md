@@ -115,6 +115,71 @@ The hub needs a Claude Code with restricted mode (`claude --help` lists
 `--restricted`): it keeps the agents inside the repository whatever the
 repository's settings say. A version without it stops the run, saying so.
 
+## The sandbox (build stage)
+
+The build stage (planned) runs commands — the repository's tests, linters
+and builds — in Claude Code's sandbox: they read only the repository and a
+temp folder, write only those, reach only localhost, and get no secrets in
+their environment (an API key included). If the sandbox can't start, the
+command doesn't run. The document stages don't run commands, so they don't
+need it.
+
+| Runner | What the sandbox needs |
+|---|---|
+| macOS (self-hosted) | Nothing — it uses macOS's built-in Seatbelt |
+| Linux (self-hosted) | `bubblewrap` and `socat`: `sudo apt-get install bubblewrap socat` (Debian/Ubuntu) or your distribution's equivalent |
+| GitHub-hosted (Linux, with the Claude API) | Installed by the build workflow |
+
+### Checking the sandbox
+
+The agents' limits are Claude Code's to enforce, so check them with the real
+Claude Code **on a new runner** (macOS or Linux), **after every Claude Code
+upgrade**, and **before turning the build stage on**:
+
+```sh
+.github/agent-hub/scripts/check-sandbox.sh   # from the repository root, on the runner
+```
+
+It asks you to type `use-claude` (it uses Claude: two short sessions, about
+$0.20, capped under $1), works in a throwaway copy of the repository under
+your home folder, and removes it afterwards. It checks, with the hub's own
+runner code:
+
+- **Read-only profile** (the document stages): a hostile repository setup — a
+  settings file, a `CLAUDE.md` asking for forbidden access, an agent declaring
+  a permission mode, hooks and extra tools, a skill pre-approving tools, a
+  linked agent from outside — gains nothing: no shell, no reading outside the
+  repository, no fetch off the allowlist, no linked agent, no hooks run. The
+  repository's `CLAUDE.md`, agents and skills still load (each visibly
+  changes Claude's answer), without Claude Code's bundled skills.
+- **Build profile** (the build stage): commands can't read the home folder or
+  a planted secret file, write outside the repository, reach the internet,
+  see a planted environment secret, or edit `.github/`; they can write the
+  repository and a temp folder, and use localhost.
+
+Each result is checked on disk and in Claude's output, not just from its
+report. It prints a line per check and fails if any does. **If a check fails,
+don't run the build stage on that runner**: pin the previous Claude Code
+version (see [Claude Code version](#claude-code-version)) and report it.
+
+### Before running the build on real tickets
+
+The sandbox keeps commands away from your files, credentials and the
+internet, but two things remain within reach on the runner machine:
+
+- **Anything listening on localhost** — local databases, dev servers, admin
+  pages — because commands may use localhost (tests often start a local
+  server).
+- **Whatever Claude Code itself can read**: only commands are sandboxed;
+  Claude Code's own file tools are bounded by restricted mode (the repository
+  only) and the hub's deny rules, not by the sandbox.
+
+On a personal machine that's acceptable for developing and testing the hub,
+not for real tickets. Before then, use one of: a **dedicated macOS or Linux
+user** for the runner (your files, logins and keychain then aren't
+reachable), a **dedicated machine**, or **GitHub-hosted runners with the
+Claude API** (a fresh machine every run).
+
 ## When Claude is used
 
 Only when a ticket or a person asks for it — never from the tests, git hooks

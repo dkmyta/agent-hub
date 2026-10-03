@@ -5,6 +5,37 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.3.0 — 2026-10-03
+
+The repository's own Claude Code setup is back, and the build stage's tool
+profiles and sandbox are in place.
+
+- **The repository's `CLAUDE.md`, agents and skills are loaded again**
+  (missing since 2.0.1, when restricted mode came in): `CLAUDE.md` joins the
+  agent's instructions as repository guidance; `.claude/agents/` and
+  `.claude/skills/` load like an extension's. Links are skipped. Extension
+  agents and skills now load from a copy with a manifest the hub writes.
+- **Repository content adds guidance, never capabilities:** only agents and
+  skills are copied (no hooks, MCP servers, settings or commands), and their
+  definitions keep only allowed fields — none can declare a permission mode,
+  hooks, MCP servers or pre-approved tools.
+- **Claude Code's bundled skills are off** for every pass — the pipeline
+  doesn't use them.
+- **Tool profiles for the build stage** (planned): *build* edits the
+  repository and runs commands; *review* runs commands without edits; neither
+  has web tools. Every command runs in Claude Code's sandbox — the repository
+  and a temp folder only, localhost only, no secrets in its environment, and
+  no command if the sandbox can't start. Verified on macOS with real Claude.
+  The document stages keep the same capabilities (now with the repository's
+  guidance).
+- **A sandbox check:** `.github/agent-hub/scripts/check-sandbox.sh` checks
+  both profiles' limits with the real Claude Code (about $0.20, confirmed with
+  `use-claude`). Run it on a new runner and after every Claude Code upgrade.
+
+**Updating:** nothing to do now. Before the build stage, run the sandbox check
+on your runner ([docs/runners.md](docs/runners.md#checking-the-sandbox)); on a
+personal machine, see [Before running the build on real tickets](docs/runners.md#before-running-the-build-on-real-tickets).
+
 ## 2.2.0 — 2026-10-03
 
 The existing stages brought up to the rules the build stage will rely on.

@@ -397,12 +397,31 @@ re-running the automated review after changes.
   built-in tools there are — the allowlist above then scopes them),
   `--disallowedTools "Bash,Write,Edit,NotebookEdit"` (deny rules also bind
   subagents; an allowlist alone doesn't when a subagent's definition grants
-  a tool), `--setting-sources project` (the repository's `CLAUDE.md` and
-  agents, never the runner owner's), and no hooks or MCP servers
-  (`disableAllHooks`, `--strict-mcp-config`), which would run outside the
-  tool rules. Subagents (Claude Code's built-in ones, the repository's
-  `.claude/agents/` and extensions') and skills run under the same rules:
-  read-only, inside the repository.
+  a tool), no hooks, MCP servers or Claude Code's bundled skills
+  (`disableAllHooks`, `--strict-mcp-config`, `disableBundledSkills`), which
+  would run outside the tool rules or aren't needed. Restricted mode doesn't
+  load the repository's `CLAUDE.md`, agents or skills, so the hub passes them:
+  `CLAUDE.md` appended to the instructions as repository guidance, agents and
+  skills (the repository's `.claude/` and extensions') as plugins, copied
+  with a manifest the hub writes; links are skipped. **Repository content adds
+  guidance, never capabilities:** nothing but agents and skills is copied (no
+  hooks, MCP servers, settings or commands), and their definitions keep only
+  allowed fields (agents: name, description, model, tools, color; skills:
+  name, description, license) — none can declare a permission mode, hooks,
+  MCP servers or pre-approved tools, and an agent's `tools` can only narrow
+  the session's. Subagents and skills run under the same rules.
+- **Tool profiles**, chosen by the hub per pass (`AGENT_PROFILE`), never by
+  settings, extensions or tickets: *read-only* for the document stages (the
+  same capabilities as before profiles existed); *build* (edit the repository, run commands) and *review* (run
+  commands, no edits) for the build stage, with no web tools and Claude
+  Code's sandbox for every command — reads only the repository and a temp
+  folder (the home folder, where the runner's credentials live, denied),
+  writes only those (review: only the temp folder), network to localhost
+  only, no secrets in commands' environment, and no command run if the
+  sandbox can't start. Set through `--settings`, so the repository can't
+  loosen it. Verified on macOS with real Claude; on a personal machine,
+  localhost and Claude Code's own reach remain — see
+  [runners.md](runners.md#before-running-the-build-on-real-tickets).
 - **What this guarantees, and what it doesn't.** The agents can't run
   commands, write files, read outside the repository, or fetch pages outside
   the allowlist. Web search queries do leave the runner (above). The tests
@@ -468,12 +487,6 @@ replace them or show up on other work.
 
 ## Known gaps (every stage)
 
-- **The repository's own `CLAUDE.md`, agents and skills aren't loaded.**
-  Restricted mode (since 2.0.1), which keeps the agents' limits independent of
-  the repository's settings, also skips the repository's `CLAUDE.md` and
-  `.claude/agents/` and `.claude/skills/`. The next release loads them
-  explicitly, as repository guidance. Extensions are unaffected: they're
-  passed as plugins, which restricted mode loads (verified).
 
 - **A change in the last seconds before a write can still be overwritten.**
   Each stage checks for edits, uploads and new requests just before it

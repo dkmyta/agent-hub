@@ -61,12 +61,64 @@ agent_extension_problems() {
     | awk 'last != "" && index($0, last "/") == 1 { next } { print; last = $0 }'
 }
 
-# _load_extensions: find this stage's extension folders, refuse any with
-# something not allowed, and build the --plugin-dir arguments. Once per step.
+# _plugin <folder> <name>: a copy of the folder's agents/ and skills/ (plain
+# files only — no links) as a Claude Code plugin with a manifest the hub
+# writes, added to PLUGIN_ARGS. Restricted mode loads plugins passed with
+# --plugin-dir, but not the repository's own .claude/ folder.
+#
+# Repository content may add guidance and agents and skills, never
+# capabilities: nothing else is copied (no hooks, MCP servers, settings or
+# commands), and agent and skill definitions keep only the frontmatter fields
+# below — so none can declare a permission mode, hooks, MCP servers or
+# pre-approved tools. An agent's `tools` can only narrow what the session
+# has. Skill resources (e.g. scripts) are copied: they can only run through
+# Bash, which read-only passes don't have and build passes sandbox.
+AGENT_FIELDS="name|description|model|tools|color"
+SKILL_FIELDS="name|description|license"
+_plugin() {
+  local src=$1 dest="$RUNNER_TEMP/plugins/$2" kind file
+  mkdir -p "$dest/.claude-plugin"
+  jq -n --arg name "$2" '{name: $name, version: "0.0.0"}' > "$dest/.claude-plugin/plugin.json"
+  for kind in agents skills; do
+    [ -d "$src/$kind" ] && [ ! -L "$src/$kind" ] || continue
+    (cd "$src" && find "$kind" -type f) | while IFS= read -r file; do
+      mkdir -p "$dest/$(dirname "$file")"
+      case "$file" in
+        agents/*.md) _frontmatter_fields "$AGENT_FIELDS" < "$src/$file" > "$dest/$file" ;;
+        skills/*/SKILL.md) _frontmatter_fields "$SKILL_FIELDS" < "$src/$file" > "$dest/$file" ;;
+        *) cp "$src/$file" "$dest/$file" ;;
+      esac
+    done
+  done
+  PLUGIN_ARGS+=(--plugin-dir "$dest")
+}
+
+# _frontmatter_fields <field|field...> < file: the file with only those
+# fields (and their indented or list continuation lines) kept in its
+# frontmatter; the body is unchanged.
+_frontmatter_fields() {
+  awk -v keep="^($1)$" '
+    NR == 1 && $0 == "---" { inside = 1; print; next }
+    inside && $0 == "---" { inside = 0; print; next }
+    inside {
+      if ($0 ~ /^[A-Za-z0-9_-]+[ \t]*:/) { key = $0; sub(/[ \t]*:.*/, "", key); dropping = (key !~ keep) }
+      if (!dropping) print
+      next
+    }
+    { print }'
+}
+
+# _load_extensions: the repository's own agents and skills (.claude/), then
+# this stage's extension folders — refusing any with something not allowed —
+# as plugins for both passes. Once per step.
 _load_extensions() {
   local dir problems
   [ -z "${_EXTENSIONS_LOADED:-}" ] || return 0
   _EXTENSIONS_LOADED=1
+  if { [ -d .claude/agents ] || [ -d .claude/skills ]; } && [ ! -L .claude ]; then
+    _plugin .claude repository
+    echo "Repository agents and skills: .claude/."
+  fi
   for dir in "$EXTENSIONS_DIR/shared" "$EXTENSIONS_DIR/$STAGE"; do
     [ -d "$dir" ] || continue
     problems=$(agent_extension_problems "$dir")
@@ -74,9 +126,21 @@ _load_extensions() {
       stage_fail "The repository extension $dir has files an extension can't contain: $(echo "$problems" | paste -sd ',' - | sed 's/,/, /g'). Extensions hold only guidance.md, review.md, agents/ and skills/ (docs/extending.md). Nothing was changed; fix the folder, then comment $REVISE_COMMAND to try again."
     fi
     EXTENSION_DIRS+=("$dir")
-    if [ -d "$dir/agents" ] || [ -d "$dir/skills" ]; then PLUGIN_ARGS+=(--plugin-dir "$(cd "$dir" && pwd)"); fi
+    if [ -d "$dir/agents" ] || [ -d "$dir/skills" ]; then _plugin "$dir" "extension-$(basename "$dir")"; fi
   done
   if [ ${#EXTENSION_DIRS[@]} -gt 0 ]; then echo "Repository extensions: ${EXTENSION_DIRS[*]}."; fi
+}
+
+# _repository_guidance: the repository's CLAUDE.md (and .claude/CLAUDE.md),
+# under a heading, to append to a prompt — restricted mode doesn't load them.
+# A link is skipped: it could point anywhere.
+_repository_guidance() {
+  local file
+  for file in CLAUDE.md .claude/CLAUDE.md; do
+    [ -f "$file" ] && [ ! -L "$file" ] && [ -s "$file" ] || continue
+    printf '\n\n# Repository guidance (%s)\n\nFrom the repository'"'"'s maintainers. Follow it wherever it doesn'"'"'t conflict with the instructions above.\n\n' "$file"
+    cat "$file"
+  done
 }
 
 # _extension_text <file> <title>: that file from each extension folder, under
@@ -94,10 +158,6 @@ _extension_text() {
 # public repositories), so they're never printed: logs show only outcomes and
 # counts. The content goes to the ticket.
 
-# The built-in tools an agent has: reading the repository, web research,
-# subagents and skills (the experts extensions add). No shell, no writes.
-AGENT_TOOLS="Read,Grep,Glob,WebSearch,WebFetch,Agent,Skill"
-
 # _require_restricted: the boundary rests on Claude Code's restricted mode,
 # so a version without it stops the run rather than running unconfined.
 _require_restricted() {
@@ -106,40 +166,105 @@ _require_restricted() {
   [[ "$help" == *--restricted* ]] || stage_fail "Claude Code ${CLAUDE_VERSION:-(unknown version)} has no restricted mode, which keeps the agents inside the repository whatever its settings say, so nothing was changed. Update Claude Code on the runner (docs/runners.md), then comment $REVISE_COMMAND."
 }
 
+# Agent tool profiles, chosen by the hub per pass (AGENT_PROFILE, set by the
+# stage) — never by settings, extensions or tickets:
+#   read-only  the document stages (the same capabilities as before profiles):
+#              read the repository, research the web
+#   build      edit the repository and run commands in the sandbox; no web
+#   review     run commands (tests) in the sandbox; no edits, no web
+# Everywhere: no hooks, no MCP servers, no bundled skills (Claude Code's own,
+# such as config or scheduling helpers — the pipeline doesn't use them).
+AGENT_PROFILE=${AGENT_PROFILE:-read-only}
+
+# Paths agents may never edit, whatever the profile: workflows and the hub,
+# Claude Code's settings and agents, code owners. Deny rules also bind
+# subagents (an allowlist alone doesn't).
+AGENT_DENIED_PATHS='[".github/**", ".claude/**", "CODEOWNERS", "**/CODEOWNERS"]'
+
+# agent_sandbox_dir: the temp folder sandboxed commands may write (with
+# package caches in it) — the job's own, removed with it.
+agent_sandbox_dir() { mkdir -p "$RUNNER_TEMP/agent-tmp" && echo "$RUNNER_TEMP/agent-tmp"; }
+
+# agent_settings <profile>: the --settings JSON for a profile. For build and
+# review, Claude Code's sandbox for every shell command and what it starts:
+# no reading the home folder (where the runner's credentials live) except the
+# repository and the temp folder; writes only to those (review: only the temp
+# folder); network to localhost only; it fails rather than run a command
+# unsandboxed, and a --settings file closes these settings to the project.
+agent_settings() {
+  local temp
+  if [ "$1" = read-only ]; then jq -nc '{disableAllHooks: true, disableBundledSkills: true}'; return; fi
+  temp=$(agent_sandbox_dir)
+  jq -nc --arg home "$HOME" --arg repo "$(pwd -P)" --arg temp "$temp" --arg profile "$1" \
+      --argjson denied "$AGENT_DENIED_PATHS" '{
+    disableAllHooks: true, disableBundledSkills: true,
+    permissions: {deny: [$denied[] | "Edit(./\(.))", "Write(./\(.))"]},
+    sandbox: {
+      enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true,
+      filesystem: {denyRead: [$home], allowRead: [$repo, $temp],
+        allowWrite: (if $profile == "build" then [$repo, $temp] else [$temp] end)},
+      network: {allowedDomains: ["localhost", "127.0.0.1"], allowLocalBinding: true}}}'
+}
+
 # _claude <model> <fallback> <budget> <system prompt file> <schema> <prompt> > output
 _claude() {
-  local tools domain session
+  local tools allowed denied domain session temp mode=dontAsk env=()
   session=$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid) | tr 'A-Z' 'a-z')
   [[ "$session" =~ $SESSION_ID_PATTERN ]] || { echo "::error::Could not create a session id." >&2; exit 1; }
   echo "$session" >> "$AGENT_SESSIONS"
-  # Read-only and scoped to the repository; page fetches only from
-  # CLAUDE_FETCH_DOMAINS.
-  tools="Read(./**),Grep(./**),Glob(./**),WebSearch"
-  for domain in $CLAUDE_FETCH_DOMAINS; do tools="$tools,WebFetch(domain:$domain)"; done
+  case "$AGENT_PROFILE" in
+    read-only)
+      # Read-only and scoped to the repository; page fetches only from
+      # CLAUDE_FETCH_DOMAINS.
+      tools="Read,Grep,Glob,WebSearch,WebFetch,Agent,Skill"
+      allowed="Read(./**),Grep(./**),Glob(./**),WebSearch"
+      for domain in $CLAUDE_FETCH_DOMAINS; do allowed="$allowed,WebFetch(domain:$domain)"; done
+      denied="Bash,Write,Edit,NotebookEdit" ;;
+    build)
+      tools="Read,Grep,Glob,Edit,Write,Bash,Agent,Skill"
+      allowed="Read(./**),Grep(./**),Glob(./**),Edit(./**),Write(./**),Bash"
+      denied="NotebookEdit,WebSearch,WebFetch" ;;
+    review)
+      tools="Read,Grep,Glob,Bash,Agent,Skill"
+      allowed="Read(./**),Grep(./**),Glob(./**),Bash"
+      denied="Write,Edit,NotebookEdit,WebSearch,WebFetch" ;;
+    *) echo "::error::Unknown agent profile: $AGENT_PROFILE" >&2; exit 1 ;;
+  esac
+  if [ "$AGENT_PROFILE" != read-only ]; then
+    # Commands get no secrets in their environment (an API key included), and
+    # keep temp files and package caches in the sandbox's temp folder. With the
+    # scrub on, Claude Code uses its default permission mode, so it's asked for
+    # here rather than overridden silently: in a run with no one to ask, a tool
+    # call the rules don't allow is refused, as in dontAsk.
+    mode=default
+    temp=$(agent_sandbox_dir)
+    env=(CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 "TMPDIR=$temp" "XDG_CACHE_HOME=$temp/cache"
+      "npm_config_cache=$temp/npm" "YARN_CACHE_FOLDER=$temp/yarn" "PIP_CACHE_DIR=$temp/pip")
+  fi
   # Isolation, whatever the repository's or the runner owner's settings say:
   # restricted mode ignores every settings file (so none can add
   # permissions or directories) and confines the file tools to the
   # repository; --tools is the only built-in tools there are (subagents and
-  # skills, for extensions, included); no hooks or MCP servers (they run
-  # outside the tool rules); and the write and shell tools denied outright —
-  # allowlists alone don't bind subagents whose definitions grant them.
-  claude -p "$6" \
+  # skills, for extensions, included); the profile's settings above; and the
+  # tools a profile doesn't have denied outright — allowlists alone don't
+  # bind subagents whose definitions grant them.
+  env "${env[@]}" claude -p "$6" \
     --session-id "$session" \
     --no-session-persistence \
     --restricted \
-    --tools "$AGENT_TOOLS" \
+    --tools "$tools" \
     --setting-sources project \
-    --settings '{"disableAllHooks": true}' \
+    --settings "$(agent_settings "$AGENT_PROFILE")" \
     --strict-mcp-config \
-    --disallowedTools "Bash,Write,Edit,NotebookEdit" \
+    --disallowedTools "$denied" \
     --model "$1" \
     --fallback-model "$2" \
     --max-budget-usd "$3" \
     --append-system-prompt-file "$4" \
     --json-schema "$5" \
     --output-format json \
-    --permission-mode dontAsk \
-    --allowedTools "$tools" \
+    --permission-mode "$mode" \
+    --allowedTools "$allowed" \
     "${PLUGIN_ARGS[@]}" \
     < /dev/null || true
 }
@@ -184,6 +309,7 @@ agent_run() {
   {
     cat "$STAGE_DIR/prompt.md"
     if agent_revising; then cat "$HUB_DIR/lib/revise.md"; fi
+    _repository_guidance
     _extension_text guidance.md "Repository guidance"
   } > "$prompt"
   _claude "$CLAUDE_MODEL" "$CLAUDE_FALLBACK_MODEL" "$(agent_budget "$CLAUDE_MAX_BUDGET_USD")" \
@@ -274,6 +400,7 @@ agent_review() {
     schema=$(agent_review_schema "$STAGE_DIR/schema.json")
   fi
   _load_extensions
+  _repository_guidance >> "$prompt"
   _extension_text review.md "Repository review checklist" >> "$prompt"
 
   _claude "$REVIEW_CLAUDE_MODEL" "$REVIEW_CLAUDE_FALLBACK_MODEL" "$(agent_budget "$REVIEW_CLAUDE_MAX_BUDGET_USD")" "$prompt" "$schema" \

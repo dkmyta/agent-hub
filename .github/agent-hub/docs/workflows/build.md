@@ -678,7 +678,7 @@ only wakes the per-ticket run, which reads the checks itself.
 | Scenario (whole workflow runs) | Extracted workflow steps, Jira and GitHub mocks, a local bare git remote, the Claude stub replaying recorded outputs; snapshots of every call | No |
 | Variants | `run_scenario <name> VAR=value` for one-setting differences | No |
 | Gates | Each gate mutation-tested: its test fails when the gate is removed | No |
-| Boundary probes | Real Claude Code against hostile settings and sandbox escape attempts | Yes, small, with the owner's OK |
+| Boundary checks | `scripts/check-sandbox.sh`: real Claude Code against hostile settings and sandbox escape attempts, results checked on disk ([runners.md](../runners.md#checking-the-sandbox)) | Yes, about $0.20, confirmed with `use-claude` |
 | Evals | Manual, `use-claude`, capped; one build case on a small fixture repository | Yes |
 | Pipeline test | Real systems, the scenarios under [Building it](#building-it) | Yes |
 
@@ -765,7 +765,8 @@ where stated and only with the owner's OK.
    companion changes; trust levels in every prompt; shared outcome names;
    actions pinned to commit SHAs; the Build Requested rule docs. One plan eval
    case for the prompt change.
-2. **Tool profiles and the sandbox** — the build and review profiles, the
+2. **Tool profiles and the sandbox** (done in 2.3.0; the install step's
+   sandbox comes with the step, in 3) — the build and review profiles, the
    install step's network, web tools off in code profiles; verified first with
    real Claude probes on the runner's OS.
 3. **Build foundation** — `lib/github.sh` with a GitHub mock and a local git
@@ -800,6 +801,7 @@ settings, and that session files are removed after each run.
 
 | Item | Notes |
 |---|---|
+| A dedicated runner user, machine or GitHub-hosted runners | **Before the build runs real tickets** — on a personal machine, sandboxed commands can still reach localhost services, and Claude Code's own process isn't sandboxed ([runners.md](../runners.md#before-running-the-build-on-real-tickets)) |
 | Ephemeral runners | The first hardening item after v1 |
 | Browser and end-to-end automation | Where the repository has Playwright or Cypress: run the app on localhost, run the relevant specs, screenshots of changed UI, console errors; with a fresh browser profile per run, headless, downloads in temp, artifacts under the publication policy, and browser processes added to the sandbox probes |
 | Hub-provided browser tooling | For repositories without an end-to-end framework |
