@@ -156,6 +156,12 @@ Outcomes: *built* · *needs clarification* (back to the plan) · *no change
 needed* (no empty commit; explained; a person decides) · *blocked*
 (environment or tooling; flagged).
 
+**A plan whose work is all manual changes** (only refused paths such as
+`.github/**` or CODEOWNERS) leaves the build nothing to do: no commit, no
+pull request, no attempt to implement it another way. The run posts the
+plan's manual changes on the ticket with `needs-human` and ends as *no change
+needed*; a person takes over.
+
 ### Dependencies (planned changes only)
 
 The agent may edit a dependency declaration the approved plan describes, but
@@ -752,7 +758,7 @@ Each step is a pull request with tests (mocked, parallel), mutation-checked
 gates, docs in the same pull request and a changelog entry; real Claude only
 where stated and only with the owner's OK.
 
-1. **Existing stages: parity and contracts** — the kill switch; the approval
+1. **Existing stages: parity and contracts** (done in 2.2.0) — the kill switch; the approval
    check in the plan stage; new work orders checking the description is
    unchanged since the fetch; the plan's base commit, risk level, governance
    flags, observability, must-not-touch areas, scope patterns and manual

@@ -86,13 +86,19 @@ with `stages/implementation-plan/`):
 2. **Fetch ticket** — rejects anything that isn't a ticket key; stops quietly
    if the ticket isn't in Work Order Approved or Implementation Plan; **fails
    without using Claude** if there's no work order (acceptance criteria and
-   an Implementation Plan section); turns the ticket and people's comments
+   an Implementation Plan section); for a new plan, checks **the work order is
+   exactly the one approved**, from Jira's change history: if the description
+   was edited after the move to Work Order Approved (by anyone), the ticket
+   goes back to Work Order with `needs-human` and a comment; if the history
+   shows no such move, or can't be read, it fails — either way without using
+   Claude; turns the ticket and people's comments
    into Markdown; for a revision, adds the attached plan; posts "⏳ Writing
    implementation plan" or "⏳ Revising implementation plan".
 3. **Agent (draft and review)** — draft (the plan, or for a revision only the changed
    sections), check, expert review, check — then every acceptance criterion
-   must be covered word for word, and only files that exist may be modified
-   or deleted.
+   must be covered word for word, only files that exist may be modified
+   or deleted, and none of them may be a workflow, Claude Code setting or
+   CODEOWNERS file (those are manual changes).
 4. **Apply to ticket** (ready) — re-checks the status; checks the transition (new
    plans) or that every section it changes still exists (revisions) before
    changing anything; renders the plan (with the review's notes) and the
@@ -126,18 +132,25 @@ empty; Security & Privacy always appears):
 | **Approach** | The approach, why it was chosen, alternatives considered (*optional*) |
 | **Acceptance Criteria Coverage** | Every criterion, word for word: how it's met, how to verify it |
 | **Changes by File** | Each file to add, modify or delete, with the specific changes |
+| **Scope & Governance** | The risk level and why; a fixed table of the sensitive kinds of change the plan includes (dependencies, schema or migration, public API, auth or permissions, sensitive data, infrastructure, workflow or CI, configuration); paths also in scope; areas that must not be touched; manual changes a person has to make. Its labels are fixed: the build stage reads it |
 | **Implementation Steps** | Ordered steps, each with its files and the criteria it covers |
 | **Dependencies & Configuration** | Packages, environment variables, secrets, migrations, permissions (*optional*) |
 | **Testing** | Automated tests, exact commands, manual checks |
 | **Security & Privacy** | Permissions, secrets, personal data, input handling, public exposure — or "no impact identified" |
+| **Observability** | Logs, metrics, alerts or dashboards the change needs — or "none needed" |
 | **Risks** | What could go wrong and how to mitigate it (*optional*) |
 | **Release & Rollback** | Rollout steps (or none beyond merging) and how to undo it |
 | **Resolved Technical Questions** | Answered from the code and docs, with evidence (*optional*) |
 | **Assumptions** | Decisions made without confirmation (*optional*) |
 | **Expert review** | What the review changed and the issues it found |
 
-**The summary** in the description: estimate, approach, acceptance-criteria
-table, ordered steps with their files, a pointer to the attachment, and the
+The **Version line** under the title says when the plan was written or
+revised and the commit it describes (`against commit …`), so the build stage
+knows what changed since.
+
+**The summary** in the description: estimate, a risk line (the level and the
+sensitive kinds included — what approving agrees to), approach,
+acceptance-criteria table, ordered steps with their files, a pointer to the attachment, and the
 "Expert review: …" note.
 
 ## Settings
@@ -177,6 +190,9 @@ Shared ones (revisions, failures, retries) are in
 | Situation | Behaviour |
 |---|---|
 | Ticket has no work order | Fails before Claude runs (no Claude usage), with the reason |
+| The work order was edited after its approval | Back to Work Order with `needs-human` and a comment, before Claude runs; approve it again. Any edit counts, the automation's own included (e.g. a plan run that wrote its summary and then failed before moving the ticket) |
+| No approval in the ticket's history, or the history can't be read | Fails with the reason, before Claude runs — a plan is never written from an approval it can't confirm |
+| The plan needs a workflow, Claude Code setting or CODEOWNERS changed | Listed as a manual change for a person; never in Changes by File (a plan that puts one there isn't applied). If all the work is manual, Changes by File is empty and the plan is still ready; a plan with no changes at all isn't applied |
 | A plan file uploaded while a run works | Fails before changing anything, with the reason; `/revise` again revises the newest. If it lands while the run publishes, the run takes back its own upload and description change first |
 | Plan misses a criterion, or modifies a file that doesn't exist | Fails; the reason names positions and paths, never ticket text |
 | Work order contradicts the code | Needs clarification, saying what was found — Claude doesn't redefine the scope |
@@ -190,8 +206,9 @@ Shared ones (revisions, failures, retries) are in
 
 ## Known gaps
 
-- **Approving a plan leaves `needs-human`** until the build stage exists —
-  see [jira.md](../jira.md#until-the-build-stage-exists).
+- **Nothing acts on an approved plan yet**: the build stage is planned
+  ([build.md](build.md)); approval only clears `needs-human`
+  ([jira.md](../jira.md#rule-implementation-plan-approved)).
 - **The full plan is an attachment**; reviewing it means opening it, and
   editing it means downloading and re-uploading it.
 - **The plan reflects the code when it was written.** If the code changes

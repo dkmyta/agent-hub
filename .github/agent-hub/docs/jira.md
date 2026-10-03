@@ -45,7 +45,7 @@ the same settings live in the workflow scheme and permission scheme.
 | **Work Order** | The Work Order Requested rule (has details); the Revision Requested rule (details added in a comment); the plan stage returns tickets needing clarification | Yes, once the work order is written |
 | **Work Order Approved** | A person, after reviewing the work order | No — the rule removes it |
 | **Implementation Plan** | The plan stage (a revision keeps it here) | Yes |
-| **Implementation Plan Approved** | A person, after reviewing the plan | No, once the build stage exists — see [below](#until-the-build-stage-exists) |
+| **Implementation Plan Approved** | A person, after reviewing the plan | No — `needs-human` is cleared on approval ([rule](#rule-implementation-plan-approved)); the build stage (planned) will act here |
 | Ready for Review → Approved → Done | *Later stages* | Ready for Review: yes |
 
 ## Transitions
@@ -245,12 +245,18 @@ The token is a fine-grained GitHub token for this repository only, with
 **Contents: Read and write**, ideally owned by a machine user. Ownership,
 expiry and alerts: [setup.md](setup.md#6-plan-for-credential-expiry).
 
-## Until the build stage exists
+## Rule: Implementation Plan Approved
 
-Nothing handles **Implementation Plan Approved** yet, so approving a plan
-leaves `needs-human` on the ticket. That's expected for now: removing it is
-part of the build stage's rule, added with that stage. Until then, remove the
-label by hand if it matters (e.g. for a `needs-human` filter).
+Clears `needs-human` when a person approves a plan — the ticket no longer
+waits on anyone until the build stage (planned) picks it up. That stage adds
+its web request to this rule, which becomes *Build Requested*.
+
+| Part | Setting |
+|---|---|
+| **Trigger** | *Work item transitioned*, **to** status **Implementation Plan Approved** |
+| **Condition** | Work type = **Task** |
+| **Action** | Edit work item: Labels **remove** `needs-human` |
+| **Rule details** | Allow rule trigger **off**; notify on error **on** |
 
 ## Permissions for the automation account
 
@@ -293,8 +299,8 @@ conditions.
 - [ ] Statuses and board columns above; transitions allowed
 - [ ] A dedicated service account with the permissions below, unable to make
       the "…Approved" transitions
-- [ ] Rules: Work Order Requested, Implementation Plan Requested and
-      Revision Requested
+- [ ] Rules: Work Order Requested, Implementation Plan Requested, Revision
+      Requested and Implementation Plan Approved
 - [ ] The token in every rule's `Authorization` header, hidden
 
 ## Recommended: do these in Jira, not in the workflows

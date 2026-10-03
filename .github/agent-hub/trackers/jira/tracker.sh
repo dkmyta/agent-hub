@@ -110,6 +110,30 @@ tracker_comments() {
   jq -c '{comments: .}' <<< "$all"
 }
 
+# tracker_edited_after <status> <field>: whether <field> (e.g. description)
+# was changed — by anyone, the automation included — after the ticket last
+# entered <status>, from Jira's change history: "yes", "no", or "unknown" if
+# the history never shows it entering <status>. A page of 100 at a time;
+# fails (rather than read only some) on an API error or past 5,000 entries.
+tracker_edited_after() {
+  local start=0 page all='[]'
+  while :; do
+    page=$(jira "$ISSUE_URL/changelog?startAt=$start&maxResults=100") || return 1
+    all=$(jq -c --argjson page "$page" '. + $page.values' <<< "$all")
+    [ "$(jq -r '.isLast // ((.startAt + (.values | length)) >= .total)' <<< "$page")" = true ] && break
+    start=$((start + 100))
+    if [ "$start" -ge 5000 ]; then
+      echo "::error::$TICKET_KEY has more than 5,000 history entries, so they can't all be read." >&2
+      return 1
+    fi
+  done
+  jq -r --arg status "$1" --arg field "$2" '
+    ([to_entries[] | select(any(.value.items[]; .field == "status" and .toString == $status)) | .key] | last) as $at
+    | if $at == null then "unknown"
+      elif any(.[$at + 1:][]; any(.items[]; .field == $field)) then "yes"
+      else "no" end' <<< "$all"
+}
+
 # Attach Markdown file $1 to the ticket (a multipart upload; Jira requires the
 # X-Atlassian-Token header). Prints the new attachment's id.
 tracker_attach() {

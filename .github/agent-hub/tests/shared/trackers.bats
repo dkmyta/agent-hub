@@ -45,7 +45,7 @@ setup() {
   local tracker
   for tracker in "$HUB_DIR"/trackers/*/tracker.sh; do
     run env TICKET_KEY=PROJ-1 RUNNER_TEMP="$BATS_TEST_TMPDIR" bash -c 'source "$1"
-      declare -F tracker_issue tracker_status tracker_account_id tracker_require_status tracker_set_description \
+      declare -F tracker_issue tracker_status tracker_account_id tracker_edited_after tracker_require_status tracker_set_description \
         tracker_comments tracker_comment tracker_update_comment tracker_delete_comment \
         tracker_labels tracker_attachments tracker_attach \
         tracker_attachment_content tracker_delete_attachment tracker_transition_id tracker_transition > /dev/null

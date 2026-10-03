@@ -80,9 +80,11 @@ run_eval() { # <case>
 
   if [ "$EXPECT_STATUS" = ready ]; then
     jq '.structured_output.plan' "$result" > "$RUNNER_TEMP/plan.json"
+    # The plan covers each expected file: as a change the build makes, or as
+    # a manual change (workflows, the hub's own files, Claude Code settings).
     for path in $EXPECT_CHANGES; do
-      jq -e --arg p "$path" '[.changes[].path] | index($p)' "$RUNNER_TEMP/plan.json" > /dev/null \
-        || fail "plan doesn't change $path: $(jq -c '[.changes[].path]' "$RUNNER_TEMP/plan.json")"
+      jq -e --arg p "$path" '[.changes[].path, .governance.manual_changes[].path] | index($p)' "$RUNNER_TEMP/plan.json" > /dev/null \
+        || fail "plan doesn't cover $path: $(jq -c '[.changes[].path, .governance.manual_changes[].path]' "$RUNNER_TEMP/plan.json")"
     done
     jq -L "$HUB_LIB" -f "$HUB_DIR/stages/implementation-plan/render.jq" --arg mode summary \
       --arg file EVAL-1-implementation-plan.md --argjson level 5 "$RUNNER_TEMP/plan.json" \

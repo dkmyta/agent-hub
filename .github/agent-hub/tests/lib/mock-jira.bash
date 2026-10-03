@@ -14,6 +14,9 @@
 #   COMMENTS_LATER_FIXTURE  comments from the second lookup on (default:
 #                        COMMENTS_FIXTURE) — e.g. a comment added or edited mid-run
 #   TRANSITIONS_FIXTURE  transitions JSON
+#   CHANGELOG_FIXTURE    the ticket's change history (default: one entry, a
+#                        person moving it to Work Order Approved); the second
+#                        page (startAt=100) from CHANGELOG_PAGE2_FIXTURE
 #   ATTACHMENTS_FIXTURE  attachments JSON array (default: none)
 #   ATTACHMENTS_LATER_FIXTURE  attachments from lookup ATTACHMENTS_LATER_FROM
 #                        (default: the second) on — e.g. a person uploading mid-run
@@ -75,6 +78,10 @@ jira_request() {
       else echo '{"startAt":0,"maxResults":100,"total":0,"comments":[]}'; fi ;;
     "GET /comment?maxResults=100&startAt="*) cat "$COMMENTS_PAGE2_FIXTURE" ;;
     "GET /transitions") cat "$TRANSITIONS_FIXTURE" ;;
+    "GET /changelog?startAt=0&maxResults=100")
+      if [ -n "${CHANGELOG_FIXTURE:-}" ]; then cat "$CHANGELOG_FIXTURE"
+      else echo '{"startAt":0,"maxResults":100,"total":1,"isLast":true,"values":[{"author":{"accountId":"dana-lead"},"items":[{"field":"status","toString":"Work Order Approved"}]}]}'; fi ;;
+    "GET /changelog?startAt=100&maxResults=100") cat "$CHANGELOG_PAGE2_FIXTURE" ;;
     "GET ?fields=attachment")
       local attachments=${ATTACHMENTS_FIXTURE:-}
       if [ -n "${ATTACHMENTS_LATER_FIXTURE:-}" ] && [ "$(grep -c '"GET","path":"?fields=attachment"' "$CALLS")" -ge "${ATTACHMENTS_LATER_FROM:-2}" ]; then

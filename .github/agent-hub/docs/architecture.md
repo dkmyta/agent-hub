@@ -71,6 +71,7 @@ data to it: `{fields: {summary, description (ADF), status: {name}, attachment:
 | `tracker_issue <fields>` | The ticket, with the given fields (comma-separated) |
 | `tracker_status`, `tracker_require_status <status>` | The status name; succeed only in that status |
 | `tracker_account_id` | The automation account's id (`author.accountId` on its comments and attachments) |
+| `tracker_edited_after <status> <field>` | Whether a field was changed — by anyone, the automation included — after the ticket last entered a status (`yes`, `no`, or `unknown` if the history never shows it entering it), from the tracker's history; fails if the history can't be read in full |
 | `tracker_set_description [+label\|-label]...` | Replace the description with the ADF on stdin, changing labels in the same update |
 | `tracker_comments`, `tracker_comment`, `tracker_update_comment <id>`, `tracker_delete_comment <id>` | Read comments; post the ADF on stdin (prints the id); replace; delete |
 | `tracker_labels <+label\|-label>...` | Add and remove labels, in one update |
@@ -140,8 +141,8 @@ details or a decision), *no change needed*, *superseded* (a newer request
 replaced it), *stale* (what it read changed underneath it — nothing written),
 *failed* (the reason on the ticket, `needs-human`). The build adds *blocked*
 and *paused*. A run whose work an earlier run already did ends as *no change
-needed* — a normal outcome. (The existing stages adopt these names with the
-build work.)
+needed* — a normal outcome. Each run summary ends with its outcome
+(`stage_outcome`).
 
 **Legal transitions are enforced, not assumed:** a run acts only from its
 stage's statuses (`stage_fetch`), re-checks the status before every write
@@ -179,9 +180,9 @@ What an agent reads is trusted to different degrees:
    comments, fixtures and docs. Information to analyse, never instructions to
    follow.
 
-The restrictions that matter (read-only tools, no shell or network beyond the
-allowlist, no credentials) hold whatever a prompt says; stating the levels in
-every stage's prompt comes with the build work.
+Every stage's prompt says so, and the restrictions that matter (read-only
+tools, no shell or network beyond the allowlist, no credentials) hold whatever
+a prompt says.
 
 ### Invariants
 
@@ -189,7 +190,8 @@ The rules every stage keeps. Those marked *(build)* arrive with the build
 stage ([workflows/build.md](workflows/build.md)).
 
 1. A stage consumes only the exact upstream artifact that stayed unchanged
-   after its approval *(with the build work)*.
+   after its approval (the plan stage checks the work order today; the build
+   will check the plan).
 2. No agent output can increase the agent's own permissions or autonomy.
 3. Severity communicates urgency; hub policy decides what may change
    automatically; plan approval authorises only the governance changes the
@@ -217,7 +219,7 @@ stage ([workflows/build.md](workflows/build.md)).
 14. Private ticket content doesn't reach a public repository unless explicitly
     allowed *(build)*.
 15. The hub can be stopped globally without touching tickets or pull requests
-    *(with the build work)*.
+    (`AGENT_HUB_ENABLED=false`).
 
 ## Conventions
 
@@ -466,6 +468,13 @@ replace them or show up on other work.
 
 ## Known gaps (every stage)
 
+- **The repository's own `CLAUDE.md`, agents and skills aren't loaded.**
+  Restricted mode (since 2.0.1), which keeps the agents' limits independent of
+  the repository's settings, also skips the repository's `CLAUDE.md` and
+  `.claude/agents/` and `.claude/skills/`. The next release loads them
+  explicitly, as repository guidance. Extensions are unaffected: they're
+  passed as plugins, which restricted mode loads (verified).
+
 - **A change in the last seconds before a write can still be overwritten.**
   Each stage checks for edits, uploads and new requests just before it
   writes — the plan stage after each write too — and stops, changing
@@ -493,10 +502,6 @@ replace them or show up on other work.
   that a guarantee; the same account is how the hub tells its own plan files
   from people's ([jira.md](jira.md#permissions-for-the-automation-account)).
 - **Evals are non-deterministic**, and revisions aren't covered by one yet.
-- **Approval and outcome rules come with the build work.** The existing
-  stages don't yet check that their input is unchanged since its approval,
-  a new work order doesn't yet check the description is unchanged since the
-  run began, and run summaries don't yet use the shared outcome names.
 - **Run history doesn't last.** Costs and run details are in each run's
   summary, which GitHub deletes after about 90 days; the ticket keeps the
   outputs. A durable per-ticket record is planned.

@@ -107,3 +107,29 @@ work_order: not shared or a stage"
     assert_success
   done
 }
+
+# The kill switch: AGENT_HUB_ENABLED=false skips every workflow that runs an
+# agent or changes a ticket, before it reaches a runner.
+@test "the kill switch skips the stage workflow and the evals" {
+  run node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { parse } from "yaml";
+    for (const file of process.argv.slice(1)) {
+      const wf = parse(readFileSync(file, "utf8"));
+      for (const job of Object.values(wf.jobs)) console.log(job.if);
+    }' "$REPO_DIR/.github/workflows/agent-hub-stage.yml" "$REPO_DIR/.github/workflows/agent-hub-evals.yml"
+  assert_success
+  assert_equal "${#lines[@]}" 2
+  local condition
+  for condition in "${lines[@]}"; do
+    [[ "$condition" == *"vars.AGENT_HUB_ENABLED != 'false'"* ]] || fail "no kill switch: $condition"
+  done
+}
+
+# Workflows that end up running agents and pushing code use only actions
+# pinned to a full commit SHA (Dependabot keeps the pins current).
+@test "every action the hub's workflows use is pinned to a full commit SHA" {
+  run bash -c 'grep -hE "^\s*(- )?uses: " "$1"/.github/workflows/agent-hub-*.yml | grep -vE "uses: \./" \
+    | grep -vE "uses: [^@]+@[0-9a-f]{40}( #.*)?$"' _ "$REPO_DIR"
+  assert_output ""
+}

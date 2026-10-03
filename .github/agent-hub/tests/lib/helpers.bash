@@ -181,14 +181,14 @@ run_scenario() {
   for arg in "$@"; do case "$arg" in --full) full=--full ;; *) overrides+=("$arg") ;; esac; done
   export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" MOCK_FAIL_FROM="" CLAUDE_FIXTURE=none CANCEL_AFTER=""
   export CLAUDE_REVIEW_FIXTURE=approve CLAUDE_REVIEW_EXIT=0 CLAUDE_FIXTURE_EDIT="" CLAUDE_REVIEW_FIXTURE_EDIT=""
-  export TICKET_FIXTURE=tickets/ready.json TICKET_LATER_FIXTURE="" COMMENTS_FIXTURE="" COMMENTS_LATER_FIXTURE=""
+  export TICKET_FIXTURE=tickets/ready.json TICKET_LATER_FIXTURE="" CHANGELOG_FIXTURE="" CHANGELOG_PAGE2_FIXTURE="" COMMENTS_FIXTURE="" COMMENTS_LATER_FIXTURE=""
   export TRANSITIONS_FIXTURE=transitions.json ATTACHMENTS_FIXTURE="" ATTACHMENTS_LATER_FIXTURE="" ATTACHMENTS_LATER_FROM="" ATTACHMENT_CONTENT_FIXTURE=""
   set -a  # scenario.env overrides the defaults above
   # shellcheck source=/dev/null
   source "$dir/scenario.env"
   set +a
   for arg in "${overrides[@]}"; do export "${arg?}"; done
-  for var in TICKET_FIXTURE TICKET_LATER_FIXTURE COMMENTS_FIXTURE COMMENTS_LATER_FIXTURE TRANSITIONS_FIXTURE CLAUDE_FIXTURE ATTACHMENTS_FIXTURE ATTACHMENTS_LATER_FIXTURE ATTACHMENT_CONTENT_FIXTURE CLAUDE_REVIEW_FIXTURE; do
+  for var in TICKET_FIXTURE TICKET_LATER_FIXTURE CHANGELOG_FIXTURE CHANGELOG_PAGE2_FIXTURE COMMENTS_FIXTURE COMMENTS_LATER_FIXTURE TRANSITIONS_FIXTURE CLAUDE_FIXTURE ATTACHMENTS_FIXTURE ATTACHMENTS_LATER_FIXTURE ATTACHMENT_CONTENT_FIXTURE CLAUDE_REVIEW_FIXTURE; do
     case "${!var}" in none | approve | "" | /*) ;; *) export "$var=$FIXTURES/${!var}" ;; esac
   done
 
@@ -232,8 +232,10 @@ run_scenario() {
     local file
     for file in "$RUNNER_TEMP"/attached/*; do
       [ -e "$file" ] || continue
-      # The version line carries the run's time; snapshot it without.
-      sed -E 's/^_Version: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} UTC/_Version: <time>/' "$file" > "$file.snapshot"
+      # The version line's time and commit differ per run, so they're masked
+      # (a separate test checks the commit).
+      sed -E -e 's/^_Version: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} UTC/_Version: <time>/' \
+        -e 's/against commit [0-9a-f]{40}/against commit <commit>/' "$file" > "$file.snapshot"
       assert_snapshot "$dir/expected/attached-$(basename "$file")" "$file.snapshot"
     done
   fi

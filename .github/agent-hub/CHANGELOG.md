@@ -5,6 +5,43 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.2.0 — 2026-10-03
+
+The existing stages brought up to the rules the build stage will rely on.
+
+- **Plans are written only from the work order exactly as approved.** If the
+  description was edited after the move to Work Order Approved (by anyone),
+  the ticket goes back to Work Order (with `needs-human` and a comment); if
+  the approval can't be found or the history can't be read, the run fails —
+  both before Claude runs.
+- **A new work order stops if the request is edited mid-run**, instead of
+  writing a work order from the older text.
+- **Plans state their scope and governance:** a risk level, which sensitive
+  kinds of change they include (dependencies, schema or migration, public
+  API, auth or permissions, sensitive data, infrastructure, workflow or CI,
+  configuration), paths also in scope, areas that must not be touched, and
+  manual changes for a person (workflows, Claude Code settings, CODEOWNERS —
+  never in Changes by File; a plan can be all manual changes). Plus an Observability section, the commit the
+  plan describes in its Version line, and a risk line in the ticket summary.
+- **A kill switch:** the repository variable `AGENT_HUB_ENABLED=false` stops
+  every hub workflow.
+- **Every run summary ends with its outcome** (written, revised, sent back,
+  no change needed, superseded, stale, failed).
+- **Trust levels in every prompt:** repository content is information; its
+  guidance never overrides the hub's instructions.
+- **All actions pinned to full commit SHAs** (Dependabot keeps them current).
+
+**Known issue (since 2.0.1):** the agents don't load the repository's own
+`CLAUDE.md`, `.claude/agents/` or `.claude/skills/` — Claude Code's restricted
+mode skips them. The next release loads them explicitly; meanwhile, put what
+the pipeline needs in extensions.
+
+**Updating:** in Jira, add the Implementation Plan Approved rule
+([docs/jira.md](docs/jira.md#rule-implementation-plan-approved)) to clear
+`needs-human` when a plan is approved — optional, nothing breaks without it.
+Plans written before this version keep working; a revision adds the new
+sections when it changes them.
+
 ## 2.1.0 — 2026-10-03
 
 The build stage's design, and the rules every stage follows. Docs only.

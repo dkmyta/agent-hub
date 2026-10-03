@@ -12,6 +12,11 @@ questions for the delivery lead).
 - **Changes by file**: every file to modify or delete exists; the described
   changes match what's actually in those files (functions, fields, structure);
   nothing needed is missing.
+- **Scope and governance**: `includes` marks true exactly the kinds of change
+  the plan makes — the build may make those changes only as described, and
+  the person approving relies on it; the risk level is honest; every
+  `.github/**`, `.claude/**` or `CODEOWNERS` change is a manual change, not in
+  Changes by File; scope patterns and must-not-touch areas are right.
 - **Steps**: in an order that works, each concrete enough to carry out, each
   linked to the right files and criteria.
 - **Testing**: tests follow the repository's existing test setup; commands
@@ -20,6 +25,8 @@ questions for the delivery lead).
 - **Current state**: accurate — check it against the code.
 - **Security and privacy**: nothing missed (permissions, secrets, personal
   data, input handling, public exposure); empty only if there's truly no impact.
+- **Observability**: what the change needs to be operated (logs, metrics,
+  alerts); empty only if it needs nothing.
 - **Risks, release and rollback**: real risks for this change; release steps
   that are complete and in the right order; a rollback that works.
 - **Resolved questions**: answers are correct and the evidence supports them.

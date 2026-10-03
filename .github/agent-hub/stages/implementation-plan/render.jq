@@ -67,16 +67,34 @@ def summary_steps($plan):
 
 def pointer:
   para([strong("Full plan: "), text("attached to this ticket as "), code($file),
-    text(" — current state, changes by file, detailed steps, testing, security, risks, release and rollback, resolved questions and assumptions.")]);
+    text(" — current state, changes by file, scope and governance, detailed steps, testing, security, observability, risks, release and rollback, resolved questions and assumptions.")]);
+
+# The governance kinds, with the fixed labels the full plan's table uses (the
+# build stage reads them back, so they don't change).
+def governance_kinds: [
+  ["dependencies", "Dependencies"], ["schema_or_migration", "Schema or migration"],
+  ["public_api", "Public API or contract"], ["auth_or_permissions", "Auth or permissions"],
+  ["sensitive_data", "Sensitive data"], ["infrastructure", "Infrastructure"],
+  ["workflow_or_ci", "Workflow or CI"], ["configuration", "Configuration"]];
+
+# The summary's risk line: the level, and the sensitive kinds the plan includes
+# — what the person approving it is agreeing to.
+def risk_line($plan):
+  [governance_kinds[] | select(.[0] as $k | $plan.governance.includes[$k]) | .[1] | ascii_downcase] as $yes
+  | para([strong("Risk: "), text("\($plan.governance.risk.level) — \($plan.governance.risk.reason) "),
+      strong("Includes: "), text(if ($yes | length) > 0 then $yes | join(", ") else "none of the sensitive kinds" end)]);
+
+def path_list($items; $none): if ($items | length) > 0 then bullets([$items[] | [code(.)]]) else para($none) end;
 
 # The plan's fields in order, and each one's heading in the full plan
 # (the estimate is a line at the top, not a section).
-def fields: ["estimate", "current_state", "approach", "acceptance_criteria", "changes", "steps",
-  "dependencies", "testing", "security", "risks", "release", "resolved_questions", "assumptions"];
+def fields: ["estimate", "current_state", "approach", "acceptance_criteria", "changes", "governance", "steps",
+  "dependencies", "testing", "security", "observability", "risks", "release", "resolved_questions", "assumptions"];
 def full_heading($field): {current_state: "Current State", approach: "Approach",
   acceptance_criteria: "Acceptance Criteria Coverage", changes: "Changes by File",
+  governance: "Scope & Governance",
   steps: "Implementation Steps", dependencies: "Dependencies & Configuration", testing: "Testing",
-  security: "Security & Privacy", risks: "Risks", release: "Release & Rollback",
+  security: "Security & Privacy", observability: "Observability", risks: "Risks", release: "Release & Rollback",
   resolved_questions: "Resolved Technical Questions", assumptions: "Assumptions"}[$field];
 
 # One field's blocks in the full plan (none for an empty optional section).
@@ -87,9 +105,24 @@ def full_section($field; $plan):
   elif $field == "acceptance_criteria" then coverage($plan)
   elif $field == "changes" then
     section("Changes by File"),
-    {type: "bulletList", content: [$plan.changes[] | {type: "listItem", content: (
-      [para([code(.path), text(" (\(.action)) — \(.summary)")])]
-      + (if (.details | length) > 0 then [bullets(.details)] else [] end))}]}
+    (if ($plan.changes | length) == 0 then
+       para("None the build makes: every change is a manual change (Scope & Governance).")
+     else
+       {type: "bulletList", content: [$plan.changes[] | {type: "listItem", content: (
+         [para([code(.path), text(" (\(.action)) — \(.summary)")])]
+         + (if (.details | length) > 0 then [bullets(.details)] else [] end))}]}
+     end)
+  elif $field == "governance" then
+    section("Scope & Governance"),
+    para([strong("Risk: "), text("\($plan.governance.risk.level) — \($plan.governance.risk.reason)")]),
+    table(["Change kind", "In this plan"];
+      [governance_kinds[] | [.[1], (if $plan.governance.includes[.[0]] then "yes" else "no" end)]]),
+    para([strong("Also in scope")]), path_list($plan.governance.scope_patterns; "Nothing beyond Changes by File."),
+    para([strong("Must not touch")]), path_list($plan.governance.must_not_touch; "Nothing named."),
+    para([strong("Manual changes")]),
+    (if ($plan.governance.manual_changes | length) > 0
+     then bullets([$plan.governance.manual_changes[] | [code(.path), text(" — \(.change)")]])
+     else para("None.") end)
   elif $field == "steps" then
     section("Implementation Steps"),
     numbered([$plan.steps[] |
@@ -109,6 +142,10 @@ def full_section($field; $plan):
     section("Security & Privacy"),
     (if ($plan.security | length) > 0 then bullets($plan.security)
      else para("No security or privacy impact identified.") end)
+  elif $field == "observability" then
+    section("Observability"),
+    (if ($plan.observability | length) > 0 then bullets($plan.observability)
+     else para("No observability changes needed.") end)
   elif $field == "risks" then optional("Risks"; $plan.risks; bullets([$plan.risks[] | [strong(.risk), text(" — \(.mitigation)")]]))
   elif $field == "release" then
     section("Release & Rollback"),
@@ -199,7 +236,10 @@ def summary_patch($updates):
   | def kept($title): ($doc | section_index($title)) as $i
       | if $i == null then [] else [$current[$i]] + ($doc | section_blocks($title)) end;
     ([$current | to_entries[] | select(.value.type == "heading") | .key][0] // ($current | length)) as $first
-  | (if $updates | has("estimate") then [summary_part("estimate"; $updates)] else $current[:$first] end)
+  # Before the first heading: the estimate line, then the risk line (none in
+  # summaries written before it existed).
+  | (if $updates | has("estimate") then [summary_part("estimate"; $updates)] else $current[:$first][:1] end)
+    + (if $updates | has("governance") then [risk_line($updates)] else $current[:$first][1:] end)
     + (if $updates | has("approach") then [summary_part("approach"; $updates)] else kept("Approach") end)
     + (if $updates | has("acceptance_criteria") then [summary_part("acceptance_criteria"; $updates)] else kept("Acceptance Criteria Coverage") end)
     + (if $updates | has("steps") then [summary_part("steps"; $updates)] else kept("Implementation Steps")[:2] end)
@@ -221,6 +261,7 @@ else
   . as $plan
   | if $mode == "summary" then [
       summary_part("estimate"; $plan),
+      risk_line($plan),
       summary_part("approach"; $plan),
       summary_part("acceptance_criteria"; $plan),
       summary_part("steps"; $plan),
