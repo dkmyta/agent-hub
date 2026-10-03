@@ -150,7 +150,7 @@ description: The team's writing conventions for tickets and plans. Use whenever 
    files.
 2. **Open a pull request.** CI runs the hub's checks on extension changes,
    and posts the **Agent behaviour changed** notice naming the stages the
-   change affects (all of them for `shared/`).
+   change affects (all of them for `shared/`; README edits don't count).
 3. **Try it** on a real ticket, or — if it's worth the cost — run **Agent
    hub: Evals** for those stages ([evals.md](evals.md)). The run log's
    "Repository extensions: …" line shows what was loaded.

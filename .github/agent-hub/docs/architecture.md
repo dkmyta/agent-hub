@@ -356,7 +356,9 @@ replace them or show up on other work.
    `stages/work-order/`, rename, and set the caller's trigger, concurrency
    group, time limits and `stage:`.
 2. Write the steps (`stage.sh`), settings, prompt and schema; keep
-   `render.jq` building on `adf.jq`.
+   `render.jq` building on `adf.jq`. The stage's settings read
+   `AGENT_HUB_<STAGE>_<setting>` with `stage_setting`, as the other stages'
+   do, and setup.md's per-stage table gets a column for it.
 3. Add `tests/<stage>/` (scenarios, agent-step tests, schema tests, evals) —
    see [tests/README.md](../tests/README.md). `tests/shared/stage-workflow.bats`
    checks every stage has its files, step functions and a caller.

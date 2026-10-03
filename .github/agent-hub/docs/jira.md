@@ -218,6 +218,17 @@ works from the current version: the description for a work order, the newest
 | Plan → build *(not built yet)* | Should follow the same pattern: send the ticket back to Implementation Plan with its questions, never guess | | |
 | A revision (any stage) | A vague request is answered with what's needed, and nothing changes for it | The stage's usual send-back, with the request left open | Researched and answered in the 🔁 reply (and recorded in the output where useful) |
 
+## Automation usage
+
+The workflows' own changes start rule triggers too: each comment they post
+starts *Work item commented* (Revision Requested), and each description or
+label update starts *Work item updated* (Work Order Requested). The rules'
+conditions stop them, but depending on your Jira plan's usage model those
+triggers can still count towards the automation quota. The workflows keep
+their changes few — label changes go in the same update as the description,
+or together in one — and Project settings → Automation → **Usage** shows
+what's being used.
+
 ## Web requests
 
 All three rules call the same GitHub endpoint with the same token:

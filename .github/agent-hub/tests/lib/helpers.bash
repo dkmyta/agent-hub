@@ -162,9 +162,9 @@ run_stage() {
 # run_scenario <name> [--full]
 # Runs $SUITE_DIR/scenarios/<name>/scenario.env through the workflow and
 # snapshots a trace of step results and Jira calls. --full also snapshots every
-# Jira request body and the run summary (kept to the main paths, so a layout
-# change updates a few snapshots, not all of them). Claude's prompts aren't
-# snapshotted: the Claude-step tests check what matters in them. Every
+# Jira request body and the run summary (kept to the two "ready" paths, so a
+# layout change updates a few snapshots, not all of them). Claude's prompts
+# aren't snapshotted: the agent-step tests check what matters in them. Every
 # document sent to Jira must be valid ADF.
 run_scenario() {
   local full=${2:-} dir="$SUITE_DIR/scenarios/$1" var
