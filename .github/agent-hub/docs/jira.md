@@ -258,14 +258,26 @@ The account behind `AGENT_HUB_JIRA_EMAIL`: Browse Projects, Edit work items, Tra
 work items, Add comments, Delete own comments, Edit all comments (to resolve
 the rule's comments), Create attachments, Delete own attachments (to replace
 its own earlier plan files; a person's upload is never deleted, so Delete all
-attachments isn't needed). In team-managed projects the Member role has these by default. Use a
-dedicated service account.
+attachments isn't needed). In team-managed projects the Member role has these
+by default.
+
+**Required: the automation never approves.** People approve work orders and
+plans (and, with the build stage, code); the automation account must not be
+able to. Use a **dedicated service account** — not a person's account, since a
+person who approves would make this impossible — and add a workflow
+*condition* to each "…Approved" transition (Work Order → Work Order Approved,
+Implementation Plan → Implementation Plan Approved) allowing only your
+approvers' group or role, which the service account isn't in. Until then the
+workflows still never approve (no code does), but nothing stops the account
+from doing so. The build stage (planned) also uses this approvers group:
+commands that start code changes will need it.
 
 ## Checklist for a new installation
 
 - [ ] Task work type with the intake template
 - [ ] Statuses and board columns above; transitions allowed
-- [ ] Automation account permissions
+- [ ] A dedicated service account with the permissions below, unable to make
+      the "…Approved" transitions
 - [ ] Rules: Work Order Requested, Implementation Plan Requested and
       Revision Requested
 - [ ] The token in every rule's `Authorization` header, hidden
@@ -282,8 +294,8 @@ content). Worth adding when you can:
    unnoticed.
 2. **Assign a reviewer** on entering Work Order and Implementation Plan (the
    delivery lead, or a round-robin of reviewers).
-3. **Restrict approvals.** Workflow *conditions* on the "…Approved"
-   transitions so only the approvers' group or role can make them.
+3. **Restrict approvals** — required, see
+   [Permissions](#permissions-for-the-automation-account).
 4. **Block approving while flags are open.** Workflow *validators* that
    refuse Work Order → Work Order Approved while `needs-details` or
    `needs-clarification` is present.

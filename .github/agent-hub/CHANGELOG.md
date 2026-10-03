@@ -5,6 +5,28 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.1.0 — 2026-10-03
+
+The build stage's design, and the rules every stage follows. Docs only.
+
+- **Build design (draft):** [docs/workflows/build.md](docs/workflows/build.md)
+  — the planned build pipeline, reviewed externally three times: the approval
+  check, validation, build and verification, independent review with a policy
+  table, one fix pass and a fix check, the CI gate, hand-off, review items and
+  `/apply`, concurrency, the PR as the record, caps and human gates, safety,
+  the implementation order, and what's left for later.
+- **Pipeline-wide rules** in [docs/architecture.md](docs/architecture.md): the
+  pipeline as a state machine, the shared outcome names, who is authoritative
+  for what (tracker, GitHub, hub), trust levels for what agents read, and the
+  invariants every stage keeps.
+- **The automation never approves:** a dedicated service account, barred from
+  the "…Approved" transitions, is now required in Jira.
+
+**Updating:** in Jira, use a dedicated service account for
+`AGENT_HUB_JIRA_EMAIL` and add a condition to each "…Approved" transition
+allowing only your approvers ([docs/jira.md](docs/jira.md#permissions-for-the-automation-account)).
+Nothing stops working until you do.
+
 ## 2.0.2 — 2026-10-03
 
 Faster runs and tests.
