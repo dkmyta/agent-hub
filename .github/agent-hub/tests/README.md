@@ -15,12 +15,15 @@ reach a real Claude login.
 
 ```sh
 npm ci --prefix .github/agent-hub/tests --ignore-scripts  # once
-npm test --prefix .github/agent-hub/tests                # everything (a few minutes)
+npm test --prefix .github/agent-hub/tests                # everything (2–3 minutes in parallel)
 npx --prefix .github/agent-hub/tests bats .github/agent-hub/tests/shared   # one folder or file
 npm run update-snapshots --prefix .github/agent-hub/tests
 ```
 
-Needs `bash`, `jq` and Node 22. CI runs the same suite on every pull request
+Needs `bash`, `jq` and Node 22 — and, to run the tests in parallel (one job
+per CPU; `AGENT_HUB_TEST_JOBS` sets how many), GNU parallel (macOS: `brew
+install parallel`). Without it they run one at a time, several times slower.
+CI runs the same suite, in parallel, on every pull request
 that changes the hub, on jq 1.7 (GitHub-hosted runners) and 1.8 (the
 self-hosted runner).
 

@@ -11,12 +11,18 @@
 # Everything is exported: jq and the agent runner read some of it from the
 # environment.
 
+# The hub's repository variables (AGENT_HUB_*), read from VARS once — one jq
+# call per step rather than one per setting — as _VAR_<name>, shell-quoted
+# so no value is ever run. Invalid JSON reads as no variables (defaults).
+for _var in $(compgen -v _VAR_); do unset "$_var"; done
+eval "$(jq -r 'to_entries[] | select((.key | test("^AGENT_HUB_[A-Z0-9_]+$")) and (.value | type == "string"))
+  | "_VAR_\(.key)=\(.value | @sh)"' <<< "${VARS:-"{}"}" 2>/dev/null || true)"
+
 # setting <variable> <default>: the repository variable's value, or <default>
 # when it isn't set (or is empty).
 setting() {
-  local value
-  value=$(jq -r --arg name "$1" '.[$name] // empty' <<< "${VARS:-"{}"}" 2>/dev/null) || value=
-  printf '%s' "${value:-$2}"
+  local var="_VAR_$1"
+  printf '%s' "${!var:-$2}"
 }
 
 # stage_setting <name> <default>: the stage's own setting, from the repository
