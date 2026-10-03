@@ -24,8 +24,9 @@ The build stage's design, and the rules every stage follows. Docs only.
 
 **Updating:** in Jira, use a dedicated service account for
 `AGENT_HUB_JIRA_EMAIL` and add a condition to each "…Approved" transition
-allowing only your approvers ([docs/jira.md](docs/jira.md#permissions-for-the-automation-account)).
-Nothing stops working until you do.
+allowing only your approvers ([docs/jira.md](docs/jira.md#permissions-for-the-automation-account),
+which explains why). Nothing stops working until you do; your own account
+works for testing.
 
 ## 2.0.2 — 2026-10-03
 

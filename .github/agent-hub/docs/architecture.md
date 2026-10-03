@@ -488,9 +488,10 @@ replace them or show up on other work.
 - **Expired credentials fail quietly.** An expired tracker token also stops the
   failure comment; an expired GitHub token in the rules means no run starts
   ([setup.md](setup.md#6-plan-for-credential-expiry)).
-- **Approvals depend on tracker setup.** The workflows never approve, but
-  only a dedicated service account barred from approval transitions makes
-  that a guarantee ([jira.md](jira.md#permissions-for-the-automation-account)).
+- **Some guarantees depend on tracker setup.** The workflows never approve,
+  but only a dedicated service account barred from approval transitions makes
+  that a guarantee; the same account is how the hub tells its own plan files
+  from people's ([jira.md](jira.md#permissions-for-the-automation-account)).
 - **Evals are non-deterministic**, and revisions aren't covered by one yet.
 - **Approval and outcome rules come with the build work.** The existing
   stages don't yet check that their input is unchanged since its approval,

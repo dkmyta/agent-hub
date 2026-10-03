@@ -261,16 +261,31 @@ its own earlier plan files; a person's upload is never deleted, so Delete all
 attachments isn't needed). In team-managed projects the Member role has these
 by default.
 
-**Required: the automation never approves.** People approve work orders and
-plans (and, with the build stage, code); the automation account must not be
-able to. Use a **dedicated service account** — not a person's account, since a
-person who approves would make this impossible — and add a workflow
-*condition* to each "…Approved" transition (Work Order → Work Order Approved,
-Implementation Plan → Implementation Plan Approved) allowing only your
-approvers' group or role, which the service account isn't in. Until then the
-workflows still never approve (no code does), but nothing stops the account
-from doing so. The build stage (planned) also uses this approvers group:
-commands that start code changes will need it.
+**Required: a dedicated service account.** Use an account that is only the
+automation — not a person's — for three reasons:
+
+1. **The automation never approves.** People approve work orders and plans
+   (and, with the build stage, code). Add a workflow *condition* to each
+   "…Approved" transition (Work Order → Work Order Approved, Implementation
+   Plan → Implementation Plan Approved) allowing only your approvers' group or
+   role, which the service account isn't in. With a person's account that's
+   impossible: the person approves. The build stage (planned) also uses this
+   approvers group: commands that start code changes will need it.
+2. **People's plan files are kept.** The hub replaces only its own earlier
+   plan files, recognised by the uploader's account. With a person's account,
+   a plan file that person uploads by hand looks like the hub's, so the next
+   re-plan or plan revision can delete it (after building from it, so its
+   content isn't lost from the plan — only the file).
+3. **The history shows who did what.** Comments, edits, transitions and
+   notifications come from the account; with a person's, the automation's
+   actions and theirs can't be told apart.
+
+**Testing with your own account** works: nothing in the hub checks the
+account type, and the workflows never approve (no code does). The three
+points above are what you give up until you switch — keep a local copy of any
+plan file you edit by hand. Switching later is only the two secrets
+(`AGENT_HUB_JIRA_EMAIL`, `AGENT_HUB_JIRA_API_TOKEN`) and the approval
+conditions.
 
 ## Checklist for a new installation
 

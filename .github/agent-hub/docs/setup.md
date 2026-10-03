@@ -115,7 +115,7 @@ the tracker's side (the Jira setup shown):
 
 **Own them with accounts that aren't a person's**, so they don't break when
 someone leaves or changes role:
-- **Jira**: a dedicated service account for `AGENT_HUB_JIRA_EMAIL` / `AGENT_HUB_JIRA_API_TOKEN` — required, so it can be barred from approving.
+- **Jira**: a dedicated service account for `AGENT_HUB_JIRA_EMAIL` / `AGENT_HUB_JIRA_API_TOKEN` — required, so it can be barred from approving and the hub can tell its own plan files from people's. Your own account works for testing ([jira.md](jira.md#permissions-for-the-automation-account)).
 - **GitHub**: a machine user (a GitHub account for automation) that owns the
   fine-grained token in the Jira rule, limited to the repository with
   **Contents: Read and write**. (A GitHub App can't be used here: its tokens
