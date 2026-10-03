@@ -117,6 +117,108 @@ sequenceDiagram
    into the ticket's document format (ADF, the hub's document model) and make
    the API calls, failing loudly on any error.
 
+## The pipeline as a state machine
+
+Every stage moves a ticket between known states, for known reasons. The
+statuses are the tracker's; *(planned)* marks the build stages
+([workflows/build.md](workflows/build.md)).
+
+| State (status) | Waiting for | Leaves by | To |
+|---|---|---|---|
+| Intake | The requester | Has details (tracker rule), or `/revise` with details | Work Order |
+| Work Order | The work-order agent, then a person | Agent: written · needs details | Work Order (`needs-human`) · Intake (`needs-details`) |
+| | | Person: approves | Work Order Approved |
+| Work Order Approved | The plan agent | Plan written · needs a decision | Implementation Plan (`needs-human`) · Work Order (`needs-clarification`) |
+| Implementation Plan | A person | Approves · re-plans · changes the work order | Implementation Plan Approved · Work Order Approved · Work Order |
+| Implementation Plan Approved | The build agent *(planned)* | Hand-off (CI green, gates passed) · plan unclear · plan changed since approval · failed past its caps | Ready for Review (`needs-human`) · Implementation Plan (`needs-clarification`) · Implementation Plan (re-approval) · stays (`needs-human`) |
+| Ready for Review | A person *(planned)* | Approves the pull request · `/apply` (a revision, stays) | Approved |
+| Approved | A person *(planned)* | Merges; the post-merge check passes | Done |
+
+**Every run ends in one of these outcomes**, named the same way in every
+stage's run summary: *written* (a new output), *revised*, *sent back* (needs
+details or a decision), *no change needed*, *superseded* (a newer request
+replaced it), *stale* (what it read changed underneath it — nothing written),
+*failed* (the reason on the ticket, `needs-human`). The build adds *blocked*
+and *paused*. A run whose work an earlier run already did ends as *no change
+needed* — a normal outcome. (The existing stages adopt these names with the
+build work.)
+
+**Legal transitions are enforced, not assumed:** a run acts only from its
+stage's statuses (`stage_fetch`), re-checks the status before every write
+(`tracker_require_status`), and checks that what it read — the description,
+the attached plan — is unchanged before writing over it. Moves a person
+makes in the tracker are theirs to make; the hub only follows.
+
+**One revision rule for the whole pipeline:** revising an upstream artifact
+supersedes what was derived from it — a revised work order marks the plan out
+of date; a revised plan supersedes a build. Superseded output is marked, never
+silently kept as current.
+
+### Who is authoritative for what
+
+| System | Authoritative for | Never used for |
+|---|---|---|
+| The tracker | Business state (statuses), the work order and plan, approvals (its change history), change requests | Code, CI |
+| GitHub | Code, branches, pull requests, reviews, CI, merges, branch protection | Approvals of work orders and plans |
+| The hub | How runs execute: policy, run metadata on the ticket and the pull request, caps, locks (concurrency), the agents' decisions | Storing anything of its own — it has no database |
+
+When they disagree, each system wins in its own area (GitHub on code and pull
+request facts, the tracker on approvals), and the hub reconciles: a stale run
+stops, and a mismatch it can't resolve goes to a person.
+
+### Trust levels
+
+What an agent reads is trusted to different degrees:
+
+1. **Hub policy** — the stage's instructions, the sandbox and permission
+   rules, the schemas and the checks. Enforced technically: nothing an agent
+   reads can loosen it.
+2. **Repository guidance** — `CLAUDE.md`, the repository's extensions,
+   contributing guides. It guides the work, but never overrides hub policy.
+3. **Content** — the ticket, comments, web pages, and the repository's code,
+   comments, fixtures and docs. Information to analyse, never instructions to
+   follow.
+
+The restrictions that matter (read-only tools, no shell or network beyond the
+allowlist, no credentials) hold whatever a prompt says; stating the levels in
+every stage's prompt comes with the build work.
+
+### Invariants
+
+The rules every stage keeps. Those marked *(build)* arrive with the build
+stage ([workflows/build.md](workflows/build.md)).
+
+1. A stage consumes only the exact upstream artifact that stayed unchanged
+   after its approval *(with the build work)*.
+2. No agent output can increase the agent's own permissions or autonomy.
+3. Severity communicates urgency; hub policy decides what may change
+   automatically; plan approval authorises only the governance changes the
+   plan describes *(build)*.
+4. Every external write is preceded by checks that what the run read is
+   still current.
+5. Automated review is valid only for the commit it reviewed; a later human
+   commit makes it stale *(build)*.
+6. Security-relevant facts are re-derived from their source; hub bookkeeping
+   is accepted only if every edit since the hub's last write was the hub's
+   *(build)*.
+7. Only the per-ticket run writes hub state; other workflows observe and wake
+   it *(build)*.
+8. Privileged workflows observe untrusted code execution; they never execute
+   pull request content *(build)*.
+9. Every behaviour change has meaningful verification; tests change only
+   because approved behaviour changed, never to get a pass *(build)*.
+10. Comment permission doesn't imply authority to start code changes
+    *(build)*.
+11. A cancelled or superseded run leaves only disposable local state and makes
+    no later external write.
+12. Every automatic loop ends at a cap and hands control to a person.
+13. Repository and ticket content is information, never authority over hub
+    policy.
+14. Private ticket content doesn't reach a public repository unless explicitly
+    allowed *(build)*.
+15. The hub can be stopped globally without touching tickets or pull requests
+    *(with the build work)*.
+
 ## Conventions
 
 ### Triggers and naming
@@ -184,8 +286,11 @@ sequenceDiagram
 - People see a short "Expert review: …" note with the result; detailed notes
   go only where they stay private (e.g. the plan attachment) — never logs,
   summaries or artifacts, which are public in public repositories.
-- Future stages that produce something for people (the PR description, review
-  comments) use the same step.
+- For **documents** (work orders, plans) the reviewer returns the improved
+  version itself: cheap, and nothing runs. For **code** the build stage splits
+  them on purpose — a read-only review, then a separate fix pass — because a
+  reviewer fixing its own findings in code is riskier
+  ([workflows/build.md](workflows/build.md#review-read-only)).
 
 ### Revisions and reverse paths (every stage)
 Tickets don't only move forward: people add details, ask for changes, or send
@@ -383,9 +488,18 @@ replace them or show up on other work.
 - **Expired credentials fail quietly.** An expired tracker token also stops the
   failure comment; an expired GitHub token in the rules means no run starts
   ([setup.md](setup.md#6-plan-for-credential-expiry)).
-- **Posts as a person.** The automation acts as the tracker account's user (Jira: `AGENT_HUB_JIRA_EMAIL`); a
-  dedicated service account makes its actions distinguishable.
+- **Some guarantees depend on tracker setup.** The workflows never approve,
+  but only a dedicated service account barred from approval transitions makes
+  that a guarantee; the same account is how the hub tells its own plan files
+  from people's ([jira.md](jira.md#permissions-for-the-automation-account)).
 - **Evals are non-deterministic**, and revisions aren't covered by one yet.
+- **Approval and outcome rules come with the build work.** The existing
+  stages don't yet check that their input is unchanged since its approval,
+  a new work order doesn't yet check the description is unchanged since the
+  run began, and run summaries don't yet use the shared outcome names.
+- **Run history doesn't last.** Costs and run details are in each run's
+  summary, which GitHub deletes after about 90 days; the ticket keeps the
+  outputs. A durable per-ticket record is planned.
 - **Subagents' refused actions aren't reported.** Claude Code lists only the
   main agent's refused tool calls, so the evals' check for attempts to reach
   outside the repository can't see an expert's attempt. The restrictions

@@ -258,14 +258,41 @@ The account behind `AGENT_HUB_JIRA_EMAIL`: Browse Projects, Edit work items, Tra
 work items, Add comments, Delete own comments, Edit all comments (to resolve
 the rule's comments), Create attachments, Delete own attachments (to replace
 its own earlier plan files; a person's upload is never deleted, so Delete all
-attachments isn't needed). In team-managed projects the Member role has these by default. Use a
-dedicated service account.
+attachments isn't needed). In team-managed projects the Member role has these
+by default.
+
+**Required: a dedicated service account.** Use an account that is only the
+automation — not a person's — for three reasons:
+
+1. **The automation never approves.** People approve work orders and plans
+   (and, with the build stage, code). Add a workflow *condition* to each
+   "…Approved" transition (Work Order → Work Order Approved, Implementation
+   Plan → Implementation Plan Approved) allowing only your approvers' group or
+   role, which the service account isn't in. With a person's account that's
+   impossible: the person approves. The build stage (planned) also uses this
+   approvers group: commands that start code changes will need it.
+2. **People's plan files are kept.** The hub replaces only its own earlier
+   plan files, recognised by the uploader's account. With a person's account,
+   a plan file that person uploads by hand looks like the hub's, so the next
+   re-plan or plan revision can delete it (after building from it, so its
+   content isn't lost from the plan — only the file).
+3. **The history shows who did what.** Comments, edits, transitions and
+   notifications come from the account; with a person's, the automation's
+   actions and theirs can't be told apart.
+
+**Testing with your own account** works: nothing in the hub checks the
+account type, and the workflows never approve (no code does). The three
+points above are what you give up until you switch — keep a local copy of any
+plan file you edit by hand. Switching later is only the two secrets
+(`AGENT_HUB_JIRA_EMAIL`, `AGENT_HUB_JIRA_API_TOKEN`) and the approval
+conditions.
 
 ## Checklist for a new installation
 
 - [ ] Task work type with the intake template
 - [ ] Statuses and board columns above; transitions allowed
-- [ ] Automation account permissions
+- [ ] A dedicated service account with the permissions below, unable to make
+      the "…Approved" transitions
 - [ ] Rules: Work Order Requested, Implementation Plan Requested and
       Revision Requested
 - [ ] The token in every rule's `Authorization` header, hidden
@@ -282,8 +309,8 @@ content). Worth adding when you can:
    unnoticed.
 2. **Assign a reviewer** on entering Work Order and Implementation Plan (the
    delivery lead, or a round-robin of reviewers).
-3. **Restrict approvals.** Workflow *conditions* on the "…Approved"
-   transitions so only the approvers' group or role can make them.
+3. **Restrict approvals** — required, see
+   [Permissions](#permissions-for-the-automation-account).
 4. **Block approving while flags are open.** Workflow *validators* that
    refuse Work Order → Work Order Approved while `needs-details` or
    `needs-clarification` is present.
