@@ -56,13 +56,19 @@ name in `.github/agent-hub/stages/`):
   `implementation-plan:billing-expert`").
 - **The run log** names the folders loaded ("Repository extensions: …").
 
-Your repository's own Claude Code setup — `CLAUDE.md`, `.claude/agents/`,
-`.claude/skills/` — is meant to be available to every stage too, as it is to
-developers using Claude Code. **Currently it isn't:** since 2.0.1 the agents
-run in Claude Code's restricted mode, which doesn't load it (a known gap,
-fixed in the next release). Until then, put anything the pipeline needs in
-extensions. Use extensions for what only the pipeline needs, or what differs
-per stage.
+Your repository's own Claude Code setup is also available to every stage,
+as it is to developers using Claude Code: `CLAUDE.md` (and
+`.claude/CLAUDE.md`) joins the agent's instructions as repository guidance,
+and `.claude/agents/` and `.claude/skills/` are loaded like an extension's.
+The agents run in Claude Code's restricted mode, which doesn't load these by
+itself, so the hub passes them explicitly (links are skipped). They add
+guidance and expertise, never capabilities: agent and skill definitions keep
+only their name, description and (agents) model, tools and colour — a
+permission mode, hooks, MCP servers or pre-approved tools are dropped — and
+the stage's tool profile and sandbox apply to them like everything else.
+Claude Code's own bundled skills (configuration, scheduling and similar
+helpers) are off for every stage. Use extensions for what only the pipeline needs, or what
+differs per stage.
 
 ## What extensions can't do
 

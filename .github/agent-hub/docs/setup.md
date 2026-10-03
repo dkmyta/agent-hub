@@ -26,7 +26,11 @@ hub's are used only for the pipeline's own issues and pull requests
 The agent hub pipeline runs where Claude Code can run. By default that's a
 **self-hosted runner labelled `claude`**, with Claude Code logged in to a
 Claude account. Follow [runners.md](runners.md) to set one up, or to use the
-Claude API on GitHub-hosted runners instead.
+Claude API on GitHub-hosted runners instead. Then run the sandbox check on it
+([runners.md](runners.md#checking-the-sandbox)) — needed before the build
+stage (planned), which runs commands; on a personal machine, read
+[Before running the build on real tickets](runners.md#before-running-the-build-on-real-tickets)
+too.
 
 ## 3. Add secrets
 

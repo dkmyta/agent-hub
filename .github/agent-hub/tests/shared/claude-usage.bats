@@ -145,3 +145,24 @@ setup() {
   assert_line --index 2 "inputs.confirm == 'use-claude' && vars.AGENT_HUB_ENABLED != 'false'"
   assert_line --index 3 "agent-hub-evals"
 }
+
+# The sandbox check uses Claude, so it runs only when confirmed — and its
+# setup (the throwaway copy, the repository's setup, the hub's settings) is
+# checked here without Claude.
+@test "the sandbox check needs a typed confirmation: without one, nothing runs" {
+  run env HOME="$BATS_TEST_TMPDIR" bash -c 'cd "$1" && .github/agent-hub/scripts/check-sandbox.sh < /dev/null' _ "$REPO_DIR"
+  assert_failure 2
+  assert_output --partial "set SANDBOX_CHECK_CONFIRM=use-claude"
+  run ls -A "$BATS_TEST_TMPDIR"
+  refute_output --partial ".agent-hub-sandbox-check"
+}
+
+@test "the sandbox check's setup works, checked without Claude, and leaves nothing behind" {
+  run env HOME="$BATS_TEST_TMPDIR" SANDBOX_CHECK_SETUP_ONLY=1 bash -c 'cd "$1" && .github/agent-hub/scripts/check-sandbox.sh < /dev/null' _ "$REPO_DIR"
+  assert_success
+  assert_line "ok: the repository's agents and skills are a plugin"
+  assert_line "ok: the repository's CLAUDE.md is guidance"
+  assert_line "ok: the build profile's sandbox settings"
+  run ls -A "$BATS_TEST_TMPDIR"
+  refute_output --partial ".agent-hub-sandbox-check"
+}
