@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bats --timing shared work-order implementation-plan",
+    "test": "lib/run-tests.sh --timing shared work-order implementation-plan",
     "evals": "lib/run-evals.sh",
-    "update-snapshots": "UPDATE_SNAPSHOTS=1 bats shared work-order implementation-plan"
+    "update-snapshots": "UPDATE_SNAPSHOTS=1 lib/run-tests.sh shared work-order implementation-plan"
   },
   "devDependencies": {
     "ajv": "8.20.0",

@@ -144,6 +144,10 @@ jobs:
           chmod +x "$RUNNER_TEMP/bin/jq"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
+      # GNU parallel lets the tests run in parallel (tests/lib/run-tests.sh).
+      - name: Install GNU parallel
+        run: command -v parallel || { sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends parallel; }
+
       # --ignore-scripts: none of the test dependencies need install scripts.
       - run: npm ci --prefix .github/agent-hub/tests --ignore-scripts
 

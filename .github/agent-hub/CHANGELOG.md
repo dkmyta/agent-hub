@@ -5,6 +5,19 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.0.2 — 2026-10-03
+
+Faster runs and tests.
+
+- Each step reads the repository variables once, instead of once per
+  setting (about 90 fewer `jq` calls per run).
+- The tests run in parallel, one job per CPU, when GNU parallel is installed
+  — about 3× faster locally — and CI installs it. Without it they run one at
+  a time, as before.
+
+**Updating:** nothing to do. To run the tests in parallel locally, install
+GNU parallel (macOS: `brew install parallel`).
+
 ## 2.0.1 — 2026-10-03
 
 Fixes from a review of the existing stages: runs no longer act on things
