@@ -1,0 +1,5 @@
+# The hub's gitleaks config for the secret scan before every push: gitleaks'
+# own default rules, and nothing a repository can change — the hub passes
+# this file explicitly, so a repository's .gitleaks.toml is never read.
+[extend]
+useDefault = true
