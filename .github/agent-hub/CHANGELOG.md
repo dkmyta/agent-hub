@@ -5,7 +5,7 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
-## 2.5.0 — 2026-10-03
+## 2.5.0 — 2026-10-04
 
 The build stage, first part: an approved plan becomes a draft pull request
 for a person to review. **Not enabled for real tickets yet:** until the
@@ -45,10 +45,11 @@ for development on a project without dependencies (`playground/`).
 
 **Updating:**
 
-1. Add the `AGENT_HUB_GITHUB_TOKEN` secret — for development your own
-   fine-grained token (this repository; Contents and Pull requests read/write)
-   works; a machine user's before real tickets
-   ([docs/setup.md](docs/setup.md#3-add-secrets)).
+1. Add the `AGENT_HUB_GITHUB_TOKEN` secret: a new fine-grained token named
+   `agent-hub-build-<repo>` (this repository; Contents and Pull requests
+   read/write) — not the Jira rules' dispatch token, which stays in Jira
+   ([the two GitHub tokens](docs/setup.md#the-two-github-tokens)). Your own
+   account's works for development; a machine user's before real tickets.
 2. In Jira, turn the *Implementation Plan Approved* rule into
    [Build Requested](docs/jira.md#rule-build-requested): add the web request,
    and allow the Implementation Plan Approved → Implementation Plan

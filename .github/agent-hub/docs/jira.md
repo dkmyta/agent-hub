@@ -232,7 +232,8 @@ what's being used.
 
 ## Web requests
 
-Every rule calls the same GitHub endpoint with the same token:
+Every rule calls the same GitHub endpoint with the same token, the
+**dispatch token**:
 
 | Setting | Value |
 |---|---|
@@ -242,9 +243,21 @@ Every rule calls the same GitHub endpoint with the same token:
 | Header | `Accept: application/vnd.github+json` |
 | Header | `Content-Type: application/json` |
 
-The token is a fine-grained GitHub token for this repository only, with
-**Contents: Read and write**, ideally owned by a machine user. Ownership,
-expiry and alerts: [setup.md](setup.md#6-plan-for-credential-expiry).
+The dispatch token is a fine-grained GitHub token for this repository only,
+with **Contents: Read and write**, ideally owned by a machine user. Name it
+`agent-hub-dispatch-<repo>` in GitHub, so it isn't confused with the build's
+token ([the two GitHub tokens](setup.md#the-two-github-tokens)).
+
+**It lives in Jira only.** Jira sends it, so Jira holds it: never add it to
+GitHub's secrets, where nothing would read it and it would only be one more
+copy to leak or forget when rotating. Keep it in one place in Jira if you
+can: if your site's automation has **secrets** (Automation settings →
+Secrets), store it there once and put `Bearer {{secrets.<name>}}` in each
+rule's `Authorization` header, so rotating it is one edit. Otherwise paste it
+into each rule's header, marked **hidden**, and update every rule when you
+rotate it.
+
+Ownership, expiry and alerts: [setup.md](setup.md#6-plan-for-credential-expiry).
 
 ## Rule: Build Requested
 
