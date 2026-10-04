@@ -30,7 +30,7 @@ git_remote() {
   chmod +x "$BATS_TEST_TMPDIR/bin/curl"
   run bash -c "PATH='$BATS_TEST_TMPDIR/bin':\$PATH; source '$HUB_DIR/lib/github.sh'
     gh_api GET /user > /dev/null
-    stat -f '%Lp' \"\$GH_CURL_CONFIG\" 2> /dev/null || stat -c '%a' \"\$GH_CURL_CONFIG\"
+    stat -c '%a' \"\$GH_CURL_CONFIG\" 2> /dev/null || stat -f '%Lp' \"\$GH_CURL_CONFIG\"
     grep -c 'Authorization: Bearer test-token-123' \"\$GH_CURL_CONFIG\"
     \"\$GH_ASKPASS\" 'Username for https://github.com'; echo
     \"\$GH_ASKPASS\" 'Password for https://x-access-token@github.com'; echo"
