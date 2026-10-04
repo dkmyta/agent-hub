@@ -5,6 +5,28 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.4.0 — 2026-10-03
+
+The build stage's foundation: tested building blocks, not yet used by a stage.
+
+- **The GitHub library** (`lib/github.sh`): pull requests, the description's
+  full edit history, branch lifecycle, never-forced pushes, rewritten-history
+  detection, and the publication policy for public repositories. The machine
+  user's token reaches only the steps that write to GitHub, through files —
+  never a command line.
+- **The state block** (`lib/state.sh`): the hub's bookkeeping in a pull
+  request's description, trusted only while every edit by anyone else leaves
+  it byte-for-byte unchanged. Writes start from the description as it is now
+  and are verified in the edit history, so a simultaneous human edit is
+  caught, never silently lost (tamper-evident, not transactional).
+- **The secret scan** (`lib/secret-scan.sh`): pinned, checksum-verified
+  gitleaks, failing closed, which a repository can't switch off — run inside
+  every push, on every commit the push would send.
+
+**Updating:** nothing to do. The build stage (next) will need the
+`AGENT_HUB_GITHUB_TOKEN` secret — a machine user's token
+([docs/setup.md](docs/setup.md#3-add-secrets)).
+
 ## 2.3.0 — 2026-10-03
 
 The repository's own Claude Code setup is back, and the build stage's tool

@@ -58,6 +58,53 @@ runs the agent:
 `tests/shared/trackers.bats` checks that every tracker and runner defines its
 interface.
 
+### GitHub, for the stages that change code
+
+The build stage (planned) works on GitHub through `lib/github.sh`, with the
+machine user's token (`AGENT_HUB_GITHUB_TOKEN`) — loaded only by the steps
+that write to GitHub, never by an agent step. The token reaches curl through
+a file only the runner's user can read, and git through an askpass helper
+that reads another, never a command line. Every API call goes through one
+function (`gh_request`), which the tests replace.
+
+| Function | Does |
+|---|---|
+| `gh_api`, `gh_graphql` | A REST or GraphQL call on this repository |
+| `gh_login`, `gh_repo_visibility` | The machine user's login; `public` or `private` |
+| `gh_pr_find`, `gh_pr_open_draft`, `gh_pr_update_body`, `gh_label` | The stage's pull request |
+| `gh_pr_body_versions` | Every version of the description, oldest first, with who wrote it (GitHub's edit history records the whole description after each edit; read in full, a page at a time) |
+| `gh_branch_status`, `gh_branch_head`, `gh_descends` | The branch: absent, orphan, open, foreign, merged, closed or deleted; a rewritten history is detected |
+| `gh_push <branch> <target>` | Scans every commit the push would send for secrets (those not on the remote branch, or on a first push not on the target), then pushes — never forced; a finding or a scan that can't run blocks it |
+| `gh_state_read`, `gh_state_write` | The state block (below), from the description as it is now |
+| `gh_publish_ticket_text` | Whether ticket text may go into a public repository (only by setting) |
+
+**The state block** (`lib/state.sh`): the hub's bookkeeping for a pull request,
+in one hidden block at the end of its description. It's read only if there's
+exactly one, closed block, with a supported schema version and the required
+fields, and if every edit to the description by anyone but the machine user
+left the block byte-for-byte unchanged (edits elsewhere in the description
+are fine). Facts — the branch head, the plan, approvals, checks — are always
+re-derived from their sources, never taken from the block.
+
+GitHub replaces a description whole and has no compare-and-swap for it, so a
+write is built from the description fetched immediately before it (never an
+older copy), after re-checking the block, and verified straight after in the
+edit history: the newest version must be the hub's, exactly as written, and
+the one before it the description it read. A person's edit just before the
+write (which would be overwritten) or just after it fails that check, so the
+run stops and says so rather than losing it silently. **The block is
+tamper-evident and best-effort safe against stale writes — not
+transactional:** a simultaneous human edit is detected, not prevented.
+
+**The secret scan** (`lib/secret-scan.sh`): gitleaks at a pinned version, its
+download checked against the release's published checksum, run by `gh_push`
+on **every commit the push would send** — not just the final files — so a
+secret added in one commit and removed in a later one is still caught. It fails closed — gitleaks missing, unverified or
+not finishing blocks the push — and the repository can't switch it off: the
+hub's own config replaces any `.gitleaks.toml`, an empty ignore file replaces
+any `.gitleaksignore`, and `gitleaks:allow` comments are ignored. Findings
+are redacted: rules and files, never the secrets.
+
 ### The tracker interface
 
 The ticket model is Jira's REST shape, so a new tracker's adapter maps its own

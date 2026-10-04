@@ -769,13 +769,16 @@ where stated and only with the owner's OK.
    sandbox comes with the step, in 3) — the build and review profiles, the
    install step's network, web tools off in code profiles; verified first with
    real Claude probes on the runner's OS.
-3. **Build foundation** — `lib/github.sh` with a GitHub mock and a local git
-   remote; the code-stage workflow, per-ticket concurrency and reconciliation;
-   the change set and state block (re-derived facts, the edit-history check
-   across all pages, versions); the publication policy; the pull request
-   template; branch lifecycle; start (with the reconciliation order),
-   validate, build, the dependency step, verify, gates, secret scan and size
-   limits.
+3. **Build foundation**, in two parts:
+   - *3a* (done in 2.4.0): `lib/github.sh` with a GitHub mock and a local git
+     remote; the state block (re-derived facts, the edit-history check across
+     all pages, versions); branch lifecycle; the publication policy; the
+     secret scan.
+   - *3b*: the code-stage workflow, per-ticket concurrency and
+     reconciliation; the pull request template; start (with the
+     reconciliation order), the install step and its sandbox, validate,
+     build, the dependency step, verify, gates and size limits; the
+     `playground/` folder.
 4. **Review, fix, CI gate, hand-off** — the review with its policy table; the
    fix pass, fix check and second verify; review coverage; sync and drift; the
    CI-result workflow, the evaluation commit (head and test merge commit both

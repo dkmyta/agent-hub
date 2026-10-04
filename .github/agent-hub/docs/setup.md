@@ -43,6 +43,7 @@ are for Jira (GitHub Projects will use the workflow's own GitHub token):
 | `AGENT_HUB_JIRA_EMAIL` | Yes | The Jira account the automation acts as — a dedicated service account, barred from approving ([jira.md](jira.md#permissions-for-the-automation-account)) |
 | `AGENT_HUB_JIRA_API_TOKEN` | Yes | An [API token](https://id.atlassian.com/manage-profile/security/api-tokens) for that account |
 | `AGENT_HUB_ANTHROPIC_API_KEY` | Only for the Claude API | See [runners.md](runners.md#using-the-claude-api) |
+| `AGENT_HUB_GITHUB_TOKEN` | For the build stage (planned) | A **machine user's** fine-grained token for this repository only, with Contents and Pull requests read/write — no Workflows, no Administration. The build pushes and opens pull requests with it (a workflow's own token wouldn't start your CI); branch protection keeps that user from merging. Only the steps that write to GitHub get it, never an agent step |
 
 ## 4. Set variables (only what differs from the defaults)
 
@@ -117,6 +118,7 @@ the tracker's side (the Jira setup shown):
 | GitHub token | The Jira rule's `Authorization` header | On the date set when it was created | Jira's web request fails, so no run starts | Create a new token with the same access and paste it into the rule |
 | Claude login | The runner machine | Occasionally | Runs fail with the failure comment | Run `claude` on the runner and log in |
 | `AGENT_HUB_ANTHROPIC_API_KEY` | Secret (API setup only) | When revoked | Runs fail with the failure comment | Create a new key and update the secret |
+| Machine user's GitHub token | `AGENT_HUB_GITHUB_TOKEN` secret (build stage) | On the date set when it was created | Builds can't push or update their pull request; the failure comment says so | Create a new token for the same user with the same access and update the secret |
 
 **Own them with accounts that aren't a person's**, so they don't break when
 someone leaves or changes role:
