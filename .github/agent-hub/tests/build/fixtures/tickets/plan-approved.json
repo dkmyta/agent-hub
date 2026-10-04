@@ -1,0 +1,21 @@
+{
+  "key": "PROJ-99",
+  "fields": {
+    "summary": "Greet people by name",
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Overview"}]},
+        {"type": "paragraph", "content": [{"type": "text", "text": "The greeter should say hello to people by name."}]},
+        {"type": "heading", "attrs": {"level": 3}, "content": [{"type": "text", "text": "Acceptance Criteria"}]},
+        {"type": "taskList", "attrs": {"localId": "ac"}, "content": [
+          {"type": "taskItem", "attrs": {"localId": "ac-1", "state": "TODO"}, "content": [{"type": "text", "text": "greet(\"Ada\") returns \"Hello, Ada!\""}]},
+          {"type": "taskItem", "attrs": {"localId": "ac-2", "state": "TODO"}, "content": [{"type": "text", "text": "greet() with no name still returns \"Hello!\""}]}
+        ]},
+        {"type": "heading", "attrs": {"level": 3}, "content": [{"type": "text", "text": "Implementation Plan"}]},
+        {"type": "paragraph", "content": [{"type": "text", "text": "Summary of the attached plan."}]}
+      ]
+    }
+  }
+}

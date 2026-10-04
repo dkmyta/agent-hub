@@ -45,7 +45,7 @@ the same settings live in the workflow scheme and permission scheme.
 | **Work Order** | The Work Order Requested rule (has details); the Revision Requested rule (details added in a comment); the plan stage returns tickets needing clarification | Yes, once the work order is written |
 | **Work Order Approved** | A person, after reviewing the work order | No — the rule removes it |
 | **Implementation Plan** | The plan stage (a revision keeps it here) | Yes |
-| **Implementation Plan Approved** | A person, after reviewing the plan | No — `needs-human` is cleared on approval ([rule](#rule-implementation-plan-approved)); the build stage (planned) will act here |
+| **Implementation Plan Approved** | A person, after reviewing the plan | No — the [Build Requested](#rule-build-requested) rule removes it and starts the build; the build adds it back when its draft pull request needs a person, or when it can't go ahead |
 | Ready for Review → Approved → Done | *Later stages* | Ready for Review: yes |
 
 ## Transitions
@@ -61,6 +61,7 @@ the same settings live in the workflow scheme and permission scheme.
 | Implementation Plan → Work Order | People — to change the work order first; automation — a plan revision that needs a product decision |
 | Work Order → Intake, Implementation Plan → Intake | People — the request itself changed (see [Reverse paths](#reverse-paths-sending-back-and-asking-for-changes)) |
 | Implementation Plan → Implementation Plan Approved | People |
+| Implementation Plan Approved → Implementation Plan | Automation (the build has questions, or the plan changed after its approval); people — to revise the plan |
 
 In a team-managed project, **"Allow all statuses to transition to this one"**
 on each status is the simplest way to allow these; restrict later with the
@@ -231,7 +232,8 @@ what's being used.
 
 ## Web requests
 
-All three rules call the same GitHub endpoint with the same token:
+Every rule calls the same GitHub endpoint with the same token, the
+**dispatch token**:
 
 | Setting | Value |
 |---|---|
@@ -241,22 +243,47 @@ All three rules call the same GitHub endpoint with the same token:
 | Header | `Accept: application/vnd.github+json` |
 | Header | `Content-Type: application/json` |
 
-The token is a fine-grained GitHub token for this repository only, with
-**Contents: Read and write**, ideally owned by a machine user. Ownership,
-expiry and alerts: [setup.md](setup.md#6-plan-for-credential-expiry).
+The dispatch token is a fine-grained GitHub token for this repository only,
+with **Contents: Read and write**, ideally owned by a machine user. Name it
+`agent-hub-dispatch-<repo>` in GitHub, so it isn't confused with the build's
+token ([the two GitHub tokens](setup.md#the-two-github-tokens)).
 
-## Rule: Implementation Plan Approved
+**It lives in Jira only.** Jira sends it, so Jira holds it: never add it to
+GitHub's secrets, where nothing would read it and it would only be one more
+copy to leak or forget when rotating. Keep it in one place in Jira if you
+can: if your site's automation has **secrets** (Automation settings →
+Secrets), store it there once and put `Bearer {{secrets.<name>}}` in each
+rule's `Authorization` header, so rotating it is one edit. Otherwise paste it
+into each rule's header, marked **hidden**, and update every rule when you
+rotate it.
 
-Clears `needs-human` when a person approves a plan — the ticket no longer
-waits on anyone until the build stage (planned) picks it up. That stage adds
-its web request to this rule, which becomes *Build Requested*.
+Ownership, expiry and alerts: [setup.md](setup.md#6-plan-for-credential-expiry).
+
+## Rule: Build Requested
+
+Starts the build when a person approves a plan
+([workflows/build.md](workflows/build.md)). Before 2.5.0 this rule was
+*Implementation Plan Approved* and only removed the label: add the web
+request to it and rename it.
 
 | Part | Setting |
 |---|---|
 | **Trigger** | *Work item transitioned*, **to** status **Implementation Plan Approved** |
 | **Condition** | Work type = **Task** |
-| **Action** | Edit work item: Labels **remove** `needs-human` |
+| **Action** | Edit work item: Labels **remove** `needs-human` and `needs-clarification` |
+| **Action** | Send web request |
 | **Rule details** | Allow rule trigger **off**; notify on error **on** |
+
+**Web request** body:
+
+```json
+{"event_type": "agent-hub-build-requested", "client_payload": {"ticket_key": "{{issue.key}}"}}
+```
+
+The build checks the approval itself: it builds only from the newest plan
+file, and only if no plan file was added or removed after the move here and a
+person (not the automation account) made the move. To retry a build, move
+the ticket back to Implementation Plan and approve it again.
 
 ## Permissions for the automation account
 
@@ -275,8 +302,9 @@ automation — not a person's — for three reasons:
    "…Approved" transition (Work Order → Work Order Approved, Implementation
    Plan → Implementation Plan Approved) allowing only your approvers' group or
    role, which the service account isn't in. With a person's account that's
-   impossible: the person approves. The build stage (planned) also uses this
-   approvers group: commands that start code changes will need it.
+   impossible: the person approves. The build stage also uses this approvers
+   group: commands that start code changes will need it (and it refuses to
+   build from a move to Implementation Plan Approved the service account made).
 2. **People's plan files are kept.** The hub replaces only its own earlier
    plan files, recognised by the uploader's account. With a person's account,
    a plan file that person uploads by hand looks like the hub's, so the next
@@ -300,7 +328,7 @@ conditions.
 - [ ] A dedicated service account with the permissions below, unable to make
       the "…Approved" transitions
 - [ ] Rules: Work Order Requested, Implementation Plan Requested, Revision
-      Requested and Implementation Plan Approved
+      Requested and Build Requested
 - [ ] The token in every rule's `Authorization` header, hidden
 
 ## Recommended: do these in Jira, not in the workflows

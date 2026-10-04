@@ -215,8 +215,7 @@ Shared ones (revisions, failures, retries) are in
   before the build, start over (move back to Work Order Approved).
 - **File paths are checked when the plan is written** (inside the
   repository, files to change exist, files to add don't); the repository can
-  change before the build, so the build stage (planned) has to check them
-  again when it writes.
+  change before the build, so the build checks its changes again (its gates).
 - **Plans and plan revisions use Opus** for both passes — see
   [claude-usage.md](../claude-usage.md).
 - The gaps shared by every stage:

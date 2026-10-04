@@ -1,9 +1,15 @@
 # Build (`agent-hub-build.yml`) — design
 
-> **Status: design, not built yet.** The agreed plan for the build stage,
-> reviewed externally three times. Items marked *provisional* are defaults to
-> revisit after the first full pipeline test. When the stage is built, this
-> page becomes its workflow doc (in the [TEMPLATE](TEMPLATE.md) layout).
+> **Status: being built** ([Building it](#building-it)). **Not enabled for
+> real tickets:** until 3c's install step, it runs only with
+> `AGENT_HUB_BUILD_PREVIEW=true`, for development on a project without
+> dependencies. Since 2.5.0 an approved plan becomes a **draft pull request** — start, validate, build,
+> gates, secret scan, push — that a person reviews; the install, dependency
+> and verify steps, the review, CI gate and hand-off come in later versions.
+> The agreed plan, reviewed externally three times. Items marked
+> *provisional* are defaults to revisit after the first full pipeline test.
+> When the stage is complete, this page becomes its workflow doc (in the
+> [TEMPLATE](TEMPLATE.md) layout).
 
 Turns an approved implementation plan into a pull request: the code and its
 verification, reviewed by an agent, passing CI, ready for people to review
@@ -442,7 +448,8 @@ pending runs. So:
 - **One per-ticket group** (`agent-hub-<repo>-<ticket>`) for everything that
   changes code or the state block, with `cancel-in-progress: false` and
   `queue: max`: a run is never killed mid-push, wake-ups are kept, and since
-  people start every run, queuing is right.
+  people start every run, queuing is right. (actionlint doesn't know `queue`
+  yet; `actionlint.yaml` ignores exactly that message for the build workflow.)
 - **Runs act on current state, not on the event that started them.** Dropped,
   duplicate, reordered or stale wake-ups are harmless.
 - **One writer:** the relay and CI-result workflows only observe, acknowledge
@@ -469,7 +476,7 @@ and the next revision reviews the whole pull request.
 | Non-descendant history or a force-push | Earlier generation and review provenance invalid; stop; a person |
 | Branch deleted | Stop; a person |
 | Merged | Branch deleted |
-| Closed unmerged | Branch kept; a person decides |
+| Closed unmerged | Branch kept; a person decides. A new build needs the branch deleted **and** the plan approved again after the close — closing and deleting say what state it's in (a bot or a branch rule could do either), not that a person wants a new build |
 
 ## Review items and `/apply`
 
@@ -614,7 +621,11 @@ the start of each run · package caches in the job's temp folder · escaping
 symlinks and gitlinks refused · **all actions pinned to full commit SHAs**
 (GitHub-owned too), kept current by Dependabot · a pinned Claude Code version
 required for the build profile · sandbox capability verified before build mode
-starts · sessions, temp and credential files removed `if: always()`.
+starts · sessions, temp and credential files removed `if: always()` · nothing
+an agent leaves in the checkout runs later: the hub runs from a copy made
+before the agent, git from metadata copied before it, and the gates and
+secret scan check the commit, not the working tree
+([architecture.md](../architecture.md#after-an-agent-that-can-edit-the-checkout)).
 Ephemeral runners are the first hardening item after v1.
 
 Trust levels are in [architecture.md](../architecture.md#trust-levels).
@@ -624,8 +635,8 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | Piece | What |
 |---|---|
 | `.github/workflows/agent-hub-build.yml` | Caller: triggers (dispatch from Jira, relay, CI result; manual), the per-ticket concurrency group, limits; one job runs start → validate → build → verify → review → fix → fix check → verify → sync → push |
-| `agent-hub-code-stage.yml` | A sibling of the shared stage workflow for stages that push: the same fetch, agent, apply, report and cleanup shape plus the install and dependency steps and a GitHub-token apply step; today's stages untouched |
-| `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `validate.md`, `fix.md`, `fix-check.md`, `ci-fix.md`, `gates.sh`, `pr-template.md` |
+| `agent-hub-stage.yml` with `code-stage: true` | The shared stage workflow, as for every stage, plus the full history and the machine user's token for the fetch and apply steps only; the install and dependency steps join it as steps that only code stages run, without the token |
+| `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template); later `fix.md`, `fix-check.md`, `ci-fix.md` |
 | `stages/pr-review/` | The review's `prompt.md`, `schema.json` (findings: area, severity, kind, file and line, evidence), `policy.json` (kind × severity → fix pass, `R` or `D`), `settings.sh` |
 | `lib/github.sh` | The GitHub interface; one `gh_request` function every call goes through (mocked in tests) |
 | `lib/runners/claude-code.sh` | Tool profiles (`read-only`, `build`, `review`) and the sandbox settings |
@@ -725,11 +736,17 @@ no HMAC in v1 · a fix check on every automatic fix · no browser or end-to-end
 automation in v1 · all actions pinned to commit SHAs · no ticket text in
 public repositories by default · code-changing commands on Jira need the
 approvers group · the change set in a hidden block in the pull request
-description · a sibling code-stage workflow · the review as a fresh read-only
+description · the shared stage workflow with a `code-stage` input (changed
+in 2.5.0 from a sibling code-stage workflow: the build fits the same fetch,
+agent, apply, send-back and report shape, so one workflow and one test
+harness serve every stage; code stages add only the full history and the
+machine user's token for the fetch and apply steps, which run no repository code) · the review as a fresh read-only
 session in the same job · plan approval authorises the governance changes the
 plan describes · CI green against GitHub's evaluation commit with GitHub's own
-`isRequired` · post-merge CI waited for when it runs · `queue: max` on the
-per-ticket group.
+`isRequired` · post-merge CI waited for when it runs · the per-ticket group
+never cancelled mid-push, with `queue: max` · the secret scan: pinned,
+checksum-verified gitleaks, failing closed (2.4.0) · the hub run from a copy
+and git from metadata copied before the agent ([architecture.md](../architecture.md#after-an-agent-that-can-edit-the-checkout)).
 
 **Still open (*provisional* defaults):**
 
@@ -750,7 +767,6 @@ per-ticket group.
 | Semantic drift | Re-validate once, then a person |
 | Risk level | Informational, plus governance flags and gates |
 | CI result mechanism | `workflow_run` with names written at install, after a spike |
-| Secret scan before push | A pinned scanner binary with a checksum, or hub patterns |
 
 ## Building it
 
@@ -774,11 +790,23 @@ where stated and only with the owner's OK.
      remote; the state block (re-derived facts, the edit-history check across
      all pages, versions); branch lifecycle; the publication policy; the
      secret scan.
-   - *3b*: the code-stage workflow, per-ticket concurrency and
-     reconciliation; the pull request template; start (with the
-     reconciliation order), the install step and its sandbox, validate,
-     build, the dependency step, verify, gates and size limits; the
-     `playground/` folder.
+   - *3b* (done in 2.5.0): the shared workflow's `code-stage` input, the
+     hub copy and git isolation after the agent, the per-ticket group; start
+     (the exact approved plan, its contract, the branch lifecycle, the
+     publication policy), validate and build in one agent pass, gates and
+     size limits on the commit, the secret scan, the draft pull request from
+     the hub's template with its state block; the `playground/` folder.
+     Until PR 4 the ticket gets a link to the draft and `needs-human`, and a
+     ticket that already has a hub pull request isn't built again. Gated
+     behind `AGENT_HUB_BUILD_PREVIEW=true` (development only).
+   - *3c*: the install step (frozen, registries-only network, in the sandbox
+     runtime, without the GitHub token) with its probes — including that a
+     package's lifecycle scripts and their child processes get the same limits
+     as the package manager; the dependency step (a planned dependency
+     change resolved by the hub — today a decision item); the deterministic
+     verify step (the repository's checks re-run by the hub, not reported by
+     the agent); reconciliation of an existing pull request; then the
+     preview gate is removed and the stage is enabled for real tickets.
 4. **Review, fix, CI gate, hand-off** — the review with its policy table; the
    fix pass, fix check and second verify; review coverage; sync and drift; the
    CI-result workflow, the evaluation commit (head and test merge commit both

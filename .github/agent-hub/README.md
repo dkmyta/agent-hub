@@ -2,8 +2,9 @@
 
 The agent hub pipeline: the tracker (Jira or GitHub Projects) hands tickets
 to GitHub Actions, where Claude Code does the preparation work — a work
-order, then a technical implementation plan (implementation next) — and the
-results are written back to the ticket. People approve each stage before the next starts.
+order, then a technical implementation plan, then the code as a draft pull
+request (the build, being built) — and the results are written back to the
+ticket. People approve each stage before the next starts.
 
 ```mermaid
 flowchart LR
@@ -15,7 +16,9 @@ flowchart LR
   IP -->|person approves| PA[Implementation Plan Approved]
   WO -.->|/revise| WO
   IP -.->|/revise| IP
-  PA -.->|build stage, next| R[Ready for Review]
+  PA -->|build stage: draft pull request| PA
+  PA -->|build: questions| IP
+  PA -.->|build hand-off, next| R[Ready for Review]
 ```
 
 Tickets waiting for a person (Work Order, Implementation Plan, later Ready for
@@ -43,6 +46,7 @@ with **[docs/setup.md](docs/setup.md)**.
 |---|---|---|---|
 | [`agent-hub-work-order.yml`](../workflows/agent-hub-work-order.yml) | `agent-hub-work-order-requested` from the tracker, or manual | Turns an intake ticket into a structured work order, or returns it for more detail | [work-order.md](docs/workflows/work-order.md) |
 | [`agent-hub-implementation-plan.yml`](../workflows/agent-hub-implementation-plan.yml) | `agent-hub-implementation-plan-requested` from the tracker (work order approved), or manual | Researches the codebase and writes a technical implementation plan (attached, with a summary in the ticket), or returns the ticket with questions | [implementation-plan.md](docs/workflows/implementation-plan.md) |
+| [`agent-hub-build.yml`](../workflows/agent-hub-build.yml) | `agent-hub-build-requested` from the tracker (plan approved), or manual | Implements the approved plan on `agent-hub/<KEY>` and opens a draft pull request for a person to review, or returns the ticket with questions (being built: review, CI and hand-off come next) | [build.md](docs/workflows/build.md) |
 | [`agent-hub-stage.yml`](../workflows/agent-hub-stage.yml) | Called by the stage workflows above | The steps every stage runs through: fetch the ticket, run the agent, apply the result or send the ticket back | [architecture.md](docs/architecture.md) |
 | [`agent-hub-tests.yml`](../workflows/agent-hub-tests.yml) | Pull requests and pushes to `main` that change the hub | Lint + the test suite | [tests/README.md](tests/README.md) |
 | [`agent-hub-evals.yml`](../workflows/agent-hub-evals.yml) | Manual | Live Claude evals of the agents' decisions | [evals.md](docs/evals.md) |

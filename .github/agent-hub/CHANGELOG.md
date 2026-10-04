@@ -5,6 +5,64 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.5.0 — 2026-10-04
+
+The build stage, first part: an approved plan becomes a draft pull request
+for a person to review. **Not enabled for real tickets yet:** until the
+install step (next version), it runs only with `AGENT_HUB_BUILD_PREVIEW=true`,
+for development on a project without dependencies (`playground/`).
+
+- **The build** (`agent-hub-build.yml`, `stages/build/`): on the move to
+  Implementation Plan Approved, the hub checks the approval is for the exact
+  plan file on the ticket (none added or removed since, moved there by a
+  person), reads the plan's contract, and runs one agent pass that validates
+  the plan against the code and builds it in the sandbox, running the
+  repository's tests. It then commits as the machine user, checks the commit
+  against the plan (refused paths stop it; anything outside the plan is a
+  decision item), scans it for secrets, pushes `agent-hub/<KEY>` and opens a
+  labelled draft pull request from the hub's template, with its state block.
+  The ticket gets the link and `needs-human`. Questions go into a new plan
+  version and the ticket back to Implementation Plan; "no change needed" and
+  manual-only plans are flagged for a person. The review, CI gate and
+  hand-off come in later versions.
+- **Public repositories get no ticket text** in pull requests or commits
+  unless `AGENT_HUB_PUBLISH_TICKET_CONTENT` is `true`.
+- **Nothing an agent leaves in the checkout runs later**, in every stage:
+  each step loads the hub from a copy made before the agent runs. The build's
+  git runs from metadata copied before the agent too (its hooks, config and
+  commits are ignored), and the checks read the commit, not the working tree.
+- **The shared stage workflow** has a `code-stage` input (full history; the
+  machine user's token for the fetch and apply steps only — never an agent
+  step or one that runs the repository's code), and failure comments can carry
+  a stage's own retry instructions.
+- **Builds queue per ticket** (`queue: max`): a run is never cancelled
+  mid-push and no request is dropped; each run acts on the state it finds.
+- **Rebuilding** after a closed pull request needs its branch deleted and a
+  new approval of the plan after the close — closing and deleting alone don't
+  authorise a new build.
+- **`playground/`**: a tiny Node project in this repository, with its own CI,
+  to try the build on.
+
+**Updating:**
+
+1. Add the `AGENT_HUB_GITHUB_TOKEN` secret: a new fine-grained token named
+   `agent-hub-build-<repo>` (this repository; Contents and Pull requests
+   read/write) — not the Jira rules' dispatch token, which stays in Jira
+   ([the two GitHub tokens](docs/setup.md#the-two-github-tokens)). Your own
+   account's works for development; a machine user's before real tickets.
+2. In Jira, turn the *Implementation Plan Approved* rule into
+   [Build Requested](docs/jira.md#rule-build-requested): add the web request,
+   and allow the Implementation Plan Approved → Implementation Plan
+   transition.
+3. Use a self-hosted runner with git 2.40 or later for the build
+   ([docs/runners.md](docs/runners.md#the-sandbox-build-stage)), and run the
+   sandbox check on it if you haven't.
+
+Without `AGENT_HUB_BUILD_PREVIEW=true`, an approval's build fails at its first
+step, saying the stage isn't enabled yet — before Claude, GitHub or the plan.
+For development in this repository: set it, add the token, and point the
+build at `playground/` tickets.
+
 ## 2.4.0 — 2026-10-03
 
 The build stage's foundation: tested building blocks, not yet used by a stage.

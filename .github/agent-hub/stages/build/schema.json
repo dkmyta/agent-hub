@@ -1,0 +1,205 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "needs-clarification",
+        "no-change-needed",
+        "blocked"
+      ],
+      "description": "ready: the plan is implemented and verified. needs-clarification: a question only a person can answer blocks the build (questions). no-change-needed: the code already does what the plan asks (reason). blocked: the environment or tooling stops you (reason)."
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Only when status is ready.",
+      "required": [
+        "summary",
+        "commit_message",
+        "verification",
+        "tests_run",
+        "manual_checks",
+        "decision_log"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500,
+          "description": "What changed and why, for reviewers, in a few sentences. Code-level: name files and behaviour, not ticket background."
+        },
+        "commit_message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "description": "A conventional commit message: a subject line of at most 72 characters, optionally a blank line and a short body."
+        },
+        "verification": {
+          "type": "array",
+          "description": "One entry per acceptance criterion, in the work order's order.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "criterion",
+              "method",
+              "detail"
+            ],
+            "properties": {
+              "criterion": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The criterion, word for word."
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "new test",
+                  "updated test",
+                  "existing test",
+                  "type check",
+                  "manual"
+                ]
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Which test (file and name) or check verifies it; for manual, the exact steps and why automation doesn't fit."
+              }
+            }
+          }
+        },
+        "tests_run": {
+          "type": "array",
+          "description": "Each command you ran to verify the change, with its final result.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "command",
+              "result",
+              "summary"
+            ],
+            "properties": {
+              "command": {
+                "type": "string",
+                "minLength": 1
+              },
+              "result": {
+                "type": "string",
+                "enum": [
+                  "passed",
+                  "failed",
+                  "not run"
+                ]
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300,
+                "description": "Counts and anything notable; for not run, why (e.g. needs a service only CI has)."
+              }
+            }
+          }
+        },
+        "manual_checks": {
+          "type": "array",
+          "description": "Each manual testing step from the plan's Testing section, for the reviewer's checklist.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "step",
+              "checked",
+              "result"
+            ],
+            "properties": {
+              "step": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "checked": {
+                "type": "boolean",
+                "description": "true only if you actually ran it here (a command, a localhost request, a generated file)."
+              },
+              "result": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300,
+                "description": "What you ran and saw, or why it needs a person."
+              }
+            }
+          }
+        },
+        "decision_log": {
+          "type": "array",
+          "description": "Every judgement call the plan didn't settle.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "decision",
+              "why",
+              "alternatives"
+            ],
+            "properties": {
+              "decision": {
+                "type": "string",
+                "minLength": 1
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1
+              },
+              "alternatives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "description": "Only when status is needs-clarification: what blocks the build, each answerable by a person.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "question",
+          "why"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "description": "Only when status is no-change-needed or blocked: why, with evidence (files, commands)."
+    }
+  }
+}

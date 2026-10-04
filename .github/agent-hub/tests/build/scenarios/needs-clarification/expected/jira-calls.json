@@ -1,0 +1,188 @@
+[
+  {
+    "method": "GET",
+    "path": "?fields=summary,description,status",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/changelog?startAt=0&maxResults=100",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/myself",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "?fields=attachment",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/attachment/content/10001",
+    "body": null
+  },
+  {
+    "method": "POST",
+    "path": "/comment",
+    "body": {
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "⏳ Building",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " — implementing the approved plan; usually takes 10–30 minutes. Refresh the page to see the result. "
+              },
+              {
+                "type": "text",
+                "text": "Follow progress in GitHub Actions",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://github.com/example/repo/actions/runs/1000"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "?fields=status",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/transitions",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "?fields=attachment",
+    "body": null
+  },
+  {
+    "method": "POST",
+    "path": "/attachments",
+    "body": {
+      "upload": "PROJ-99-implementation-plan.md"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/comment",
+    "body": {
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Needs clarification",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " — flagged by Claude (build)."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "The build needs answers to these questions before it can start. They are also in the attached plan (Questions from the build): answer them with /revise, then approve the plan again."
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Should greet trim the name?",
+                        "marks": [
+                          {
+                            "type": "strong"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": " Why it matters: The plan is silent on whitespace around names."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "",
+    "body": {
+      "update": {
+        "labels": [
+          {
+            "add": "needs-clarification"
+          },
+          {
+            "add": "needs-human"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/transitions",
+    "body": {
+      "transition": {
+        "id": "41"
+      }
+    }
+  },
+  {
+    "method": "DELETE",
+    "path": "/comment/5001",
+    "body": null
+  }
+]

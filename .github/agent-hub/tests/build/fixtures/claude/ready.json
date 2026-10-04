@@ -1,0 +1,27 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 612000,
+  "num_turns": 31,
+  "total_cost_usd": 2.41,
+  "modelUsage": {"claude-opus-5-5": {"costUSD": 2.41}},
+  "structured_output": {
+    "status": "ready",
+    "build": {
+      "summary": "src/greet.js: greet takes an optional name and returns \"Hello, <name>!\", or \"Hello!\" without one. test/greet.test.js covers both.",
+      "commit_message": "feat: greet people by name",
+      "verification": [
+        {"criterion": "greet(\"Ada\") returns \"Hello, Ada!\"", "method": "updated test", "detail": "test/greet.test.js: \"greets by name\""},
+        {"criterion": "greet() with no name still returns \"Hello!\"", "method": "existing test", "detail": "test/greet.test.js: \"greets\""}
+      ],
+      "tests_run": [{"command": "node --test", "result": "passed", "summary": "2 tests passed."}],
+      "manual_checks": [
+        {"step": "Run node -e 'import(\"./src/greet.js\").then(m => console.log(m.greet(\"Ada\")))'", "checked": true, "result": "Printed Hello, Ada!"}
+      ],
+      "decision_log": [
+        {"decision": "An empty name greets without one", "why": "greet(\"\") reading \"Hello, !\" looks broken.", "alternatives": ["Return \"Hello, !\""]}
+      ]
+    }
+  }
+}

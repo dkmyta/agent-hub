@@ -110,12 +110,13 @@ tracker_comments() {
   jq -c '{comments: .}' <<< "$all"
 }
 
-# tracker_edited_after <status> <field>: whether <field> (e.g. description)
-# was changed — by anyone, the automation included — after the ticket last
-# entered <status>, from Jira's change history: "yes", "no", or "unknown" if
-# the history never shows it entering <status>. A page of 100 at a time;
-# fails (rather than read only some) on an API error or past 5,000 entries.
-tracker_edited_after() {
+# tracker_history_since <status>: the ticket's changes since it last entered
+# <status>, from Jira's change history, as {entered, at, by, by_name, changes:
+# [{field, from, fromString, to, toString, author}]} — entered false (and no
+# changes) if the history never shows it entering <status>. Changes by anyone
+# count, the automation included. A page of 100 at a time; fails (rather than
+# read only some) on an API error or past 5,000 entries.
+tracker_history_since() {
   local start=0 page all='[]'
   while :; do
     page=$(jira "$ISSUE_URL/changelog?startAt=$start&maxResults=100") || return 1
@@ -127,11 +128,23 @@ tracker_edited_after() {
       return 1
     fi
   done
-  jq -r --arg status "$1" --arg field "$2" '
+  jq -c --arg status "$1" '
     ([to_entries[] | select(any(.value.items[]; .field == "status" and .toString == $status)) | .key] | last) as $at
-    | if $at == null then "unknown"
-      elif any(.[$at + 1:][]; any(.items[]; .field == $field)) then "yes"
-      else "no" end' <<< "$all"
+    | if $at == null then {entered: false, changes: []}
+      else {entered: true, at: (.[$at].created // ""), by: (.[$at].author.accountId // ""),
+            by_name: (.[$at].author.displayName // ""),
+            changes: [.[$at + 1:][] | (.author.accountId // "") as $who
+              | .items[] | {field, from, fromString, to, toString, author: $who}]} end' <<< "$all"
+}
+
+# tracker_edited_after <status> <field>: whether <field> (e.g. description)
+# was changed — by anyone, the automation included — after the ticket last
+# entered <status>: "yes", "no", or "unknown" if the history never shows it
+# entering <status>. Fails if the history can't be read in full.
+tracker_edited_after() {
+  local history
+  history=$(tracker_history_since "$1") || return 1
+  jq -r --arg field "$2" 'if (.entered | not) then "unknown" elif any(.changes[]; .field == $field) then "yes" else "no" end' <<< "$history"
 }
 
 # Attach Markdown file $1 to the ticket (a multipart upload; Jira requires the

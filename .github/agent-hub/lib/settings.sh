@@ -59,6 +59,7 @@ INTAKE_STATUS=$(setting AGENT_HUB_INTAKE_STATUS Intake)
 WORK_ORDER_STATUS=$(setting AGENT_HUB_WORK_ORDER_STATUS 'Work Order')
 WORK_ORDER_APPROVED_STATUS=$(setting AGENT_HUB_WORK_ORDER_APPROVED_STATUS 'Work Order Approved')
 PLAN_STATUS=$(setting AGENT_HUB_IMPLEMENTATION_PLAN_STATUS 'Implementation Plan')
+PLAN_APPROVED_STATUS=$(setting AGENT_HUB_IMPLEMENTATION_PLAN_APPROVED_STATUS 'Implementation Plan Approved')
 NEEDS_DETAILS_LABEL=$(setting AGENT_HUB_NEEDS_DETAILS_LABEL needs-details)
 # Marks tickets waiting for a person; approving (the tracker's "…Approved"
 # rules) removes it.

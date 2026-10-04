@@ -1,0 +1,27 @@
+Install Claude Code: skipped
+Fetch ticket: success
+Agent: success
+Apply: success
+Send back: skipped
+Clear progress comment: success
+Report failure: skipped
+Remove agent session files: success
+--- Jira calls
+GET ?fields=summary,description,status
+GET /changelog?startAt=0&maxResults=100
+GET /myself
+GET ?fields=attachment
+GET /attachment/content/10001
+POST /comment — comment: ⏳ Building
+GET ?fields=status
+GET ?fields=attachment
+POST /comment — comment: 🔨 Draft pull request opened
+PUT  — {"update":{"labels":[{"add":"needs-human"}]}}
+DELETE /comment/5001
+--- GitHub calls
+GET /repos/example/repo
+GET /repos/example/repo
+GET /repos/example/repo/pulls?state=all&head=example:agent-hub/PROJ-99&per_page=10
+GET /user
+POST /repos/example/repo/pulls — agent-hub/PROJ-99 → main, draft: true, title: PROJ-99: Greet people by name
+POST /repos/example/repo/issues/101/labels — labels: ["agent-hub"]

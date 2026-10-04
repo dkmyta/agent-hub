@@ -318,18 +318,20 @@ agent_run() {
     > "$AGENT_OUTPUT"
 }
 
-# agent_check <payload field> <other status> <its field>: the result must be
-# `ready` with the payload (`updates`, possibly empty, when revising), or
-# <other status> with a non-empty <its field> (e.g. needs-details + missing).
-# Fails the step otherwise.
+# agent_check <payload field> (<other status> <its field>)...: the result must
+# be `ready` with the payload (`updates`, possibly empty, when revising), or
+# one of the other statuses with a non-empty field (e.g. needs-details +
+# missing). Fails the step otherwise.
 agent_check() {
-  local payload=$1
+  local payload=$1 others
+  shift
   agent_revising && payload=updates
+  others=$(jq -nc '[$ARGS.positional | range(0; length; 2) as $i | {status: .[$i], field: .[$i + 1]}]' --args "$@")
   # Some jq versions (1.6) exit 0 on empty input, so check for output explicitly.
-  if [ ! -s "$AGENT_OUTPUT" ] || ! jq -e --arg payload "$payload" --arg other "$2" --arg field "$3" '
-        .is_error == false and (
-          (.structured_output.status == "ready" and .structured_output[$payload] != null) or
-          (.structured_output.status == $other and ((.structured_output[$field] // "") | length) > 0))' \
+  if [ ! -s "$AGENT_OUTPUT" ] || ! jq -e --arg payload "$payload" --argjson others "$others" '
+        .is_error == false and (.structured_output as $out |
+          ($out.status == "ready" and $out[$payload] != null) or
+          any($others[]; $out.status == .status and (($out[.field] // "") | length) > 0))' \
         "$AGENT_OUTPUT" > /dev/null 2>&1; then
     echo "::error::Claude returned no usable result."
     # The reason for the ticket's failure comment (see stage_fail).
@@ -472,12 +474,13 @@ agent_cleanup() {
 
 # agent_summary <title>: sets the step's `status` output and writes the run
 # summary — result, the models that did the work (5%+ of the cost; Claude Code
-# also uses a small model internally), whether the review changed the outcome,
-# Claude Code version, duration, turns and API-equivalent cost.
+# also uses a small model internally), whether the review changed the outcome
+# ("none" for a stage with no review pass), Claude Code version, duration,
+# turns and API-equivalent cost.
 agent_summary() {
   jq -r '"status=\(.structured_output.status)"' "$AGENT_OUTPUT" >> "$GITHUB_OUTPUT"
   jq -r --arg title "$1" --arg model "$CLAUDE_MODEL" --arg version "${CLAUDE_VERSION:-unknown}" \
-      --slurpfile review "$AGENT_REVIEW" '
+      --slurpfile review <(cat "$AGENT_REVIEW" 2> /dev/null || true) '
     (.total_cost_usd // 0) as $total
     | ([.modelUsage // {} | to_entries[] | select(.value.costUSD >= $total * 0.05) | .key]
        | join(", ") | if . == "" then $model else . end) as $models
@@ -485,7 +488,7 @@ agent_summary() {
     | "### \($title): \(env.TICKET_KEY)\n",
       "| Result | Review | Length | Models | Claude Code | Duration | Turns (draft + review) | Cost (API-equivalent) |",
       "|---|---|---|---|---|---|---|---|",
-      "| \(.structured_output.status) | \(if $r.skipped then "skipped (sent back)" elif $r.outcome_changed then "outcome changed (was \(.draft_status))" else "\($r.changes // [] | length) change(s)" end) | \(if (.draft_chars // 0) > 0 then "\(.final_chars) chars (\(((.final_chars - .draft_chars) * 100 / .draft_chars) | round)% vs draft)" else "-" end) | \($models) | \($version) | \(.duration_ms / 1000 | floor)s | \(.draft_turns // .num_turns) + \(.review_turns // 0) | $\($total * 100 | round / 100) (draft $\((.draft_cost // $total) * 100 | round / 100), review $\((.review_cost // 0) * 100 | round / 100)) |",
+      "| \(.structured_output.status) | \(if $review == [] then "none" elif $r.skipped then "skipped (sent back)" elif $r.outcome_changed then "outcome changed (was \(.draft_status))" else "\($r.changes // [] | length) change(s)" end) | \(if (.draft_chars // 0) > 0 then "\(.final_chars) chars (\(((.final_chars - .draft_chars) * 100 / .draft_chars) | round)% vs draft)" else "-" end) | \($models) | \($version) | \(.duration_ms / 1000 | floor)s | \(.draft_turns // .num_turns) + \(.review_turns // 0) | $\($total * 100 | round / 100) (draft $\((.draft_cost // $total) * 100 | round / 100), review $\((.review_cost // 0) * 100 | round / 100)) |",
       ""' \
     "$AGENT_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
   _fallback_warning "$CLAUDE_MODEL" "$CLAUDE_FALLBACK_MODEL" "$RUNNER_TEMP/agent-draft.json" draft

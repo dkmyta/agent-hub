@@ -1,0 +1,27 @@
+{
+  "startAt": 0,
+  "maxResults": 100,
+  "total": 1,
+  "isLast": true,
+  "values": [
+    {
+      "created": "2026-10-01T09:00:00.000+0000",
+      "author": {
+        "accountId": "agent-hub-bot",
+        "displayName": "Agent hub"
+      },
+      "items": [
+        {
+          "field": "Attachment",
+          "to": "10001",
+          "toString": "PROJ-99-implementation-plan.md"
+        },
+        {
+          "field": "status",
+          "fromString": "Work Order Approved",
+          "toString": "Implementation Plan"
+        }
+      ]
+    }
+  ]
+}

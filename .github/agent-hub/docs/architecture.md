@@ -11,7 +11,7 @@ unless they start with `.github/`.
 ```
 .github/
   workflows/
-    agent-hub-stage.yml           the steps every stage runs through (reusable)
+    agent-hub-stage.yml           the steps every stage runs through (reusable; code-stage for the build)
     agent-hub-<stage>.yml         one per stage: trigger, concurrency, time limits
     agent-hub-tests.yml           lint and tests, when the hub changes
     agent-hub-evals.yml           live Claude evals, manual only
@@ -23,7 +23,10 @@ unless they start with `.github/`.
     .installed                    in an installed repository: what the update script installed
     lib/
       settings.sh                 shared settings: repository variables and defaults
-      load.sh                     what each workflow step sources
+      load.sh                     what each workflow step sources (from the hub's copy in RUNNER_TEMP)
+      github.sh, state.sh         GitHub and the pull request's state block (code stages)
+      secret-scan.sh              the pinned secret scan before every push
+      markdown.jq                 reading the attached plan's sections
       stage.sh                    fetching, progress and failure comments, revisions
       adf.jq                      the ticket document format (ADF) helpers
       review.md, revise.md, …     shared review and revision standards
@@ -60,9 +63,15 @@ interface.
 
 ### GitHub, for the stages that change code
 
-The build stage (planned) works on GitHub through `lib/github.sh`, with the
-machine user's token (`AGENT_HUB_GITHUB_TOKEN`) — loaded only by the steps
-that write to GitHub, never by an agent step. The token reaches curl through
+The build stage works on GitHub through `lib/github.sh`, with the machine
+user's token (`AGENT_HUB_GITHUB_TOKEN`). A stage whose settings say
+`CODE_STAGE=true` has `lib/load.sh` load it (and `lib/state.sh`) in its steps
+without an agent, and its caller workflow passes `code-stage: true`, which
+gives the token to the **fetch and apply steps only** — the two that call
+GitHub, and run no repository code. It never reaches an agent step, nor any
+step that runs the repository's own code (installs, tests, builds: their
+scripts could read it). The workflows' own `GITHUB_TOKEN` is limited to
+`contents: read`. The token reaches curl through
 a file only the runner's user can read, and git through an askpass helper
 that reads another, never a command line. Every API call goes through one
 function (`gh_request`), which the tests replace.
@@ -105,6 +114,23 @@ hub's own config replaces any `.gitleaks.toml`, an empty ignore file replaces
 any `.gitleaksignore`, and `gitleaks:allow` comments are ignored. Findings
 are redacted: rules and files, never the secrets.
 
+### After an agent that can edit the checkout
+
+A build agent can change anything in the checkout, `.git` included, so
+nothing it leaves there runs in a later step, where the credentials are:
+
+- **The hub runs from a copy.** The shared workflow copies the hub (`lib/`,
+  `stages/`, `trackers/`, `VERSION`) to `$RUNNER_TEMP/agent-hub` right after
+  the checkout, before any agent, and every step loads it from there.
+- **Git runs with metadata copied before the agent.** The build's fetch step
+  copies `.git`; its later steps point git at that copy (`GIT_DIR`), take only
+  the files' content from the checkout, and ignore global and system git
+  configuration, hooks and fsmonitor. The agent's own commits, hooks or config
+  changes are never used.
+- **The commit is what's checked.** The gates and the secret scan read the
+  commit the hub made, not the working tree (which something the agent left
+  running could still change), so what's checked is exactly what's pushed.
+
 ### The tracker interface
 
 The ticket model is Jira's REST shape, so a new tracker's adapter maps its own
@@ -119,6 +145,7 @@ data to it: `{fields: {summary, description (ADF), status: {name}, attachment:
 | `tracker_status`, `tracker_require_status <status>` | The status name; succeed only in that status |
 | `tracker_account_id` | The automation account's id (`author.accountId` on its comments and attachments) |
 | `tracker_edited_after <status> <field>` | Whether a field was changed — by anyone, the automation included — after the ticket last entered a status (`yes`, `no`, or `unknown` if the history never shows it entering it), from the tracker's history; fails if the history can't be read in full |
+| `tracker_history_since <status>` | Every change since the ticket last entered a status (who moved it there and when, then each changed field with its old and new values), from the tracker's history; fails if it can't be read in full |
 | `tracker_set_description [+label\|-label]...` | Replace the description with the ADF on stdin, changing labels in the same update |
 | `tracker_comments`, `tracker_comment`, `tracker_update_comment <id>`, `tracker_delete_comment <id>` | Read comments; post the ADF on stdin (prints the id); replace; delete |
 | `tracker_labels <+label\|-label>...` | Add and remove labels, in one update |
@@ -168,7 +195,7 @@ sequenceDiagram
 ## The pipeline as a state machine
 
 Every stage moves a ticket between known states, for known reasons. The
-statuses are the tracker's; *(planned)* marks the build stages
+statuses are the tracker's; *(planned)* marks what the build stage doesn't do yet
 ([workflows/build.md](workflows/build.md)).
 
 | State (status) | Waiting for | Leaves by | To |
@@ -178,7 +205,7 @@ statuses are the tracker's; *(planned)* marks the build stages
 | | | Person: approves | Work Order Approved |
 | Work Order Approved | The plan agent | Plan written · needs a decision | Implementation Plan (`needs-human`) · Work Order (`needs-clarification`) |
 | Implementation Plan | A person | Approves · re-plans · changes the work order | Implementation Plan Approved · Work Order Approved · Work Order |
-| Implementation Plan Approved | The build agent *(planned)* | Hand-off (CI green, gates passed) · plan unclear · plan changed since approval · failed past its caps | Ready for Review (`needs-human`) · Implementation Plan (`needs-clarification`) · Implementation Plan (re-approval) · stays (`needs-human`) |
+| Implementation Plan Approved | The build agent | Hand-off (CI green, gates passed) *(planned; today a draft pull request and `needs-human`)* · plan unclear · plan changed since approval · failed past its caps | Ready for Review (`needs-human`) · Implementation Plan (`needs-clarification`) · Implementation Plan (re-approval) · stays (`needs-human`) |
 | Ready for Review | A person *(planned)* | Approves the pull request · `/apply` (a revision, stays) | Approved |
 | Approved | A person *(planned)* | Merges; the post-merge check passes | Done |
 
@@ -518,9 +545,9 @@ replace them or show up on other work.
   repository's templates. It adds the `agent-hub` label, and only labelled
   issues reach the board and the stages
   ([github-projects.md](github-projects.md#intake-form)).
-- **Pull requests (build stage, planned):** the agent opens its pull requests
-  through the API with the body rendered from a template inside the hub
-  (`stages/build/`), and labels them `agent-hub`. GitHub applies a
+- **Pull requests (build stage):** the hub opens its pull requests through
+  the API with the body rendered from a template inside the hub
+  (`stages/build/pr-body.jq`), and labels them `agent-hub`. GitHub applies a
   repository's `pull_request_template.md` only to pull requests opened in the
   web page, so it never reaches the agent's, and the hub's never reaches
   people's. The same for either tracker.

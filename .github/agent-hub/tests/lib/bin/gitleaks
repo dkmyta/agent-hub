@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Stand-in for gitleaks in the scenario tests (MOCK_GITLEAKS=1, see
+# helpers.bash): like `gitleaks git`, it scans the patches of the commits
+# --log-opts selects, here for one rule (a GitHub token), and writes a
+# gitleaks-style report; exit 1 on a finding.
+for ((i = 1; i <= $#; i++)); do
+  case "${!i}" in
+    --log-opts=*) opts=${!i#--log-opts=} ;;
+    --report-path) j=$((i + 1)); report=${!j} ;;
+  esac
+done
+# shellcheck disable=SC2086 # the options are words
+files=$(git log -p --format= $opts | awk '/^\+\+\+ b\// { file = substr($0, 7) } /^\+.*ghp_[A-Za-z0-9]{36}/ { print file }' | sort -u)
+if [ -z "$files" ]; then echo '[]' > "$report"; exit 0; fi
+jq -R '{RuleID: "github-pat", File: ., Secret: "REDACTED"}' <<< "$files" | jq -s . > "$report"
+exit 1
