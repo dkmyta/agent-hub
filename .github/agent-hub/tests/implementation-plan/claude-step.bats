@@ -11,14 +11,14 @@ setup() {
   use_run_env "$BATS_TEST_TMPDIR"
   echo "Key: PROJ-99" > "$RUNNER_TEMP/ticket.md"
   # The acceptance criteria of the fixture's work order, as the Fetch step extracts them.
-  jq -L "$HUB_LIB" 'include "adf"; [.fields.description | section_blocks("Acceptance Criteria")[]
-    | select(.type == "taskList") | .content[] | plain_text]' \
-    "$FIXTURES/tickets/work-order-approved.json" > "$RUNNER_TEMP/acceptance-criteria.json"
+  jq -L "$HUB_LIB" 'include "adf"; acceptance_criteria' \
+    "$WORK_ORDER_FIXTURES/tickets/work-order.json" > "$RUNNER_TEMP/acceptance-criteria.json"
   export CLAUDE_EXIT=0
 }
 
-claude_step() { # <fixture> [jq edit to apply to it]
+claude_step() { # <fixture, in fixtures/claude or a full path> [jq edit to apply to it]
   export CLAUDE_FIXTURE="$FIXTURES/claude/$1"
+  [ "${1#/}" = "$1" ] || CLAUDE_FIXTURE=$1
   if [ -n "${2:-}" ]; then
     jq "$2" "$CLAUDE_FIXTURE" > "$BATS_TEST_TMPDIR/edited.json"
     CLAUDE_FIXTURE="$BATS_TEST_TMPDIR/edited.json"
@@ -83,6 +83,7 @@ claude_step() { # <fixture> [jq edit to apply to it]
   ln -s /etc/hosts docs/out-link.md
   ln -s real.md docs/in-link.md
   ln -s /etc docs/out-dir
+  source "$HUB_DIR/lib/paths.sh"
   source "$HUB_DIR/stages/implementation-plan/stage.sh"
   run _plan_path_problem modify docs/real.md;     assert_output ""
   run _plan_path_problem modify ./docs/real.md;   assert_output ""
@@ -116,7 +117,7 @@ claude_step() { # <fixture> [jq edit to apply to it]
 }
 
 @test "rejects: API error" {
-  CLAUDE_EXIT=1 claude_step api-error.json
+  CLAUDE_EXIT=1 claude_step "$WORK_ORDER_FIXTURES/claude/api-error.json"
   assert_failure
 }
 

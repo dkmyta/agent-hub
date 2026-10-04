@@ -83,7 +83,7 @@ In GitHub Actions (`agent-hub-work-order.yml`, running the shared
    transition to Intake exists before changing anything; comments, labels,
    moves to **Intake**.
 5. **Clear progress comment**, or **Report failure** (with the reason).
-6. **Remove agent session files** — always, so nothing from the run stays
+6. **Remove session and credential files** — always, so nothing from the run stays
    on the runner.
 
 ## What it produces

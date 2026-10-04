@@ -5,5 +5,5 @@ Apply: skipped
 Send back: skipped
 Clear progress comment: skipped
 Report failure: failure
-Remove agent session files: success
+Remove session and credential files: success
 --- Jira calls

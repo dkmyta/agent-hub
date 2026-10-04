@@ -20,7 +20,6 @@ BUILD_CONTEXT="$RUNNER_TEMP/build-context.json"
 BUILD_GIT="$RUNNER_TEMP/build-git"
 # The agent's result (the runner's AGENT_OUTPUT), for the steps after it.
 BUILD_OUTPUT="$RUNNER_TEMP/agent-output.json"
-QUESTIONS_SECTION="Questions from the build"
 
 # build_git: git, from here on in this step, with the metadata copied before
 # the agent ran and none of the runner's or repository's configuration that
@@ -41,6 +40,8 @@ step_fetch() {
   # Not for real tickets yet (settings.sh): stop before anything else.
   [ "$BUILD_PREVIEW" = true ] \
     || stage_fail "The build stage isn't enabled for real tickets yet: it needs its install step (the next version) so a build can't depend on whatever the runner has installed. Nothing was built. For development on a project without dependencies, set the repository variable AGENT_HUB_BUILD_PREVIEW to true."
+  _require_pinned_claude
+  _require_limits
 
   # The checkout as the workflow made it, and its git metadata kept before
   # any agent runs.
@@ -52,11 +53,7 @@ step_fetch() {
 
   _approved_plan
   # The work order's acceptance criteria, which the build must verify.
-  jq -L "$HUB_DIR/lib" 'include "adf";
-    [.fields.description // {content: []} | section_blocks("Acceptance Criteria")[]
-     | select(.type == "taskList") | .content[] | plain_text]' \
-    "$RUNNER_TEMP/ticket.json" > "$RUNNER_TEMP/acceptance-criteria.json"
-  if [ "$(jq length "$RUNNER_TEMP/acceptance-criteria.json")" = 0 ]; then
+  if [ "$(stage_acceptance_criteria)" = 0 ]; then
     stage_fail "The description has no Acceptance Criteria checklist, so there's nothing to verify the build against and nothing was built. Restore the work order's criteria, then approve the plan again."
   fi
   # A plan with only manual changes leaves the build nothing to do.
@@ -69,70 +66,151 @@ step_fetch() {
   # which nobody approved.
   stage_ticket_markdown
   {
-    printf '\nApproved implementation plan (the attached %s):\n\n' "$TICKET_KEY-$PLAN_FILE_SUFFIX"
+    printf '\nApproved implementation plan (the attached %s):\n\n' "$PLAN_FILE_NAME"
     cat "$RUNNER_TEMP/plan.md"
   } >> "$RUNNER_TEMP/ticket.md"
   stage_progress_comment "⏳ Building" \
     " — implementing the approved plan; usually takes 10–30 minutes. Refresh the page to see the result. "
 }
 
+# _require_limits: the size limits (settings.sh) are whole numbers — checked
+# before any Claude usage, since the gates can't run without them.
+_require_limits() {
+  local limit
+  for limit in "MAX_FILES=$BUILD_MAX_FILES" "MAX_LINES=$BUILD_MAX_LINES" "MAX_FILE_LINES=$BUILD_MAX_FILE_LINES"; do
+    [[ "${limit#*=}" =~ ^[0-9]+$ ]] \
+      || stage_fail "The repository variable AGENT_HUB_BUILD_${limit%%=*} must be a whole number, not '${limit#*=}', so nothing was built."
+  done
+}
+
+# _require_pinned_claude: the runner's Claude Code is exactly the pinned
+# version (settings.sh) — checked before any Claude usage (--version uses
+# none). The pin keeps the version from changing beneath the build; it
+# doesn't prove the sandbox works on this runner: that's the sandbox check,
+# run by hand on a new runner and after every upgrade (docs/runners.md).
+_require_pinned_claude() {
+  local installed
+  [[ "$CLAUDE_CODE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || stage_fail "The build needs an exact Claude Code version, so nothing was built: set the repository variable AGENT_HUB_CLAUDE_CODE_VERSION to the version on the runner (from \`claude --version\`, e.g. 2.1.280) — not 'latest' or empty. See docs/runners.md."
+  installed=$(claude --version 2> /dev/null | head -n 1 | cut -d ' ' -f 1) || installed=""
+  [ "$installed" = "$CLAUDE_CODE_VERSION" ] \
+    || stage_fail "The runner has Claude Code ${installed:-(not found)}, but AGENT_HUB_CLAUDE_CODE_VERSION pins $CLAUDE_CODE_VERSION, so nothing was built. Install the pinned version on the runner, or — after running the sandbox check on the new version — change the variable (docs/runners.md)."
+}
+
 # _approved_plan: the plan file people approved, exactly (docs/workflows/build.md,
-# "Approval check"): the newest plan file, with no plan file added or deleted
-# since the ticket entered Implementation Plan Approved — otherwise the
-# approval is stale. Downloads it (plan.md), reads its contract
+# "Approval check"): see _approval_problem. Downloads it (plan.md), checks the
+# approval again (nothing changed while it downloaded), reads its contract
 # (contract.json) and records what was approved (build-context.json).
 _approved_plan() {
-  local history attachments name="$TICKET_KEY-$PLAN_FILE_SUFFIX" problems
-  history=$(tracker_history_since "$PLAN_APPROVED_STATUS") \
-    || stage_fail "Couldn't read $TICKET_KEY's history from $TRACKER_NAME to check which plan was approved, so nothing was built."
-  jq -e '.entered' <<< "$history" > /dev/null \
-    || stage_fail "$TICKET_KEY's history shows no move to $PLAN_APPROVED_STATUS, so there's no approval to build from and nothing was built. A person approves the plan by moving the ticket there."
-  # The automation account can't approve (docs/jira.md); a move it made
-  # anyway isn't a person's approval.
-  [ "$(jq -r '.by' <<< "$history")" != "$(tracker_account_id)" ] \
-    || stage_fail "The move to $PLAN_APPROVED_STATUS was made by the automation account, not a person, so it isn't an approval and nothing was built. A person approves the plan by moving the ticket there."
-  if jq -e --arg name "$name" 'any(.changes[]; .field == "Attachment" and (.toString == $name or .fromString == $name))' \
-      <<< "$history" > /dev/null; then
-    _approval_stale
-    exit 0
-  fi
-  attachments=$(tracker_attachments) \
-    || stage_fail "Couldn't read the ticket's attachments from $TRACKER_NAME, so nothing was built."
-  jq -c --arg name "$name" '[.[] | select(.filename == $name)] | sort_by(.created) | last // empty' \
-    <<< "$attachments" > "$RUNNER_TEMP/plan-attachment.json"
-  [ -s "$RUNNER_TEMP/plan-attachment.json" ] \
-    || stage_fail "There's no $name on the ticket to build from, so nothing was built. Write the plan (move the ticket to $WORK_ORDER_APPROVED_STATUS), then approve it."
-  tracker_attachment_content "$(jq -r '.id' "$RUNNER_TEMP/plan-attachment.json")" > "$RUNNER_TEMP/plan.md" \
+  local first second problems
+  _automation_account
+  first=$(_approval_snapshot) \
+    || stage_fail "Couldn't read $TICKET_KEY's history and attachments from $TRACKER_NAME to check which plan was approved, so nothing was built."
+  _require_approval "$first"
+  tracker_attachment_content "$(jq -r '.plans[-1].id' <<< "$first")" > "$RUNNER_TEMP/plan.md" \
     || stage_fail "Couldn't download the approved plan from $TRACKER_NAME, so nothing was built."
+  second=$(_approval_snapshot) \
+    || stage_fail "Couldn't read $TICKET_KEY's history and attachments from $TRACKER_NAME again, so nothing was built."
+  _require_approval "$second"
+  [ "$(_approval_key "$first")" = "$(_approval_key "$second")" ] || { _approval_stale; exit 0; }
 
   jq -Rs -L "$HUB_DIR/lib" -f "$STAGE_DIR/contract.jq" "$RUNNER_TEMP/plan.md" > "$RUNNER_TEMP/contract.json"
   problems=$(jq -r '.problems | join("; ")' "$RUNNER_TEMP/contract.json")
   [ -z "$problems" ] \
     || stage_fail "The approved plan can't be read as a build contract ($problems), so nothing was built. Move the ticket back to $PLAN_STATUS, revise the plan, and approve it again."
 
-  jq -n --argjson history "$history" --slurpfile attachment "$RUNNER_TEMP/plan-attachment.json" \
-      --arg sha256 "$(_sha256 "$RUNNER_TEMP/plan.md")" '{plan: {
-    attachment: $attachment[0].id, uploaded: ($attachment[0].created // ""),
-    uploaded_by: ($attachment[0].author.displayName // ""), sha256: $sha256,
-    approved_at: $history.at, approved_by: $history.by_name}}' > "$BUILD_CONTEXT"
+  # What was approved; plan.files (every plan file's id) and approved_at are
+  # the approval's identity (_approval_key).
+  jq --arg sha256 "$(_sha256 "$RUNNER_TEMP/plan.md")" '.plans[-1] as $plan | {plan: {
+    attachment: $plan.id, uploaded: ($plan.created // ""), uploaded_by: ($plan.author.displayName // ""),
+    sha256: $sha256, approved_at: .history.at, approved_by: .history.by_name, files: [.plans[].id]}}' \
+    <<< "$second" > "$BUILD_CONTEXT"
 }
 
-# _approval_stale: a plan file was uploaded or deleted after the approval, so
-# what was approved may not be the plan on the ticket. Back to
-# Implementation Plan for a person to check and approve again.
+# _approval_snapshot: the approval and the plan files, read together —
+# {history (tracker_history_since), plans: the plan files, oldest first}.
+_approval_snapshot() {
+  local history attachments
+  history=$(tracker_history_since "$PLAN_APPROVED_STATUS") || return 1
+  attachments=$(tracker_attachments) || return 1
+  jq -nc --argjson history "$history" --argjson attachments "$attachments" --arg name "$PLAN_FILE_NAME" \
+    '{history: $history, plans: ([$attachments[] | select(.filename == $name)] | sort_by(.created))}'
+}
+
+# _approval_problem <snapshot>: why the snapshot isn't a person's approval of
+# the newest plan file, as "<kind> <reason>" — kind "stale" (approve again)
+# or "fail" (nothing to approve, or not a person's approval) — or nothing if
+# it is one. The approval is the ticket's last move to Implementation Plan
+# Approved: after it, no plan file may have been added or removed and the
+# work order (the description) not edited, and the newest plan file must
+# predate it.
+_approval_problem() {
+  local snapshot=$1 created approved
+  jq -e '.history.entered' <<< "$snapshot" > /dev/null \
+    || { echo "fail $TICKET_KEY's history shows no move to $PLAN_APPROVED_STATUS, so there's no approval to build from and nothing was built. A person approves the plan by moving the ticket there."; return; }
+  # The automation account can't approve (docs/jira.md); a move it made
+  # anyway isn't a person's approval.
+  [ "$(jq -r '.history.by' <<< "$snapshot")" != "$AUTOMATION_ACCOUNT" ] \
+    || { echo "fail The move to $PLAN_APPROVED_STATUS was made by the automation account, not a person, so it isn't an approval and nothing was built. A person approves the plan by moving the ticket there."; return; }
+  [ "$(jq '.plans | length' <<< "$snapshot")" -gt 0 ] \
+    || { echo "fail There's no $PLAN_FILE_NAME on the ticket to build from, so nothing was built. Write the plan (move the ticket to $WORK_ORDER_APPROVED_STATUS), then approve it."; return; }
+  # The newest plan file must predate the approval; times that can't be read
+  # can't show that, so they count as stale too.
+  created=$(jq -r '.plans[-1].created // ""' <<< "$snapshot") approved=$(jq -r '.history.at // ""' <<< "$snapshot")
+  _later "$approved" "$created" || { echo "stale"; return; }
+  if jq -e --arg name "$PLAN_FILE_NAME" 'any(.history.changes[];
+       (.kind == "attachment" and .file == $name) or .kind == "description")' <<< "$snapshot" > /dev/null; then
+    echo "stale"
+  fi
+}
+
+# _automation_account: the tracker's automation account (AUTOMATION_ACCOUNT),
+# looked up once per step; the run stops if it can't be identified.
+_automation_account() {
+  AUTOMATION_ACCOUNT=$(tracker_account_id) && [ -n "$AUTOMATION_ACCOUNT" ] && [ "$AUTOMATION_ACCOUNT" != null ] \
+    || stage_fail "Couldn't identify $TRACKER_NAME's automation account to check who approved the plan, so nothing was changed."
+}
+
+# _require_approval <snapshot>: continue only with a valid approval —
+# otherwise fail, or send the ticket back to be approved again.
+_require_approval() {
+  local problem
+  problem=$(_approval_problem "$1")
+  case "$problem" in
+    "") ;;
+    stale) _approval_stale; exit 0 ;;
+    *) stage_fail "${problem#fail }" ;;
+  esac
+}
+
+# _approval_key <snapshot>: the approval's identity — when it was made, and
+# the set of plan files — to compare with another snapshot's, or with what
+# the run recorded (build-context.json).
+_approval_key() { jq -c '[.history.at, [.plans[].id]]' <<< "$1"; }
+
+# _later <time> <other time>: whether the first is later than the second —
+# 0 later, 1 not, 2 either can't be read (callers treat 2 as failure). ISO
+# 8601 with a Z or ±hh[:]mm offset (Jira's and GitHub's formats); fractions
+# of a second count.
+_later() {
+  local result
+  result=$(jq -nr --arg a "$1" --arg b "$2" '
+    def instant: (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>\\.[0-9]+)?(?<z>Z|(?<s>[+-])(?<h>[0-9]{2}):?(?<m>[0-9]{2}))$")
+        // error("unreadable time"))
+      | (.d + "Z" | fromdateiso8601) + ("0\(.f // "")" | tonumber)
+        - (if .z == "Z" then 0 else ((.h | tonumber) * 3600 + (.m | tonumber) * 60) * (if .s == "+" then 1 else -1 end) end);
+    ($a | instant) > ($b | instant)' 2> /dev/null) || return 2
+  [ "$result" = true ]
+}
+
+# _approval_stale: a plan file was uploaded or deleted, or the work order
+# edited, after the approval, so what was approved may not be what's on the
+# ticket. Back to Implementation Plan for a person to check and approve again.
 _approval_stale() {
-  local transition
-  transition=$(stage_transition_id "$PLAN_STATUS")
   # shellcheck disable=SC1112 # curly apostrophe intended
-  jq -n -L "$HUB_DIR/lib" --arg status "$PLAN_STATUS" --arg approved "$PLAN_APPROVED_STATUS" 'include "adf";
-    doc([para([strong("⚠️ Plan changed after approval"),
-      text(" — a plan file was uploaded or removed after the plan was approved, so nothing was built from it. It’s back in \($status): check the newest plan file, then move the ticket to \($approved) again.")])])' \
-    | tracker_comment > /dev/null
-  tracker_labels "+$NEEDS_HUMAN_LABEL"
-  stage_move "$transition" "$PLAN_STATUS"
-  echo "proceed=false" >> "$GITHUB_OUTPUT"
-  echo "[$TICKET_KEY]($TICKET_URL) returned to $PLAN_STATUS: the plan files changed after its approval." >> "$GITHUB_STEP_SUMMARY"
-  stage_outcome stale
+  stage_send_back_stale "$PLAN_STATUS" "Plan changed after approval" \
+    "a plan file was uploaded or removed, or the work order edited, after the plan was approved, so nothing was built from it. It’s back in $PLAN_STATUS: check the newest plan file and the work order, then move the ticket to $PLAN_APPROVED_STATUS again." \
+    "the plan files or the work order changed after its approval."
 }
 
 # _manual_only: the plan's changes are all for a person (docs/workflows/build.md,
@@ -157,11 +235,10 @@ _manual_only() {
 # branch (it must not exist yet: docs/workflows/build.md, "Branch
 # lifecycle") and the publication policy, added to build-context.json.
 _branch() {
-  local visibility target head base branch status publish=false
-  visibility=$(gh_repo_visibility) \
+  local repo visibility target head base branch status publish=false
+  repo=$(gh_api GET "/repos/$GITHUB_REPOSITORY") && visibility=$(gh_repo_visibility "$repo") \
     || stage_fail "Couldn't read the repository from GitHub, so nothing was built. Check the AGENT_HUB_GITHUB_TOKEN secret (docs/setup.md), then retry."
-  target=$BUILD_TARGET_BRANCH
-  [ -n "$target" ] || target=$(gh_api GET "/repos/$GITHUB_REPOSITORY" | jq -r '.default_branch // empty') || target=""
+  target=${BUILD_TARGET_BRANCH:-$(jq -r '.default_branch // empty' <<< "$repo")}
   [ -n "$target" ] || stage_fail "Couldn't read the repository's default branch from GitHub, so nothing was built."
   head=$(gh_branch_head "$target") || stage_fail "Couldn't read the target branch $target from GitHub, so nothing was built."
   base=$(git rev-parse HEAD)
@@ -190,8 +267,8 @@ _branch() {
     *) stage_fail "Couldn't tell what state $branch is in, so nothing was built." ;;
   esac
   gh_publish_ticket_text "$visibility" "$PUBLISH_TICKET_CONTENT" && publish=true
-  jq --arg target "$target" --arg base "$base" --arg branch "$branch" --arg visibility "$visibility" \
-    --argjson publish "$publish" '. + {target: $target, base: $base, branch: $branch, visibility: $visibility, publish: $publish}' \
+  jq --arg target "$target" --arg base "$base" --arg branch "$branch" \
+    --argjson publish "$publish" '. + {target: $target, base: $base, branch: $branch, publish: $publish}' \
     "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
 }
 
@@ -202,11 +279,7 @@ _approved_after_close() {
   local closed
   closed=$(gh_pr_find "$1" | jq -r '.closed_at // empty') || return 1
   [ -n "$closed" ] || return 1
-  jq -e --arg closed "$closed" '
-    def epoch: capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\\.[0-9]+)?(?<z>Z|(?<s>[+-])(?<h>[0-9]{2}):?(?<m>[0-9]{2}))$")
-      | (.d + "Z" | fromdateiso8601)
-        - (if .z == "Z" then 0 else ((.h | tonumber) * 3600 + (.m | tonumber) * 60) * (if .s == "+" then 1 else -1 end) end);
-    (.plan.approved_at | epoch) > ($closed | epoch)' "$BUILD_CONTEXT" > /dev/null 2>&1
+  _later "$(context .plan.approved_at)" "$closed"
 }
 
 # step_agent: The agent: validate the plan against the code, then build it.
@@ -217,11 +290,7 @@ step_agent() {
   # A build must say how each acceptance criterion is verified, word for
   # word. The log names positions, never ticket text.
   if [ "$(jq -r '.structured_output.status' "$AGENT_OUTPUT")" = ready ]; then
-    MISSING=$(jq -r --slurpfile out "$AGENT_OUTPUT" '
-      def norm: gsub("\\s+"; " ") | ltrimstr(" ") | rtrimstr(" ");
-      [$out[0].structured_output.build.verification[].criterion | norm] as $covered
-      | [to_entries[] | select((.value | norm) as $c | $covered | any(. == $c) | not) | .key + 1]
-      | join(", ")' "$RUNNER_TEMP/acceptance-criteria.json")
+    MISSING=$(stage_uncovered_criteria "$(jq -c '[.structured_output.build.verification[].criterion]' "$AGENT_OUTPUT")")
     if [ -n "$MISSING" ]; then
       stage_fail "The build didn't say how acceptance criteria $MISSING (by position in the work order) are verified, so nothing was pushed."
     fi
@@ -237,6 +306,10 @@ step_apply() {
   _require_same_plan
   base=$(context .base) branch=$(context .branch) target=$(context .target) publish=$(context .publish)
 
+  # A hard link would pull in a file from elsewhere on the runner that the
+  # sandbox kept the agent from reading (it can't create one today: this is
+  # a second line), so a file with more than one link is never committed.
+  _refuse_hard_links
   # Commit everything the agent left in the checkout, as the account the
   # token belongs to (the machine user): its login and its GitHub noreply
   # address (<id>+<login>@users.noreply.github.com), which GitHub attributes
@@ -251,8 +324,11 @@ step_apply() {
   GIT_AUTHOR_EMAIL="$(jq -r '.id' <<< "$user")+$GIT_AUTHOR_NAME@users.noreply.github.com"
   GIT_COMMITTER_NAME=$GIT_AUTHOR_NAME GIT_COMMITTER_EMAIL=$GIT_AUTHOR_EMAIL
   # Claude's message comes from the ticket, so a public repository gets it
-  # only if ticket content may be published.
-  if [ "$publish" = true ]; then message=$(jq -r '.structured_output.build.commit_message' "$BUILD_OUTPUT")
+  # only if ticket content may be published; trailers in it (Co-authored-by
+  # and the like) would attribute the commit to someone, so they're dropped.
+  if [ "$publish" = true ]; then
+    message=$(jq -r '.structured_output.build.commit_message' "$BUILD_OUTPUT" \
+      | grep -viE '^(co-authored-by|signed-off-by|reviewed-by|acked-by|tested-by|refs):' || true)
   else message="Build $TICKET_KEY from its approved implementation plan"; fi
   printf '%s\n\nRefs: %s\n' "$message" "$TICKET_KEY" | git commit -q -F -
 
@@ -260,7 +336,11 @@ step_apply() {
   # go to the pull request for a person.
   # shellcheck source=stages/build/gates.sh
   source "$STAGE_DIR/gates.sh"
-  build_gates "$base" "$RUNNER_TEMP/contract.json" > "$RUNNER_TEMP/gates.json"
+  # Nothing is pushed unless the gates produced a complete result.
+  build_gates "$base" "$RUNNER_TEMP/contract.json" > "$RUNNER_TEMP/gates.json" 2> "$RUNNER_TEMP/gates-error" \
+    && jq -e '(.files | type == "array") and (.refused | type == "array") and (.decisions | type == "array")
+         and (.totals.files | type == "number") and (.files | length) == .totals.files' "$RUNNER_TEMP/gates.json" > /dev/null 2>&1 \
+    || stage_fail "The build's changes couldn't be checked ($(head -n 1 "$RUNNER_TEMP/gates-error" 2> /dev/null || true)), so nothing was pushed."
   refused=$(jq '.refused | length' "$RUNNER_TEMP/gates.json")
   if [ "$refused" -gt 0 ]; then
     # The paths come from Claude's changes, so they go only on the ticket.
@@ -269,7 +349,9 @@ step_apply() {
   fi
 
   # The secret scan covers everything the push sends; then the push, never forced.
-  findings=$(gh_push "$branch" "$target" 2> "$RUNNER_TEMP/push-error") || rc=$?
+  # The branch was absent when the run started; one created meanwhile (even
+  # at the same commit) isn't the hub's to push to.
+  findings=$(gh_push "$branch" "$target" --new 2> "$RUNNER_TEMP/push-error") || rc=$?
   case "$rc" in
     0) ;;
     1) stage_fail "The secret scan found what look like secrets in the build's changes, so nothing was pushed. Check the files named here, then retry." \
@@ -310,15 +392,31 @@ step_apply() {
   stage_outcome written
 }
 
-# _require_same_plan: stop, changing nothing, if a plan file was uploaded or
-# removed since the run started — the approval it built from is stale.
+# _refuse_hard_links: stop if any file git would commit has more than one
+# hard link (the paths go only on the ticket).
+_refuse_hard_links() {
+  local path links linked=""
+  while IFS= read -r -d '' path; do
+    [ -f "$path" ] && [ ! -L "$path" ] || continue
+    links=$(stat -c %h -- "$path" 2> /dev/null || stat -f %l -- "$path")
+    [ "$links" -le 1 ] || linked="$linked${linked:+, }$path"
+  done < <(git ls-files -z --modified --others --exclude-standard)
+  [ -z "$linked" ] \
+    || stage_fail "The build left files that are hard links to other files on the runner, so nothing was committed or pushed." "Files: $linked."
+}
+
+# _require_same_plan: stop, changing nothing, unless the approval the run
+# started from still stands: the same approval of the same plan files, the
+# work order unchanged since (_approval_problem).
 _require_same_plan() {
-  local newest
-  newest=$(tracker_attachments | jq -r --arg name "$TICKET_KEY-$PLAN_FILE_SUFFIX" \
-    '[.[] | select(.filename == $name)] | sort_by(.created) | last | .id // empty') \
-    || stage_fail "Couldn't check $TRACKER_NAME for a newer plan file, so nothing was changed."
-  [ "$newest" = "$(context .plan.attachment)" ] \
-    || stage_fail "The plan files changed while the build was running, so its approval is stale and nothing was changed. Check the newest plan file, then retry."
+  local now
+  _automation_account
+  now=$(_approval_snapshot) \
+    || stage_fail "Couldn't check $TRACKER_NAME that the plan's approval still stands, so nothing was changed."
+  if [ -n "$(_approval_problem "$now")" ] \
+     || [ "$(_approval_key "$now")" != "$(jq -c '[.plan.approved_at, .plan.files]' "$BUILD_CONTEXT")" ]; then
+    stage_fail "The plan's approval changed while the build was running (a plan file was added or removed, the work order was edited, or the ticket was approved again), so nothing was changed. Check the newest plan file and the work order, then approve again."
+  fi
 }
 
 # _pr_comment <number>: the ticket comment linking the draft pull request.
@@ -336,6 +434,7 @@ _pr_comment() {
 # step_return: Send the ticket back: the build can't go ahead as approved.
 step_return() {
   stage_require_status "$PLAN_APPROVED_STATUS"
+  _require_same_plan
   case "$(jq -r '.structured_output.status' "$BUILD_OUTPUT")" in
     needs-clarification) _send_back_questions ;;
     no-change-needed) _no_change_needed ;;
@@ -350,15 +449,13 @@ step_return() {
 # to Implementation Plan: the answer comes as a plan revision and a new
 # approval.
 _send_back_questions() {
-  local transition plan_file="$RUNNER_TEMP/$TICKET_KEY-$PLAN_FILE_SUFFIX"
+  local transition plan_file="$RUNNER_TEMP/$PLAN_FILE_NAME"
   transition=$(stage_transition_id "$PLAN_STATUS")
-  _require_same_plan
-  jq -Rrs -L "$HUB_DIR/lib" --slurpfile out "$BUILD_OUTPUT" --arg title "$QUESTIONS_SECTION" 'include "markdown";
-    md_sections as $sections
-    | ([$sections[0]] + [$sections[1:][] | select(heading_key != $title) | "## " + .] | join("\n") | rtrimstr("\n"))
-      + "\n\n## \($title)\n\n"
-      + ([$out[0].structured_output.questions[] | "- **\(.question)** Why it matters: \(.why)"] | join("\n")) + "\n"' \
-    "$RUNNER_TEMP/plan.md" > "$plan_file"
+  {
+    stage_drop_md_section "$BUILD_QUESTIONS_SECTION" < "$RUNNER_TEMP/plan.md"
+    printf '\n## %s\n\n' "$BUILD_QUESTIONS_SECTION"
+    jq -r '.structured_output.questions[] | "- **\(.question)** Why it matters: \(.why)"' "$BUILD_OUTPUT"
+  } > "$plan_file"
   tracker_attach "$plan_file" > /dev/null
   jq -L "$HUB_DIR/lib" --arg title "$NEEDS_CLARIFICATION_TITLE" --arg message "$NEEDS_CLARIFICATION_MESSAGE" 'include "adf";
     doc([para([strong($title), text(" — flagged by Claude (build).")]),

@@ -86,15 +86,24 @@ run_step() {
     # shellcheck source=/dev/null
     source "$steps/env.sh"
     export GITHUB_OUTPUT="$RUNNER_TEMP/github-output" GITHUB_STEP_SUMMARY="$RUNNER_TEMP/summary.md"
-    # Never reach the real Claude Code CLI (and its login) unless an eval asks
-    # for it: refuse to run if the stub isn't what `claude` resolves to.
-    if [ "${REAL_CLAUDE:-}" != 1 ]; then
+    # Never reach the real Claude Code CLI (and its login) unless an eval run
+    # asks for it — REAL_CLAUDE alone isn't enough (it could be exported in a
+    # shell): it takes the eval run lib/run-evals.sh starts after a typed
+    # confirmation, with its spend file. Otherwise refuse to run if the stub
+    # isn't what `claude` resolves to.
+    if [ "${REAL_CLAUDE:-}" != 1 ] || [ "${RUN_EVALS:-}" != 1 ] || [ ! -f "${EVALS_SPENT_FILE:-}" ]; then
       export PATH="$TESTS_DIR/lib/bin:$PATH"
       [ "$(command -v claude)" = "$TESTS_DIR/lib/bin/claude" ] \
         || { echo "Refusing to run: 'claude' doesn't resolve to the test stub" >&2; exit 97; }
     fi
     bash -e "$steps/$id.sh"
   ) >> "$RUNNER_TEMP/log.txt" 2>&1 || rc=$?
+  # Every step removes the credential files it wrote, whatever libraries it
+  # loaded and however it ended — before the next step (the agent) starts.
+  if compgen -G "$RUNNER_TEMP/jira-curl.*" > /dev/null || compgen -G "$RUNNER_TEMP/github-*.??????" > /dev/null; then
+    echo "credential files left behind by step $id: $(cd "$RUNNER_TEMP" && ls -d jira-curl.* github-*.?????? 2> /dev/null | paste -sd ' ' -)" >> "$RUNNER_TEMP/log.txt"
+    rc=96
+  fi
   cp "$RUNNER_TEMP/github-output" "$STEP_OUTPUTS/$id"
   return $rc
 }
@@ -170,7 +179,7 @@ run_stage() {
   if [ $failed = 1 ]; then step "Report failure" report-failure-on-ticket
   else skip "Report failure"; fi
 
-  step "Remove agent session files" remove-agent-session-files  # always()
+  step "Remove session and credential files" remove-session-and-credential-files  # always()
 }
 
 # writes: the run's Jira writes, one "METHOD path" per line.
@@ -278,12 +287,20 @@ run_scenario() {
 }
 
 # Live evals: the run's total spend cap (see lib/run-evals.sh). Skips the case
-# once the run has spent EVALS_MAX_COST_USD.
+# once the run has spent EVALS_MAX_COST_USD, or once a case's cost couldn't
+# be read ("unknown": the remaining budget can't be known). A total or cap
+# that can't be compared stops the case rather than letting it run.
 eval_budget_check() {
   [ -n "${EVALS_SPENT_FILE:-}" ] || return 0
-  local spent
+  local spent reached
   spent=$(cat "$EVALS_SPENT_FILE")
-  if jq -en --argjson spent "$spent" --argjson cap "$EVALS_MAX_COST_USD" '$spent >= $cap' > /dev/null; then
+  if [ "$spent" = unknown ]; then
+    echo "| $1 | | skipped: an earlier case's cost couldn't be read | | | |" >> "$RESULTS"
+    skip "an earlier case's cost couldn't be read, so the remaining budget is unknown — check the run's usage, then run the rest"
+  fi
+  reached=$(jq -n --argjson spent "$spent" --argjson cap "$EVALS_MAX_COST_USD" '$spent >= $cap') \
+    || { fail "the eval budget couldn't be checked (spent: '$spent', cap: '$EVALS_MAX_COST_USD')"; return 1; }
+  if [ "$reached" = true ]; then
     echo "| $1 | | skipped: eval budget reached | | | |" >> "$RESULTS"
     skip "eval budget reached (\$$spent of \$$EVALS_MAX_COST_USD) — raise EVALS_MAX_COST_USD to run it"
   fi
@@ -298,33 +315,39 @@ eval_claude_step() {
   [ "${EVALS_SETUP_ONLY:-}" != 1 ] || skip "setup checked (EVALS_SETUP_ONLY)"
   REAL_CLAUDE=1 run_step "$1" agent || status=$?
   # As the workflow does after every run: remove the sessions' files.
-  run_step "$1" remove-agent-session-files || true
+  run_step "$1" remove-session-and-credential-files || true
   if [ -n "${EVALS_SPENT_FILE:-}" ]; then
     eval_add_cost "$(eval_cost)"
   fi
   return "$status"
 }
 
-# eval_cost: what this case's passes cost. The draft is moved aside when a
-# review starts, and a draft that sends the ticket back has no review; each
-# pass's output is counted once, from whichever exist, and an unreadable one
-# counts as 0 rather than losing the others.
+# eval_cost: what this case's passes cost, or "unknown". The draft is moved
+# aside when a review starts (whose output file exists once it's started),
+# and a draft that sends the ticket back has no review; each pass's output is
+# counted once. A pass whose output is missing, unreadable or has no cost may
+# still have used Claude, so the case's cost is then unknown — never 0.
 eval_cost() {
   local file total=0 cost
   if [ -e "$RUNNER_TEMP/agent-draft.json" ]; then
-    set -- "$RUNNER_TEMP/agent-draft.json" "$RUNNER_TEMP/agent-review-output.json"
+    set -- "$RUNNER_TEMP/agent-draft.json"
+    [ ! -e "$RUNNER_TEMP/agent-review-output.json" ] || set -- "$@" "$RUNNER_TEMP/agent-review-output.json"
   else
     set -- "$RUNNER_TEMP/agent-output.json"
   fi
   for file; do
-    cost=$(jq -r '.total_cost_usd // 0' "$file" 2> /dev/null) || cost=0
-    total=$(jq -n --argjson a "$total" --argjson b "${cost:-0}" '$a + $b')
+    cost=$(jq -er '.total_cost_usd | numbers' "$file" 2> /dev/null) || { echo unknown; return; }
+    total=$(jq -n --argjson a "$total" --argjson b "$cost" '$a + $b')
   done
   echo "$total"
 }
 
-# eval_add_cost <dollars>: add to the run's total.
+# eval_add_cost <dollars|unknown>: add to the run's total; once a cost is
+# unknown, so is the total (eval_budget_check stops the run).
 eval_add_cost() {
-  jq -n --argjson spent "$(cat "$EVALS_SPENT_FILE")" --argjson cost "$1" '$spent + $cost' > "$EVALS_SPENT_FILE.new" \
+  local spent
+  spent=$(cat "$EVALS_SPENT_FILE")
+  if [ "$1" = unknown ] || [ "$spent" = unknown ]; then echo unknown > "$EVALS_SPENT_FILE"; return; fi
+  jq -n --argjson spent "$spent" --argjson cost "$1" '$spent + $cost' > "$EVALS_SPENT_FILE.new" \
     && mv "$EVALS_SPENT_FILE.new" "$EVALS_SPENT_FILE"
 }

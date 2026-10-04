@@ -23,7 +23,7 @@ hub's files (this folder, `.github/workflows/agent-hub-*.yml` and
 - **Locally, for fast feedback**: formatting and lint on every commit (a few
   seconds; skippable with `--no-verify`, so a convenience, not the gate). Run
   the test suite yourself before opening a pull request when you've changed
-  code (a few minutes: `npm test --prefix .github/agent-hub/tests`).
+  code (about 5 minutes in parallel: `npm test --prefix .github/agent-hub/tests`).
 - **In CI, as the gate**: `.github/workflows/agent-hub-tests.yml` runs the
   same checks on every pull request that changes the hub, and the tests on jq
   1.7 and 1.8. The required status checks for merging are **Agent hub: Lint**

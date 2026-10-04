@@ -11,9 +11,13 @@
 # The workflow loads the hub from its copy in RUNNER_TEMP (see the "Copy the
 # hub" step), so HUB_DIR is wherever this file is — never the checkout.
 
+# A failure anywhere in a pipeline fails it, in every step (the workflow runs
+# each with `bash -e`).
+set -o pipefail
 HUB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 export HUB_DIR
 source "$HUB_DIR/lib/settings.sh"
+source "$HUB_DIR/lib/paths.sh"
 case "$1" in
   tracker)
     source "$HUB_DIR/trackers/$TRACKER/tracker.sh"

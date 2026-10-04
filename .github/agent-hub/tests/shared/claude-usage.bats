@@ -98,8 +98,9 @@ setup() {
   assert [ "$(grep -c '^ok ' <<< "$output")" -gt 0 ]
 }
 
-# The eval spend total counts each pass once, from whichever outputs exist.
-@test "eval cost: draft and review, a skipped review, a failed draft, an unreadable review" {
+# The eval spend total counts each pass once, from whichever outputs exist;
+# a pass whose cost can't be read makes the case's cost unknown, never 0.
+@test "eval cost: draft and review, a skipped review, a failed draft; an unreadable or missing cost is unknown" {
   export RUNNER_TEMP="$BATS_TEST_TMPDIR"
   out() { echo "{\"total_cost_usd\": $2}" > "$RUNNER_TEMP/$1"; }
   out agent-draft.json 1.25; out agent-review-output.json 0.5
@@ -107,10 +108,61 @@ setup() {
   rm "$RUNNER_TEMP/agent-review-output.json"; out agent-output.json 1.25   # sent back: no review
   assert_equal "$(eval_cost)" 1.25
   echo "not json" > "$RUNNER_TEMP/agent-review-output.json"                # the review broke
-  assert_equal "$(eval_cost)" 1.25
+  assert_equal "$(eval_cost)" unknown
+  : > "$RUNNER_TEMP/agent-review-output.json"                              # the review produced nothing
+  assert_equal "$(eval_cost)" unknown
   rm "$RUNNER_TEMP"/agent-draft.json "$RUNNER_TEMP/agent-review-output.json"   # failed before the review
   out agent-output.json 0.4
   assert_equal "$(eval_cost)" 0.4
+  echo '{"is_error": true}' > "$RUNNER_TEMP/agent-output.json"             # no cost reported
+  assert_equal "$(eval_cost)" unknown
+  rm "$RUNNER_TEMP/agent-output.json"                                      # no output at all
+  assert_equal "$(eval_cost)" unknown
+}
+
+@test "eval budget: an unknown cost stops the remaining cases; a total that can't be compared fails the case" {
+  export EVALS_SPENT_FILE="$BATS_TEST_TMPDIR/spent" EVALS_MAX_COST_USD=5 RESULTS="$BATS_TEST_TMPDIR/results.md"
+  echo 1 > "$EVALS_SPENT_FILE"
+  eval_add_cost unknown
+  assert_equal "$(cat "$EVALS_SPENT_FILE")" unknown
+  eval_add_cost 2
+  assert_equal "$(cat "$EVALS_SPENT_FILE")" unknown
+  run bash -c "source '$TESTS_DIR/lib/helpers.bash'; skip() { echo \"skip: \$*\"; exit 0; }; eval_budget_check some-case"
+  assert_output --partial "skip: an earlier case's cost couldn't be read"
+  echo 1 > "$EVALS_SPENT_FILE"
+  EVALS_MAX_COST_USD=ten run bash -c "source '$TESTS_DIR/lib/helpers.bash'; skip() { echo skipped; exit 0; }; eval_budget_check some-case"
+  assert_failure
+  assert_output --partial "the eval budget couldn't be checked"
+}
+
+@test "an eval run refuses a cap that isn't a number, and parallel cases, before anything runs" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  printf '#!/bin/sh\necho called >> "%s/calls"\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/bin/claude"
+  chmod +x "$BATS_TEST_TMPDIR/bin/claude"
+  EVALS_CONFIRM=use-claude EVALS_MAX_COST_USD=ten PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$TESTS_DIR/lib/run-evals.sh" work-order
+  assert_failure 2
+  assert_output --partial "must be a number of dollars"
+  for arg in --jobs -j4 --jobs=2; do
+    EVALS_CONFIRM=use-claude PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$TESTS_DIR/lib/run-evals.sh" work-order "$arg"
+    assert_failure 2
+    assert_output --partial "one case at a time"
+  done
+  assert [ ! -e "$BATS_TEST_TMPDIR/calls" ]
+}
+
+# REAL_CLAUDE exported in a shell must not turn ordinary tests into live
+# runs: the real CLI takes an eval run started by lib/run-evals.sh.
+@test "the tests use the stub even with REAL_CLAUDE (or RUN_EVALS) exported" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  printf '#!/bin/sh\necho called >> "%s/calls"\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/bin/claude"
+  chmod +x "$BATS_TEST_TMPDIR/bin/claude"
+  cd "$TESTS_DIR" || return 1
+  REAL_CLAUDE=1 RUN_EVALS=1 PATH="$BATS_TEST_TMPDIR/bin:$PATH" run lib/run-tests.sh -f '^a complete plan continues' implementation-plan/claude-step.bats
+  assert_success
+  # Run directly, without the launcher: the helper still uses the stub.
+  REAL_CLAUDE=1 RUN_EVALS=1 PATH="$BATS_TEST_TMPDIR/bin:$PATH" run node_modules/.bin/bats -f '^a complete plan continues' implementation-plan/claude-step.bats
+  assert_success
+  assert [ ! -e "$BATS_TEST_TMPDIR/calls" ]
 }
 
 @test "a local eval run needs a typed confirmation: without one, nothing runs" {

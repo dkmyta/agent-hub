@@ -107,3 +107,25 @@ EOF
   run with_scan 'secret_scan "$(git rev-parse HEAD)"'
   assert_success
 }
+
+# The build commits with git metadata copied before the agent ran (GIT_DIR),
+# while the checkout's own .git is the agent's to change. The real gitleaks
+# must scan the trusted copy: a secret only there is found, whatever history
+# the checkout's .git shows. Needs the network.
+@test "real gitleaks: scans the repository GIT_DIR names, not the checkout's own .git" {
+  curl -sSfI -m 10 https://github.com > /dev/null 2>&1 || skip "no network to download gitleaks"
+  repo_with base2.txt "clean"
+  cp -R .git "$BATS_TEST_TMPDIR/trusted"
+  local base token
+  base=$(git rev-parse HEAD)
+  # The checkout's .git: another harmless commit.
+  echo harmless > other.txt && git add other.txt && git commit -qm harmless && git rm -q --cached other.txt && rm other.txt
+  # The trusted copy: the secret.
+  token="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
+  printf 'token = "%s"\n' "$token" > secret.txt
+  GIT_DIR="$BATS_TEST_TMPDIR/trusted" GIT_WORK_TREE=$PWD git add secret.txt
+  GIT_DIR="$BATS_TEST_TMPDIR/trusted" GIT_WORK_TREE=$PWD git commit -qm secret
+  run env GIT_DIR="$BATS_TEST_TMPDIR/trusted" GIT_WORK_TREE="$PWD" bash -c "source '$HUB_DIR/lib/secret-scan.sh'; secret_scan '$base'" 2>&1
+  assert_failure 1
+  assert_output "github-pat in secret.txt"
+}

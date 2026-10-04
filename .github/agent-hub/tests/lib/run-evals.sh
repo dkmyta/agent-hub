@@ -30,6 +30,15 @@ if [ ${#dirs[@]} -eq 0 ]; then
 fi
 
 EVALS_MAX_COST_USD="${EVALS_MAX_COST_USD:-10}"
+# A cap that isn't a plain number would disable the check, so nothing runs.
+[[ "$EVALS_MAX_COST_USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] \
+  || { echo "EVALS_MAX_COST_USD must be a number of dollars (e.g. 10), not '$EVALS_MAX_COST_USD'. Nothing ran." >&2; exit 2; }
+# Cases share the run's spend total, so they run one at a time.
+for arg; do
+  case "$arg" in -j | --jobs | --jobs=* | -j* | --parallel-binary-name* | --no-parallelize-*)
+    echo "Evals run one case at a time (they share the run's spend cap); drop $arg. Nothing ran." >&2; exit 2 ;;
+  esac
+done
 
 # Evals use Claude, so every run is confirmed: typed at the prompt, or
 # EVALS_CONFIRM=use-claude where there's no terminal (the Agent hub: Evals workflow

@@ -99,6 +99,12 @@ def strike_all:
        else . end);
 
 # The plain text of the first text node — used to recognise comment types.
+# A ticket's acceptance criteria — its description's Acceptance Criteria
+# checklist — as plain text, in order (on an issue: {fields: {description}}).
+def acceptance_criteria:
+  [.fields.description // {content: []} | section_blocks("Acceptance Criteria")[]
+   | select(.type == "taskList") | .content[] | plain_text];
+
 def first_text: [.. | objects | select(.type == "text") | .text][0] // "";
 
 # Whether this text starts with the command word $cmd (e.g. "/revise"), in any

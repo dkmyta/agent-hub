@@ -52,19 +52,30 @@ test/greet.test.js expected"
 }
 
 @test "a public repository: no ticket text in the pull request or commit, unless publishing is on" {
-  run_scenario ready MOCK_GH_VISIBILITY=public
+  # Claude's command strings could carry ticket text too (a canary here).
+  run_scenario ready MOCK_GH_VISIBILITY=public \
+    'CLAUDE_FIXTURE_EDIT=.structured_output.build.tests_run[0].command = "node check.js --customer PRIVATE-CANARY"'
   run jq -r 'select(.path | endswith("/pulls")) | .body | .title, .body' "$GH_CALLS"
   assert_line --index 0 "PROJ-99: build from the approved plan"
   refute_output --partial "Greet people by name"
   refute_output --partial "Hello, Ada"
   refute_output --partial "example.atlassian.net"
+  refute_output --partial "PRIVATE-CANARY"
+  assert_output --partial "- Check 1 — **passed**"
   assert_output --partial "Ticket: PROJ-99 ·"
   run git --git-dir="$REMOTE" log -1 --format=%s agent-hub/PROJ-99
   assert_output "Build PROJ-99 from its approved implementation plan"
   fresh_repo
-  run_scenario ready MOCK_GH_VISIBILITY=public 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_PUBLISH_TICKET_CONTENT": "true"}'
+  run_scenario ready MOCK_GH_VISIBILITY=public 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_PUBLISH_TICKET_CONTENT": "true"}' \
+    'CLAUDE_FIXTURE_EDIT=.structured_output.build.commit_message = "feat: greet\n\nCo-authored-by: Someone <s@example.com>\nSigned-off-by: X <x@example.com>"'
   run jq -r 'select(.path | endswith("/pulls")) | .body.title' "$GH_CALLS"
   assert_output "PROJ-99: Greet people by name"
+  # Claude's message, without trailers that would attribute the commit.
+  run git --git-dir="$REMOTE" log -1 --format=%B agent-hub/PROJ-99
+  assert_line --index 0 "feat: greet"
+  refute_output --partial "Co-authored-by"
+  refute_output --partial "Signed-off-by"
+  assert_line "Refs: PROJ-99"
 }
 
 @test "a change outside the plan: pushed, with a decision item for a person" {
@@ -72,7 +83,9 @@ test/greet.test.js expected"
 }
 
 @test "a file the hub never pushes (.github/): nothing pushed" {
-  run_scenario refused
+  run_scenario ready CLAUDE_EDITS=edits/workflow.sh
+  run trace
+  assert_line "Apply: failure"
   assert_equal "$(remote_branches)" "main"
   run failure_notice
   assert_output --partial ".github/workflows/ci.yml"
@@ -82,7 +95,9 @@ test/greet.test.js expected"
 }
 
 @test "a secret in the changes: nothing pushed, the file named only on the ticket" {
-  run_scenario secret
+  run_scenario ready CLAUDE_EDITS=edits/secret.sh
+  run trace
+  assert_line "Apply: failure"
   assert_equal "$(remote_branches)" "main"
   run failure_notice
   assert_output --partial "github-pat in src/config.js"
@@ -99,13 +114,58 @@ test/greet.test.js expected"
   assert_output --partial "changed no files"
 }
 
-@test "a plan file uploaded during the run: the approval is stale, nothing pushed" {
-  run_scenario ready ATTACHMENTS_LATER_FIXTURE=attachments-newer.json
+@test "a plan file uploaded during the run: while the plan downloads, back to be approved again; later, nothing pushed" {
+  run_scenario ready ATTACHMENTS_LATER_FIXTURE=attachments-newer.json ATTACHMENTS_LATER_FROM=2
+  run trace
+  assert_line "Agent: skipped"
+  run writes
+  assert_line 'POST /transitions'
+  run_scenario ready ATTACHMENTS_LATER_FIXTURE=attachments-newer.json ATTACHMENTS_LATER_FROM=3
   run trace
   assert_line "Apply: failure"
   assert_equal "$(remote_branches)" "main"
   run failure_notice
-  assert_output --partial "plan files changed while the build was running"
+  assert_output --partial "approval changed while the build was running"
+}
+
+# The history and the attachments are separate reads: a plan uploaded between
+# them is in the attachments but not (yet) in the history.
+@test "approval check: a plan newer than the approval, the work order edited since, or an older plan removed during the run" {
+  run_scenario ready ATTACHMENTS_FIXTURE=attachments-newer.json
+  run trace
+  assert_line "Agent: skipped"
+  grep -qx '\*\*Outcome:\*\* stale' "$RUNNER_TEMP/summary.md"
+  jq '.total = 3 | .values += [{"created": "2026-10-01T10:30:00.000+0000", "author": {"accountId": "dana-lead"},
+    "items": [{"field": "description", "fromString": "a", "toString": "b"}]}]' "$FIXTURES/changelog-approved.json" \
+    > "$BATS_TEST_TMPDIR/edited.json"
+  run_scenario ready CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/edited.json"
+  run trace
+  assert_line "Agent: skipped"
+  grep -qx '\*\*Outcome:\*\* stale' "$RUNNER_TEMP/summary.md"
+  jq '[{"id": "10000", "filename": "PROJ-99-implementation-plan.md", "created": "2026-10-01T08:00:00.000+0000"}] + .' \
+    "$FIXTURES/attachments.json" > "$BATS_TEST_TMPDIR/two-plans.json"
+  run_scenario ready ATTACHMENTS_FIXTURE="$BATS_TEST_TMPDIR/two-plans.json" \
+    ATTACHMENTS_LATER_FIXTURE="$FIXTURES/attachments.json" ATTACHMENTS_LATER_FROM=3
+  run trace
+  assert_line "Apply: failure"
+  assert_equal "$(remote_branches)" "main"
+}
+
+# A time that can't be read can't show the plan predates the approval.
+@test "approval check: a plan file's time that can't be read counts as stale" {
+  jq '.[0].created = "yesterday"' "$FIXTURES/attachments.json" > "$BATS_TEST_TMPDIR/odd-time.json"
+  run_scenario ready ATTACHMENTS_FIXTURE="$BATS_TEST_TMPDIR/odd-time.json"
+  run trace
+  assert_line "Agent: skipped"
+  grep -qx '\*\*Outcome:\*\* stale' "$RUNNER_TEMP/summary.md"
+}
+
+@test "approval check: the automation account can't be identified → nothing built" {
+  run_scenario ready 'MOCK_FAIL=GET /myself'
+  run trace
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "Couldn't identify Jira's automation account"
 }
 
 @test "the build doesn't say how a criterion is verified: nothing pushed" {
@@ -215,6 +275,74 @@ main"
   assert_output --partial "isn't enabled for real tickets yet"
 }
 
+# The build's sandbox rests on the Claude Code version, so it runs only with
+# an exact pinned version that the runner has — checked before any Claude use.
+@test "Claude Code version: unpinned, 'latest' or a mismatch stops the build before Claude, GitHub or the plan" {
+  local vars
+  for vars in '{"AGENT_HUB_BUILD_PREVIEW": "true"}' \
+      '{"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "latest"}'; do
+    run_scenario ready VARS="$vars"
+    run trace
+    assert_line "Agent: skipped"
+    [ ! -s "$GH_CALLS" ] || fail "GitHub was called"
+    run cat "$RUNNER_TEMP/failure-reason"
+    assert_output --partial "needs an exact Claude Code version"
+  done
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "2.1.280"}'
+  run trace
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "The runner has Claude Code 9.9.9, but AGENT_HUB_CLAUDE_CODE_VERSION pins 2.1.280"
+  run writes
+  refute_line "GET /attachment/content/10001"
+}
+
+# Absent when the run started, the branch is created by someone else while the
+# agent works — at the run's own base, so a plain push would fast-forward it.
+@test "the branch created during the run (even at the same commit): nothing pushed to it" {
+  cat > "$BATS_TEST_TMPDIR/race.sh" <<SH
+git push -q origin HEAD:refs/heads/agent-hub/PROJ-99
+bash -e "$FIXTURES/edits/greet.sh"
+SH
+  run_scenario ready CLAUDE_EDITS="$BATS_TEST_TMPDIR/race.sh"
+  run trace
+  assert_line "Apply: failure"
+  assert_equal "$(git --git-dir="$REMOTE" rev-parse agent-hub/PROJ-99)" "$(git --git-dir="$REMOTE" rev-parse main)"
+  run failure_notice
+  assert_output --partial "GitHub rejected the push"
+}
+
+# A hard link could carry a file from elsewhere on the runner into the commit.
+@test "a hard link in the changes: nothing committed or pushed, the file named only on the ticket" {
+  cat > "$BATS_TEST_TMPDIR/link.sh" <<SH
+bash -e "$FIXTURES/edits/greet.sh"
+ln src/greet.js src/linked.js
+SH
+  run_scenario ready CLAUDE_EDITS="$BATS_TEST_TMPDIR/link.sh"
+  run trace
+  assert_line "Apply: failure"
+  assert_equal "$(remote_branches)" "main"
+  run failure_notice
+  assert_output --partial "hard links"
+  assert_output --partial "src/linked.js"
+  run grep -c "linked.js" "$RUNNER_TEMP/log.txt"
+  assert_output 0
+}
+
+@test "a size limit that isn't a whole number stops the build before Claude, GitHub or the plan" {
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MAX_FILES": "many"}'
+  run trace
+  assert_line "Agent: skipped"
+  [ ! -s "$GH_CALLS" ] || fail "GitHub was called"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "AGENT_HUB_BUILD_MAX_FILES must be a whole number"
+}
+
 @test "not in Implementation Plan Approved: nothing happens" {
-  run_scenario not-in-plan-approved
+  run_scenario ready MOCK_STATUS="Implementation Plan"
+  run trace
+  assert_line "Agent: skipped"
+  run writes
+  assert_output ""
+  [ ! -s "$GH_CALLS" ] || fail "GitHub was called"
 }

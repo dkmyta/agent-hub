@@ -96,7 +96,7 @@ step_apply() {
   # A revised work order supersedes any plan written for the previous
   # version: say so where its summary was (the plan stage replaces the
   # attachment when the work order is approved again).
-  PLAN_FILE="$TICKET_KEY-$PLAN_FILE_SUFFIX"
+  PLAN_FILE=$PLAN_FILE_NAME
   if [ "$MODE" = revision ] \
      && tracker_attachments | jq -e --arg name "$PLAN_FILE" 'any(.[]; .filename == $name)' > /dev/null; then
     # shellcheck disable=SC1112 # curly apostrophe intended

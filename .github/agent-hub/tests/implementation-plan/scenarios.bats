@@ -379,3 +379,45 @@ uploaded_mid_run() {
   run failure_notice
   assert_output --partial 'no longer has: \"Testing\"'
 }
+
+# The plan is written from the work order as the run read it: one edited
+# during the run (anywhere but the plan's own section, which the run
+# replaces) may no longer match the plan.
+@test "work order edited during the run: a new plan isn't published (stale); a revision stops; plan-section edits are fine" {
+  jq '.fields.description.content[1].content[0].text = "A different request."' \
+    "$WORK_ORDER_FIXTURES/tickets/work-order.json" > "$BATS_TEST_TMPDIR/edited.json"
+  run_scenario ready TICKET_LATER_FIXTURE="$BATS_TEST_TMPDIR/edited.json"
+  run writes
+  refute_line "POST /attachments"
+  assert_line "POST /transitions"
+  grep -qx '\*\*Outcome:\*\* stale' "$RUNNER_TEMP/summary.md"
+  # Only the Implementation Plan section edited: published as usual.
+  jq '(.fields.description.content | map(.type == "heading" and .content[0].text == "Implementation Plan") | index(true)) as $i
+      | .fields.description.content[$i + 1].content[0].text = "Edited by hand."' \
+    "$WORK_ORDER_FIXTURES/tickets/work-order.json" > "$BATS_TEST_TMPDIR/plan-section.json"
+  run_scenario ready TICKET_LATER_FIXTURE="$BATS_TEST_TMPDIR/plan-section.json"
+  run writes
+  assert_line "POST /attachments"
+  # A revision of a plan whose work order changed meanwhile: nothing written.
+  jq '.fields.description.content[1].content[0].text = "A different request."' \
+    "$FIXTURES/tickets/plan-written.json" > "$BATS_TEST_TMPDIR/edited-written.json"
+  run_scenario revise TICKET_LATER_FIXTURE="$BATS_TEST_TMPDIR/edited-written.json"
+  run writes
+  refute_line "POST /attachments"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "work order changed while the plan was being revised"
+}
+
+# The build sends unclear plans back with a "Questions from the build"
+# section; a revision answers them, and the section goes, so the next build
+# doesn't see questions that were already answered.
+@test "revise: a plan the build sent back loses its 'Questions from the build' section" {
+  { cat "$FIXTURES/previous-plan.md"; printf '\n## Questions from the build\n\n- **Should greet trim?** Why it matters: x\n'; } \
+    > "$BATS_TEST_TMPDIR/with-questions.md"
+  run_scenario revise ATTACHMENT_CONTENT_FIXTURE="$BATS_TEST_TMPDIR/with-questions.md"
+  run writes
+  assert_line "POST /attachments"
+  run cat "$RUNNER_TEMP"/attached/*
+  refute_output --partial "Questions from the build"
+  assert_output --partial "## Expert review"
+}

@@ -28,7 +28,7 @@ The agent hub pipeline runs where Claude Code can run. By default that's a
 Claude account. Follow [runners.md](runners.md) to set one up, or to use the
 Claude API on GitHub-hosted runners instead. Then run the sandbox check on it
 ([runners.md](runners.md#checking-the-sandbox)) — needed before the build
-stage (planned), which runs commands; on a personal machine, read
+stage, which runs commands; on a personal machine, read
 [Before running the build on real tickets](runners.md#before-running-the-build-on-real-tickets)
 too.
 
@@ -53,12 +53,12 @@ use its default. (The defaults are in `lib/settings.sh` and each stage's
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `AGENT_HUB_ENABLED` | `true` | The kill switch: `false` stops every hub workflow (stages and evals) before it reaches a runner — e.g. while investigating a problem. Only admins can change repository variables |
+| `AGENT_HUB_ENABLED` | `true` | The kill switch: `false` stops every hub workflow (stages and evals) before it reaches a runner — e.g. while investigating a problem. A run already going finishes (cancel it in the Actions tab). Only admins can change repository variables |
 | `AGENT_HUB_TRACKER` | `jira` | Where tickets live (`trackers/<name>/`). Only `jira` exists so far |
 | `AGENT_HUB_RUNNER` | `claude-code` | What runs the agents (`lib/runners/<name>.sh`). Only `claude-code` exists so far |
 | `AGENT_HUB_RUNS_ON` | `["self-hosted", "claude"]` | Runner labels, as JSON. `["ubuntu-latest"]` for GitHub-hosted runners |
 | `AGENT_HUB_EVALS_MAX_COST_USD` | `10` | Total spend cap for one Agent hub: Evals run; remaining cases are skipped once reached |
-| `AGENT_HUB_CLAUDE_CODE_VERSION` | `latest` | Claude Code version installed on GitHub-hosted runners |
+| `AGENT_HUB_CLAUDE_CODE_VERSION` | `latest` | Claude Code version installed on GitHub-hosted runners. **The build requires an exact version** (e.g. `2.1.280`) matching the runner's `claude --version` ([runners.md](runners.md#claude-code-version)) |
 | `AGENT_HUB_CLAUDE_FETCH_DOMAINS` | GitHub, Atlassian, Anthropic, MDN, Node and npm docs | Space-separated sites Claude may fetch pages from |
 | `AGENT_HUB_WORK_ORDER_STATUS` | `Work Order` | Status a ticket is in while its work order is prepared |
 | `AGENT_HUB_INTAKE_STATUS` | `Intake` | Status for new tickets and tickets that need more detail |

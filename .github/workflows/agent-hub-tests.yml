@@ -91,14 +91,22 @@ jobs:
             echo "No prompt, schema or Claude setting changes."
             exit 0
           fi
-          # Only the affected stages' evals, so a run costs one stage's worth.
-          stages=$(.github/agent-hub/scripts/agent-behaviour-changes.sh --stages "$BASE_SHA" | paste -sd ' ' - | sed 's/ /, /g')
-          echo "::notice title=Agent behaviour changed::This PR changes how the agents decide ($stages). Try it on a real ticket, or run Agent hub: Evals if it's worth the cost."
+          # Only the affected stages' evals, so a run costs one stage's worth —
+          # and only stages that have evals (the Evals workflow offers no others).
+          with_evals="" without=""
+          for stage in $(.github/agent-hub/scripts/agent-behaviour-changes.sh --stages "$BASE_SHA"); do
+            if [ "$stage" = all ] || [ -d ".github/agent-hub/tests/$stage/evals" ]; then with_evals="$with_evals${with_evals:+, }$stage"
+            else without="$without${without:+, }$stage"; fi
+          done
+          evals="Try it on a real ticket"
+          [ -z "$with_evals" ] || evals="$evals, or — if it's worth the Claude usage — run **Actions → Agent hub: Evals** for **stage: $with_evals** (manual, confirm with \`use-claude\`; see .github/agent-hub/docs/evals.md)"
+          [ -z "$without" ] || evals="$evals. No evals exist yet for: $without — a real ticket is the check there"
+          echo "::notice title=Agent behaviour changed::This PR changes how the agents decide (${with_evals}${with_evals:+${without:+, }}${without}). $(sed 's/\*\*//g; s/`//g' <<< "$evals")."
           {
             echo "### Agent behaviour changed"
             echo
             echo "This PR changes prompts, schemas or Claude settings, which unit tests can't evaluate."
-            echo "Try it on a real ticket, or — if it's worth the Claude usage — run **Actions → Agent hub: Evals** for **stage: $stages** (manual, confirm with \`use-claude\`; see .github/agent-hub/docs/evals.md)."
+            echo "$evals."
             echo
             echo '```'
             echo "$changes"

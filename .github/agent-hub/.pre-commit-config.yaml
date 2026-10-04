@@ -41,4 +41,4 @@ repos:
     hooks:
       - id: shellcheck
         args: [--severity=warning, --external-sources]
-        files: ^\.github/agent-hub/(.*\.sh|tests/.*\.(bash|bats)|tests/lib/bin/claude)$
+        files: ^\.github/agent-hub/(.*\.sh|tests/.*\.(bash|bats)|tests/lib/bin/(claude|gitleaks))$

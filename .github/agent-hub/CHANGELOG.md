@@ -5,6 +5,72 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.5.1 — 2026-10-04
+
+Boundary hardening, from two full reviews of 2.5.0 — before the build runs
+on a real ticket.
+
+- **Credential files are always removed.** A code stage's steps load both
+  the tracker and GitHub, and GitHub's cleanup replaced the tracker's, leaving
+  the Jira credential file in the job's temp folder for the agent step. Each
+  library now adds its files to one cleanup, the final step also removes any a
+  killed step left, and every test step fails if it leaves one behind.
+- **The gates read exact file names.** Git quotes names with special
+  characters, which slipped such a file past the refused paths (a workflow
+  named with an accent was a decision item, not refused). The gates now read
+  git's NUL-separated output, match hub paths in any letter case, and fail if
+  git can't list the changes.
+- **Approvals bind to what was approved.** The build reads the approval and the
+  plan files together and again before it pushes or sends the ticket back: a
+  plan newer than the approval, a plan file added or removed, or the work order
+  edited since the approval makes it stale. The plan stage no longer publishes
+  a plan when the work order changed while it was written.
+- **A first push needs the branch absent** — one created during the run, even
+  at the same commit, isn't pushed to.
+- **The build needs an exact Claude Code version**
+  (`AGENT_HUB_CLAUDE_CODE_VERSION`, e.g. `2.1.280`) matching the runner's,
+  checked before any Claude usage; Claude Code doesn't update itself during
+  runs. The sandbox check stays a manual step (it uses Claude).
+- **Public pull requests show checks by number and result**, not the commands
+  Claude wrote, and Claude's commit message loses trailers that would
+  attribute the commit (e.g. `Co-authored-by`).
+- **The plan's contract is read strictly**: any list marker reads the same; an
+  item it can't read, or a repeated section or label, stops the build rather
+  than silently dropping a restriction; the base commit comes only from the
+  Version line.
+- **Tests never reach the real Claude** even with `REAL_CLAUDE` or `RUN_EVALS`
+  exported; evals refuse parallel cases and a cap that isn't a number, and an
+  unreadable cost stops the run instead of counting as $0. One test that
+  needed the network no longer does.
+- **Tightened further after a second look:** a time that can't be read (or
+  a fraction of a second) is handled — an unreadable time counts as stale,
+  never as approved; the contract also reads numbered and indented items and
+  rejects prose in a list (an empty list is only the exact line the plan
+  stage writes), a change written as an indented line and repeated table
+  rows; a file with more than one hard link is never committed; the gates fail
+  on any error — a size limit that isn't a number included (checked before
+  Claude runs too) — and nothing is pushed without their complete result; a
+  file's attributes are read exactly, whatever its name holds.
+- **One definition each** for the paths only people change (`lib/paths.sh`,
+  used by the agent's deny rules, the plan's path check and the gates), the
+  acceptance criteria, the "every criterion covered" check, the "changed after
+  approval" send-back and the plan file's name. The tracker's history names
+  changes by kind (`attachment`, `description`), so the build no longer reads
+  Jira's field names.
+- **The build's questions are cleared once answered**: a plan revision answers
+  a "Questions from the build" section and removes it.
+- **The CI eval notice** suggests evals only for stages that have them.
+- **Docs:** no more "not built yet" or "planned" for the build; what Claude
+  usage the build adds, and that caps are per pass (not a total); the kill
+  switch stops runs before they start; the PR 4 prerequisites (a read-only
+  review profile, GitHub's edit-history format) are written into the build
+  plan.
+
+**Updating:** for the build (development only), set
+`AGENT_HUB_CLAUDE_CODE_VERSION` to the runner's version (`claude --version`)
+and add `DISABLE_AUTOUPDATER=1` to the runner's `.env`
+([docs/runners.md](docs/runners.md#claude-code-version)). Nothing else.
+
 ## 2.5.0 — 2026-10-04
 
 The build stage, first part: an approved plan becomes a draft pull request
@@ -148,7 +214,7 @@ mode skips them. The next release loads them explicitly; meanwhile, put what
 the pipeline needs in extensions.
 
 **Updating:** in Jira, add the Implementation Plan Approved rule
-([docs/jira.md](docs/jira.md#rule-implementation-plan-approved)) to clear
+([docs/jira.md](docs/jira.md#rule-build-requested), then named Implementation Plan Approved) to clear
 `needs-human` when a plan is approved — optional, nothing breaks without it.
 Plans written before this version keep working; a revision adds the new
 sections when it changes them.
