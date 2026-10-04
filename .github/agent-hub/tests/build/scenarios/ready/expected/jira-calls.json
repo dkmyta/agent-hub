@@ -1,0 +1,143 @@
+[
+  {
+    "method": "GET",
+    "path": "?fields=summary,description,status",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/changelog?startAt=0&maxResults=100",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/myself",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "?fields=attachment",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/attachment/content/10001",
+    "body": null
+  },
+  {
+    "method": "POST",
+    "path": "/comment",
+    "body": {
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "⏳ Building",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " — implementing the approved plan; usually takes 10–30 minutes. Refresh the page to see the result. "
+              },
+              {
+                "type": "text",
+                "text": "Follow progress in GitHub Actions",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://github.com/example/repo/actions/runs/1000"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "?fields=status",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "?fields=attachment",
+    "body": null
+  },
+  {
+    "method": "POST",
+    "path": "/comment",
+    "body": {
+      "body": {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "🔨 Draft pull request opened",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " — "
+              },
+              {
+                "type": "text",
+                "text": "#101",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://github.com/example/repo/pull/101"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": ". Automated review and CI checks come in a later version, so review it on GitHub."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "",
+    "body": {
+      "update": {
+        "labels": [
+          {
+            "add": "needs-human"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "DELETE",
+    "path": "/comment/5001",
+    "body": null
+  }
+]

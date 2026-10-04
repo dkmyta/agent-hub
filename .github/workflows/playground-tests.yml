@@ -1,0 +1,28 @@
+name: "Playground: tests"
+
+# The playground's CI (playground/README.md): its tests on pull requests that
+# change it — what a repository's own CI does for the build stage's pull
+# requests.
+
+on:
+  pull_request:
+    paths: [playground/**]
+  push:
+    branches: [main]
+    paths: [playground/**]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Playground tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Test
+        working-directory: playground
+        run: npm test

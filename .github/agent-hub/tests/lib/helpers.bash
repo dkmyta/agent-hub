@@ -25,20 +25,23 @@ source "$BATS_LIBS"
 
 # extract_workflow <workflow> <dir>
 # Writes the workflow's env and step scripts to <dir> once per test file, with
-# the Jira mock loaded right after each step loads the tracker (lib/load.sh).
+# the Jira and GitHub mocks loaded right after each step loads the tracker
+# (lib/load.sh; GitHub only for code stages, but the mock is harmless).
 extract_workflow() {
   node "$TESTS_DIR/lib/workflow.mjs" extract "$1" "$2"
   local script
   for script in "$2"/*.sh; do
     [ "$(basename "$script")" = env.sh ] && continue
-    sed -i.orig "s|^\([[:space:]]*\)source \"\$HUB_DIR/lib/load.sh\" tracker$|&; source \"$TESTS_DIR/lib/mock-jira.bash\"|" "$script"
+    sed -i.orig "s|^\([[:space:]]*\)source \"\$RUNNER_TEMP/agent-hub/lib/load.sh\" tracker$|&; source \"$TESTS_DIR/lib/mock-jira.bash\"; source \"$TESTS_DIR/lib/mock-github.bash\"|" "$script"
     rm "$script.orig"
   done
 }
 
-# use_run_env <dir>: the environment a runner provides, rooted at <dir>.
+# use_run_env <dir>: the environment a runner provides, rooted at <dir>, with
+# the hub where the workflow's "Copy the hub" step puts it — linked, not
+# copied, for speed (stage-workflow.bats runs the real step).
 use_run_env() {
-  export RUNNER_TEMP=$1 STEP_OUTPUTS=$1/outputs CALLS=$1/calls.jsonl
+  export RUNNER_TEMP=$1 STEP_OUTPUTS=$1/outputs CALLS=$1/calls.jsonl GH_CALLS=$1/gh-calls.jsonl
   # Inside the test, except in evals (the real Claude, in a copy of the
   # repository): where agent_cleanup looks for Claude Code's session folders,
   # and the repository extensions (none unless a test adds them).
@@ -49,7 +52,16 @@ use_run_env() {
   export JIRA_DOMAIN=example.atlassian.net JIRA_EMAIL=bot@example.com JIRA_API_TOKEN=test-token
   export GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=example/repo GITHUB_RUN_ID=1000
   mkdir -p "$STEP_OUTPUTS"
+  [ -e "$1/agent-hub" ] || ln -s "$HUB_DIR" "$1/agent-hub"
+  # Code stages scan before every push: with MOCK_GITLEAKS=1, the stand-in
+  # (lib/bin/gitleaks) is where the hub installs gitleaks, so nothing is
+  # downloaded.
+  if [ "${MOCK_GITLEAKS:-}" = 1 ]; then
+    mkdir -p "$1/gitleaks-$(sed -n 's/^GITLEAKS_VERSION=//p' "$HUB_LIB/secret-scan.sh")"
+    ln -sf "$TESTS_DIR/lib/bin/gitleaks" "$1/gitleaks-$(sed -n 's/^GITLEAKS_VERSION=//p' "$HUB_LIB/secret-scan.sh")/gitleaks"
+  fi
   : > "$CALLS"
+  : > "$GH_CALLS"
 }
 
 # checkout_copy <workflow> <dir>: copies the working tree to <dir> as the
@@ -134,7 +146,9 @@ run_stage() {
   skip() { echo "$1: skipped"; }
   succeeding() { [ $failed = 0 ] && [ $cancelled = 0 ]; }  # success()
 
-  # The tests run as a self-hosted runner, where Claude Code is preinstalled.
+  # "Copy the hub" isn't run: use_run_env provides the copy (a link), and
+  # stage-workflow.bats runs the real step. The tests run as a self-hosted
+  # runner, where Claude Code is preinstalled.
   skip "Install Claude Code"
 
   step "Fetch ticket" start
@@ -180,15 +194,16 @@ run_scenario() {
   shift
   for arg in "$@"; do case "$arg" in --full) full=--full ;; *) overrides+=("$arg") ;; esac; done
   export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" MOCK_FAIL_FROM="" CLAUDE_FIXTURE=none CANCEL_AFTER=""
-  export CLAUDE_REVIEW_FIXTURE=approve CLAUDE_REVIEW_EXIT=0 CLAUDE_FIXTURE_EDIT="" CLAUDE_REVIEW_FIXTURE_EDIT=""
+  export CLAUDE_REVIEW_FIXTURE=approve CLAUDE_REVIEW_EXIT=0 CLAUDE_FIXTURE_EDIT="" CLAUDE_REVIEW_FIXTURE_EDIT="" CLAUDE_EDITS=""
   export TICKET_FIXTURE=tickets/ready.json TICKET_LATER_FIXTURE="" CHANGELOG_FIXTURE="" CHANGELOG_PAGE2_FIXTURE="" COMMENTS_FIXTURE="" COMMENTS_LATER_FIXTURE=""
+  export MOCK_GH_VISIBILITY=private MOCK_GH_FAIL="" MOCK_GH_PRS_FIXTURE=""
   export TRANSITIONS_FIXTURE=transitions.json ATTACHMENTS_FIXTURE="" ATTACHMENTS_LATER_FIXTURE="" ATTACHMENTS_LATER_FROM="" ATTACHMENT_CONTENT_FIXTURE=""
   set -a  # scenario.env overrides the defaults above
   # shellcheck source=/dev/null
   source "$dir/scenario.env"
   set +a
   for arg in "${overrides[@]}"; do export "${arg?}"; done
-  for var in TICKET_FIXTURE TICKET_LATER_FIXTURE CHANGELOG_FIXTURE CHANGELOG_PAGE2_FIXTURE COMMENTS_FIXTURE COMMENTS_LATER_FIXTURE TRANSITIONS_FIXTURE CLAUDE_FIXTURE ATTACHMENTS_FIXTURE ATTACHMENTS_LATER_FIXTURE ATTACHMENT_CONTENT_FIXTURE CLAUDE_REVIEW_FIXTURE; do
+  for var in TICKET_FIXTURE TICKET_LATER_FIXTURE CHANGELOG_FIXTURE CHANGELOG_PAGE2_FIXTURE COMMENTS_FIXTURE COMMENTS_LATER_FIXTURE TRANSITIONS_FIXTURE CLAUDE_FIXTURE ATTACHMENTS_FIXTURE ATTACHMENTS_LATER_FIXTURE ATTACHMENT_CONTENT_FIXTURE CLAUDE_REVIEW_FIXTURE CLAUDE_EDITS MOCK_GH_PRS_FIXTURE; do
     case "${!var}" in none | approve | "" | /*) ;; *) export "$var=$FIXTURES/${!var}" ;; esac
   done
 
@@ -221,6 +236,17 @@ run_scenario() {
         elif .body then " — \(.body | tostring)"
         else "" end)' "$CALLS"
   } >> "$RUNNER_TEMP/trace.txt"
+  # Code stages: GitHub's calls too (commit ids differ per run, so masked).
+  if [ -s "$GH_CALLS" ]; then
+    {
+      echo "--- GitHub calls"
+      jq -r '"\(.method) \(.path)" + (
+        if .body.title then " — \(.body.head) → \(.body.base), draft: \(.body.draft), title: \(.body.title)"
+        elif .body.labels then " — labels: \(.body.labels | tostring)"
+        elif .body.query then " — edit history"
+        else "" end)' "$GH_CALLS"
+    } >> "$RUNNER_TEMP/trace.txt"
+  fi
   [ "${#overrides[@]}" -gt 0 ] || assert_snapshot "$dir/expected/trace.txt" "$RUNNER_TEMP/trace.txt"
 
   if [ "$full" = --full ]; then
@@ -238,6 +264,15 @@ run_scenario() {
         -e 's/against commit [0-9a-f]{40}/against commit <commit>/' "$file" > "$file.snapshot"
       assert_snapshot "$dir/expected/attached-$(basename "$file")" "$file.snapshot"
     done
+    # A pull request the run opened: its description (commit ids and the hub
+    # version masked).
+    if jq -e 'select(.method == "POST" and (.path | endswith("/pulls")))' "$GH_CALLS" > /dev/null 2>&1; then
+      jq -r 'select(.method == "POST" and (.path | endswith("/pulls"))) | .body.body' "$GH_CALLS" \
+        | sed -E -e 's/(^|[^0-9a-f])[0-9a-f]{40}([^0-9a-f]|$)/\1<commit>\2/g' \
+            -e 's/"hub_version":"[0-9.]+"/"hub_version":"<version>"/g' -e 's/hub [0-9]+\.[0-9]+\.[0-9]+/hub <version>/' \
+        > "$RUNNER_TEMP/pr-body.snapshot"
+      assert_snapshot "$dir/expected/pr-body.md" "$RUNNER_TEMP/pr-body.snapshot"
+    fi
   fi
   assert_valid_adf "$CALLS"
 }

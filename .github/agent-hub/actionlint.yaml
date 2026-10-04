@@ -2,3 +2,10 @@
 self-hosted-runner:
   labels:
     - claude
+# `queue` in concurrency is documented by GitHub but not yet known to
+# actionlint (1.7.12; rhysd/actionlint#654): ignore exactly that message, only
+# where the hub uses it. Remove once actionlint supports it.
+paths:
+  .github/workflows/agent-hub-build.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'

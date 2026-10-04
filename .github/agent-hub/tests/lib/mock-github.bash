@@ -13,11 +13,20 @@
 #   MOCK_GH_RACE_BEFORE  a description a person saves just before each of the
 #                        hub's description updates (the write race)
 #   MOCK_GH_RACE         one a person saves right after each of them
+#   MOCK_GH_PRS_FIXTURE  pull requests that exist before the run (a JSON array
+#                        in the state's shape, e.g. from an earlier build)
 #
 # Any request not listed here fails, so a test can't pass on a call it never
 # meant to make. mock_gh_pr and mock_gh_edit set up state for a test.
 
-_mock_gh_state() { mkdir -p "$RUNNER_TEMP/mock-github"; local f="$RUNNER_TEMP/mock-github/prs.json"; [ -s "$f" ] || echo '[]' > "$f"; echo "$f"; }
+_mock_gh_state() {
+  mkdir -p "$RUNNER_TEMP/mock-github"
+  local f="$RUNNER_TEMP/mock-github/prs.json"
+  if [ ! -s "$f" ]; then
+    if [ -n "${MOCK_GH_PRS_FIXTURE:-}" ]; then cp "$MOCK_GH_PRS_FIXTURE" "$f"; else echo '[]' > "$f"; fi
+  fi
+  echo "$f"
+}
 
 gh_request() {
   local method=GET url="" body="" path state
@@ -39,8 +48,8 @@ gh_request() {
   state=$(_mock_gh_state)
   local repo="/repos/$GITHUB_REPOSITORY" login=${MOCK_GH_LOGIN:-agent-hub-bot}
   case "$method $path" in
-    "GET /user") jq -nc --arg login "$login" '{login: $login}' ;;
-    "GET $repo") jq -nc --arg v "${MOCK_GH_VISIBILITY:-private}" '{visibility: $v, private: ($v != "public")}' ;;
+    "GET /user") jq -nc --arg login "$login" '{login: $login, id: 4242}' ;;
+    "GET $repo") jq -nc --arg v "${MOCK_GH_VISIBILITY:-private}" '{visibility: $v, private: ($v != "public"), default_branch: "main"}' ;;
     "GET $repo/pulls?state=all&head="*)
       local branch=${path#*head=*:}; branch=${branch%%&*}
       jq -c --arg b "$branch" --arg repo "$GITHUB_REPOSITORY" \

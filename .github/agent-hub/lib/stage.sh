@@ -142,7 +142,8 @@ stage_move() {
 # stage_report_failure <title> <start status>: turn the progress comment into
 # the failure notice (or post one if there's no progress comment — never
 # posted, or already gone), with the reason when a step gave one (stage_fail)
-# and how to retry, naming the status the ticket is in now. Adds
+# and how to retry (the stage's RETRY_INSTRUCTIONS, or a /revise comment or a
+# re-run), naming the status the ticket is in now. Adds
 # NEEDS_HUMAN_LABEL — a person has to act — only while the ticket is where the
 # run started or moved it; a ticket a person has moved on isn't relabelled.
 stage_report_failure() {
@@ -151,13 +152,15 @@ stage_report_failure() {
   current=$(tracker_status 2> /dev/null) || current=$2
   moved=$(cat "$RUNNER_TEMP/moved-to" 2> /dev/null || true)
   body=$(jq -n -L "$HUB_DIR/lib" --arg title "$1" --arg status "$current" --arg run "$RUN_URL" \
+    --arg retry "${RETRY_INSTRUCTIONS:-}" \
     --rawfile reason <(cat "$RUNNER_TEMP/failure-reason" 2>/dev/null) 'include "adf";
     doc((if ($reason | rtrimstr("\n")) != "" then [para([strong("Why: "), text($reason | rtrimstr("\n"))])] else [] end) as $why
       | [para([strong($title),
       text(" — the ticket is in \($status). "),
-      link("View the run log"; $run),
-      text(". To try again, comment "), code(env.REVISE_COMMAND),
-      text(" (with any extra details) on this ticket, or re-run the workflow from GitHub Actions.")])] + $why)')
+      link("View the run log"; $run)]
+      + (if $retry != "" then [text(". To try again, \($retry)")]
+         else [text(". To try again, comment "), code(env.REVISE_COMMAND),
+           text(" (with any extra details) on this ticket, or re-run the workflow from GitHub Actions.")] end))] + $why)')
   if [ ! -s "$RUNNER_TEMP/progress-comment-id" ] \
      || ! tracker_update_comment "$(cat "$RUNNER_TEMP/progress-comment-id")" <<< "$body" 2> /dev/null; then
     tracker_comment <<< "$body" > /dev/null

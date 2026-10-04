@@ -43,7 +43,7 @@ are for Jira (GitHub Projects will use the workflow's own GitHub token):
 | `AGENT_HUB_JIRA_EMAIL` | Yes | The Jira account the automation acts as — a dedicated service account, barred from approving ([jira.md](jira.md#permissions-for-the-automation-account)) |
 | `AGENT_HUB_JIRA_API_TOKEN` | Yes | An [API token](https://id.atlassian.com/manage-profile/security/api-tokens) for that account |
 | `AGENT_HUB_ANTHROPIC_API_KEY` | Only for the Claude API | See [runners.md](runners.md#using-the-claude-api) |
-| `AGENT_HUB_GITHUB_TOKEN` | For the build stage (planned) | A **machine user's** fine-grained token for this repository only, with Contents and Pull requests read/write — no Workflows, no Administration. The build pushes and opens pull requests with it (a workflow's own token wouldn't start your CI); branch protection keeps that user from merging. Only the steps that write to GitHub get it, never an agent step |
+| `AGENT_HUB_GITHUB_TOKEN` | For the build stage | A **machine user's** fine-grained token for this repository only, with Contents and Pull requests read/write — no Workflows, no Administration. The build pushes and opens pull requests with it (a workflow's own token wouldn't start your CI), and commits as its account, with that account's GitHub noreply address; branch protection keeps that user from merging. Only the build's fetch and apply steps get it — never an agent step, nor any step that runs the repository's code. **For development**, your own fine-grained token (same scope) works: the build's commits and pull requests are then yours, and branch protection can't stop you merging them — use a machine user before the build runs real tickets |
 
 ## 4. Set variables (only what differs from the defaults)
 
@@ -65,6 +65,8 @@ use its default. (The defaults are in `lib/settings.sh` and each stage's
 | `AGENT_HUB_NEEDS_DETAILS_LABEL` | `needs-details` | Label for tickets sent back for more detail |
 | `AGENT_HUB_WORK_ORDER_APPROVED_STATUS` | `Work Order Approved` | Status that requests an implementation plan |
 | `AGENT_HUB_IMPLEMENTATION_PLAN_STATUS` | `Implementation Plan` | Status of tickets with a plan waiting for approval |
+| `AGENT_HUB_IMPLEMENTATION_PLAN_APPROVED_STATUS` | `Implementation Plan Approved` | Status that requests a build |
+| `AGENT_HUB_PUBLISH_TICKET_CONTENT` | `false` | `true` lets the build put ticket text (the title, criteria, Claude's summary and decision log) in a **public** repository's pull requests and commits; private repositories always get it ([build.md](workflows/build.md#publication-policy)) |
 | `AGENT_HUB_NEEDS_HUMAN_LABEL` | `needs-human` | Label for tickets waiting for a person |
 | `AGENT_HUB_NEEDS_CLARIFICATION_LABEL` | `needs-clarification` | Label for tickets the plan stage sent back with questions |
 | `AGENT_HUB_REVISE_COMMAND` | `/revise` | Comments starting with this word ask an agent to revise (or retry); must match the Revision Requested rule |
@@ -84,6 +86,21 @@ API-equivalent dollars ([claude-usage.md](claude-usage.md)):
 | `MAX_BUDGET_USD` | `2.00` | `5.00` | Cap for the draft |
 | `REVIEW_MAX_BUDGET_USD` | `2.00` | `5.00` | Cap for the expert review |
 | `REVISION_MAX_BUDGET_USD` | `1.00` | `2.00` | Cap for each pass of a revision, which is scoped to the requested changes |
+
+The build (`BUILD`) is **not enabled for real tickets yet**: until its install
+step arrives (next version), a build could depend on whatever the runner has
+installed, so it runs only with `AGENT_HUB_BUILD_PREVIEW=true` — for
+development on a project without dependencies, like `playground/`. Its
+settings: `MODEL` (`claude-opus-5-5`), `FALLBACK_MODEL`
+(`claude-sonnet-5`) and `MAX_BUDGET_USD` (`10.00`, one pass: it validates and
+builds), plus:
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `TARGET_BRANCH` | the repository's default branch | The branch pull requests go into. The build checks it out, so set it only together with the build workflow's checkout (it builds from the branch the run checked out, and stops if that isn't the target's head) |
+| `LABEL` | `agent-hub` | Marks the hub's own pull requests; one from `agent-hub/<KEY>` without it isn't touched |
+| `MAX_FILES`, `MAX_LINES` | `50`, `2000` | Over either, the pull request gets a decision item for a person |
+| `MAX_FILE_LINES` | `1000` | A single file changing more lines than this is a decision item |
 
 ## 5. Set up your tracker
 

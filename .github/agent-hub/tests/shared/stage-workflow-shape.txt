@@ -1,8 +1,9 @@
 actions/checkout | id: - | if: - | env: -
+Copy the hub | id: - | if: - | env: -
 Install Claude Code | id: - | if: runner.environment == 'github-hosted' | env: CLAUDE_CODE_VERSION
-Fetch ticket | id: start | if: - | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
+Fetch ticket | id: start | if: - | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN,AGENT_HUB_GITHUB_TOKEN
 Agent (draft and review) | id: agent | if: steps.start.outputs.proceed == 'true' | env: ANTHROPIC_API_KEY
-Apply to ticket | id: apply | if: steps.agent.outputs.status == 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
+Apply to ticket | id: apply | if: steps.agent.outputs.status == 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN,AGENT_HUB_GITHUB_TOKEN
 Send back | id: return | if: steps.agent.outputs.status != '' && steps.agent.outputs.status != 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
 Clear progress comment | id: - | if: success() || cancelled() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
 Report failure on ticket | id: - | if: failure() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN

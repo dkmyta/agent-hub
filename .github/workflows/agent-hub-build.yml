@@ -1,0 +1,43 @@
+name: "Agent hub: Build"
+run-name: "Build: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}"
+
+# Stage 3 of the agent-hub pipeline. The tracker (the Jira "Build Requested"
+# rule, on the move to Implementation Plan Approved) dispatches
+# `agent-hub-build-requested` with only the ticket key; the shared stage
+# workflow does the rest with this stage's files in
+# .github/agent-hub/stages/build, as a code stage: the steps without an agent
+# get the machine user's token to push the branch and open a draft pull
+# request. See .github/agent-hub/docs/workflows/build.md.
+
+on:
+  repository_dispatch:
+    types: [agent-hub-build-requested]
+  workflow_dispatch:
+    inputs:
+      ticket_key:
+        description: Ticket key (in Implementation Plan Approved)
+        required: true
+        type: string
+
+# One group per ticket for everything that changes its code: a run is never
+# cancelled mid-push, and every request waits its turn (up to 100 pending),
+# then acts on the state it finds — the request is only a wake-up (a
+# duplicate finds the pull request already open).
+concurrency:
+  group: agent-hub-${{ github.repository }}-${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/agent-hub-stage.yml
+    with:
+      stage: build
+      ticket-key: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
+      code-stage: true
+      agent-minutes: 60
+      job-minutes: 80
+    secrets: inherit

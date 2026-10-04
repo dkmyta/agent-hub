@@ -117,7 +117,7 @@ repository's settings say. A version without it stops the run, saying so.
 
 ## The sandbox (build stage)
 
-The build stage (planned) runs commands — the repository's tests, linters
+The build stage runs commands — the repository's tests, linters
 and builds — in Claude Code's sandbox: they read only the repository and a
 temp folder, write only those, reach only localhost, and get no secrets in
 their environment (an API key included). If the sandbox can't start, the
@@ -128,7 +128,10 @@ need it.
 |---|---|
 | macOS (self-hosted) | Nothing — it uses macOS's built-in Seatbelt |
 | Linux (self-hosted) | `bubblewrap` and `socat`: `sudo apt-get install bubblewrap socat` (Debian/Ubuntu) or your distribution's equivalent |
-| GitHub-hosted (Linux, with the Claude API) | Installed by the build workflow |
+| GitHub-hosted (Linux, with the Claude API) | Installed by the build workflow — from the next version (its install step); until then the build needs a self-hosted runner (on a GitHub-hosted one, Claude Code refuses to run commands without the sandbox, so the build fails) |
+
+The build also needs **git 2.40 or later** on the runner (it reads
+`.gitattributes` from the commit it checks, not the working tree).
 
 ### Checking the sandbox
 

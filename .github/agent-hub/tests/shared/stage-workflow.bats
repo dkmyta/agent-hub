@@ -37,8 +37,11 @@ setup() {
   done
 }
 
+# Document stages: a newer request cancels a run in progress. Code stages
+# (code-stage, which pushes): one group per ticket, never cancelled mid-push,
+# every request kept in the queue (each run reconciles from current state).
 @test "every stage has a stage workflow calling the shared one, with its own event and concurrency group" {
-  local stage caller
+  local stage caller expected
   for stage in "$HUB_DIR"/stages/*/; do
     stage=$(basename "$stage")
     caller="$REPO_DIR/.github/workflows/agent-hub-$stage.yml"
@@ -48,10 +51,52 @@ setup() {
       import { parse } from "yaml";
       const wf = parse(readFileSync(process.argv[1], "utf8"));
       const job = Object.values(wf.jobs)[0];
+      const prefix = job.with["code-stage"] ? "agent-hub-${{ github.repository }}-" : `agent-hub-${job.with.stage}-`;
       console.log(job.uses, job.with.stage, wf.on.repository_dispatch.types.join(","),
-        wf.concurrency.group.startsWith(`agent-hub-${job.with.stage}-`), wf.concurrency["cancel-in-progress"]);' "$caller"
-    assert_output "./.github/workflows/agent-hub-stage.yml $stage agent-hub-$stage-requested true true"
+        wf.concurrency.group.startsWith(prefix), wf.concurrency["cancel-in-progress"],
+        wf.concurrency.queue ?? "single");' "$caller"
+    expected="true single"
+    grep -q 'code-stage: true' "$caller" && expected="false max"
+    assert_output "./.github/workflows/agent-hub-stage.yml $stage agent-hub-$stage-requested true $expected"
   done
+}
+
+# Only code stages get the machine user's token, and only in the two steps
+# that call GitHub and run no repository code: fetch and apply.
+@test "the GitHub token reaches only a code stage's fetch and apply steps" {
+  run node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { parse } from "yaml";
+    const wf = parse(readFileSync(process.argv[1], "utf8"), { merge: true });
+    for (const step of Object.values(wf.jobs)[0].steps)
+      if (step.env?.AGENT_HUB_GITHUB_TOKEN !== undefined) console.log(`${step.id ?? step.name}: ${step.env.AGENT_HUB_GITHUB_TOKEN}`);' "$WORKFLOW"
+  assert_success
+  assert_equal "$(cut -d: -f1 <<< "$output" | paste -sd ' ' -)" "start apply"
+  local line
+  for line in "${lines[@]}"; do
+    [[ "$line" == *": \${{ inputs.code-stage && secrets.AGENT_HUB_GITHUB_TOKEN || '' }}" ]] || fail "not gated on code-stage: $line"
+  done
+  assert [ "${#lines[@]}" -gt 0 ]
+}
+
+# Every step loads the hub from the copy made before any agent runs: an
+# agent's change to the checkout's hub never runs in a later step.
+@test "the hub is copied before the agent and every step loads it from the copy" {
+  run grep -c 'source "$RUNNER_TEMP/agent-hub/lib/load.sh"' "$WORKFLOW"
+  [ "$output" -ge 6 ] || fail "only $output steps load the copy"
+  run grep -n 'HUB_DIR/lib/load.sh\|\.github/agent-hub/lib/load.sh' "$WORKFLOW"
+  assert_output ""
+  # The real step: run in a checkout copy, then the copy is the hub that loads.
+  checkout_copy "$WORKFLOW" "$BATS_TEST_TMPDIR/checkout"
+  extract_workflow "$WORKFLOW" "$BATS_TEST_TMPDIR/steps"
+  mkdir "$BATS_TEST_TMPDIR/temp"
+  run bash -c 'cd "$1/checkout" && RUNNER_TEMP="$1/temp" bash -e "$1/steps/copy-the-hub.sh"' _ "$BATS_TEST_TMPDIR"
+  assert_success
+  echo 'broken' > "$BATS_TEST_TMPDIR/checkout/.github/agent-hub/lib/settings.sh"
+  run bash -c 'STAGE=work-order RUNNER_TEMP="$1/temp" GITHUB_RUN_ID=1 && cd "$1/checkout" && source "$1/temp/agent-hub/lib/load.sh" agent && echo "$HUB_DIR" && declare -F step_fetch' _ "$BATS_TEST_TMPDIR"
+  assert_success
+  assert_line --index 0 "$BATS_TEST_TMPDIR/temp/agent-hub"
+  assert_line "step_fetch"
 }
 
 # The repository's own extensions (docs/extending.md): a misnamed folder would
@@ -100,9 +145,13 @@ work_order: not shared or a stage"
 @test "every stage folder has the files the shared workflow and agent runner need" {
   local stage file
   for stage in "$HUB_DIR"/stages/*/; do
-    for file in prompt.md schema.json review.md render.jq revise.sh settings.sh stage.sh; do
+    for file in prompt.md schema.json settings.sh stage.sh; do
       assert [ -f "$stage$file" ]
     done
+    # The review's instructions where the stage has a review pass, and
+    # revise.sh where it revises (the runner loads them).
+    if grep -q 'agent_review ' "$stage/stage.sh"; then assert [ -f "${stage}review.md" ]; fi
+    if grep -q 'stage_set_mode "\$MODE"\|stage_set_mode revision' "$stage/stage.sh"; then assert [ -f "${stage}revise.sh" ]; fi
     run bash -c "source '$stage/stage.sh'; declare -F step_fetch step_agent step_apply step_return"
     assert_success
   done

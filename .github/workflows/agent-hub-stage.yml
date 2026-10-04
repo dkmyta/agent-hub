@@ -7,6 +7,9 @@ name: "Agent hub: stage"
 # library and the stage), then calls the stage's own function for that step
 # (stages/<stage>/stage.sh): step_fetch, step_agent, step_apply, step_return.
 #
+# Each step loads the hub from a copy made right after the checkout (Copy the
+# hub), never from the checkout itself, which a build agent can change.
+#
 # Per-repository settings come from repository variables, passed to the steps
 # as JSON (see .github/agent-hub/docs/setup.md); nothing here needs editing per repository.
 
@@ -29,6 +32,16 @@ on:
         description: Time limit for the whole job; the steps' limits together fit within it
         required: true
         type: number
+      # For stages that change code (the build). Off for the document stages.
+      code-stage:
+        description: >-
+          Check out the full history and give the steps that don't run an agent
+          the machine user's GitHub token (AGENT_HUB_GITHUB_TOKEN) to the fetch
+          and apply steps only, to check and push the stage's branch and open
+          its pull request. No other step gets it.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -49,7 +62,6 @@ jobs:
     # being cancelled.
     timeout-minutes: ${{ inputs.job-minutes }}
     env:
-      HUB_DIR: .github/agent-hub
       STAGE: ${{ inputs.stage }}
       TICKET_KEY: ${{ inputs.ticket-key }}
       VARS: ${{ toJSON(vars) }}
@@ -60,6 +72,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          # The build reads the history since the plan's base commit.
+          fetch-depth: ${{ inputs.code-stage && '0' || '1' }}
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /*
@@ -67,6 +81,17 @@ jobs:
             !/.github/agent-hub/tests/*/scenarios/
             !/.github/agent-hub/tests/*/evals/
             !/.github/agent-hub/tests/*/expected/
+
+      # The hub's scripts, copied out of the checkout before any agent runs.
+      # Every step loads them from this copy, so nothing an agent changes in
+      # the checkout (a build agent can edit it) runs in a later step, where
+      # the credentials are.
+      - name: Copy the hub
+        timeout-minutes: 1
+        run: |
+          mkdir "$RUNNER_TEMP/agent-hub"
+          cp -R .github/agent-hub/lib .github/agent-hub/stages .github/agent-hub/trackers \
+            .github/agent-hub/VERSION "$RUNNER_TEMP/agent-hub/"
 
       # GitHub-hosted runners don't have Claude Code; self-hosted runners have
       # it installed (see .github/agent-hub/docs/runners.md).
@@ -80,12 +105,17 @@ jobs:
       - name: Fetch ticket
         id: start
         timeout-minutes: 3
-        env: &tracker-env
+        # The machine user's GitHub token reaches only this step and Apply —
+        # the two that call GitHub, and run no repository code — and only
+        # for a code stage. Never an agent step, nor (later) install or
+        # verify steps, which run the repository's own code.
+        env: &github-env
           JIRA_DOMAIN: ${{ secrets.AGENT_HUB_JIRA_DOMAIN }}
           JIRA_EMAIL: ${{ secrets.AGENT_HUB_JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.AGENT_HUB_JIRA_API_TOKEN }}
+          AGENT_HUB_GITHUB_TOKEN: ${{ inputs.code-stage && secrets.AGENT_HUB_GITHUB_TOKEN || '' }}
         run: |
-          source "$HUB_DIR/lib/load.sh" tracker
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" tracker
           step_fetch
 
       # The only step that uses Claude, and it never gets the tracker's
@@ -99,16 +129,16 @@ jobs:
           # subscription login on the runner takes precedence). Empty is fine.
           ANTHROPIC_API_KEY: ${{ secrets.AGENT_HUB_ANTHROPIC_API_KEY }}
         run: |
-          source "$HUB_DIR/lib/load.sh" agent
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" agent
           step_agent
 
       - name: Apply to ticket
         id: apply
         if: steps.agent.outputs.status == 'ready'
         timeout-minutes: 3
-        env: *tracker-env
+        env: *github-env
         run: |
-          source "$HUB_DIR/lib/load.sh" tracker
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" tracker
           step_apply
 
       # Any other result sends the ticket back (needs details, needs
@@ -117,9 +147,12 @@ jobs:
         id: return
         if: steps.agent.outputs.status != '' && steps.agent.outputs.status != 'ready'
         timeout-minutes: 3
-        env: *tracker-env
+        env: &tracker-env
+          JIRA_DOMAIN: ${{ secrets.AGENT_HUB_JIRA_DOMAIN }}
+          JIRA_EMAIL: ${{ secrets.AGENT_HUB_JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.AGENT_HUB_JIRA_API_TOKEN }}
         run: |
-          source "$HUB_DIR/lib/load.sh" tracker
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" tracker
           step_return
 
       # Runs on success and on cancellation (a newer request for the ticket
@@ -129,7 +162,7 @@ jobs:
         timeout-minutes: 2
         env: *tracker-env
         run: |
-          source "$HUB_DIR/lib/load.sh" tracker
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" tracker
           stage_clear_progress
 
       - name: Report failure on ticket
@@ -137,17 +170,17 @@ jobs:
         timeout-minutes: 2
         env: *tracker-env
         run: |
-          source "$HUB_DIR/lib/load.sh" tracker
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" tracker
           stage_report_failure "$FAILURE_TITLE" "$(stage_start_status "$HOME_STATUS")"
 
       # Claude Code's files for this job's sessions (its temp folder can be
       # read by later runs on the same runner) are deleted whatever happened:
       # success, failure, timeout or cancellation. See docs/architecture.md.
-      # Without a checkout nothing ran, so there's nothing to remove.
+      # Without the hub's copy nothing ran, so there's nothing to remove.
       - name: Remove agent session files
         if: always()
         timeout-minutes: 1
         run: |
-          [ -f "$HUB_DIR/lib/load.sh" ] || exit 0
-          source "$HUB_DIR/lib/load.sh" agent
+          [ -f "$RUNNER_TEMP/agent-hub/lib/load.sh" ] || exit 0
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" agent
           agent_cleanup

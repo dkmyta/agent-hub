@@ -1,0 +1,7 @@
+{"startAt": 0, "maxResults": 100, "total": 2, "isLast": true, "values": [
+  {"created": "2026-10-01T09:00:00.000+0000", "author": {"accountId": "agent-hub-bot", "displayName": "Agent hub"},
+   "items": [{"field": "Attachment", "to": "10001", "toString": "PROJ-99-implementation-plan.md"},
+             {"field": "status", "fromString": "Work Order Approved", "toString": "Implementation Plan"}]},
+  {"created": "2026-10-01T10:00:00.000+0000", "author": {"accountId": "dana-lead", "displayName": "Dana Lead"},
+   "items": [{"field": "status", "fromString": "Implementation Plan", "toString": "Implementation Plan Approved"}]}
+]}
