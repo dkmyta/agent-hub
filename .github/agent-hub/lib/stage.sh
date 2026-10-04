@@ -249,3 +249,47 @@ stage_revision_reply() {
         + (if $note != "" then [para([em($note)])] else [] end))' \
     "$RUNNER_TEMP/agent-output.json" | tracker_comment > /dev/null
 }
+
+# stage_acceptance_criteria: the ticket's acceptance criteria (ticket.json)
+# into acceptance-criteria.json; prints how many.
+stage_acceptance_criteria() {
+  jq -L "$HUB_DIR/lib" 'include "adf"; acceptance_criteria' "$RUNNER_TEMP/ticket.json" > "$RUNNER_TEMP/acceptance-criteria.json"
+  jq length "$RUNNER_TEMP/acceptance-criteria.json"
+}
+
+# stage_uncovered_criteria <JSON array of criteria>: the positions (1-based,
+# comma-separated) of the acceptance criteria (acceptance-criteria.json) not
+# among them word for word (spacing aside) — or nothing. Positions, never the
+# text, since they're logged.
+stage_uncovered_criteria() {
+  jq -r --argjson covered "$1" '
+    def norm: gsub("\\s+"; " ") | ltrimstr(" ") | rtrimstr(" ");
+    [$covered[] | norm] as $covered
+    | [to_entries[] | select((.value | norm) as $c | $covered | any(. == $c) | not) | .key + 1]
+    | join(", ")' "$RUNNER_TEMP/acceptance-criteria.json"
+}
+
+# stage_send_back_stale <status> <title> <text> <summary>: what the ticket was
+# approved from changed after the approval, so nothing is built on it: a
+# "⚠️ <title>" comment saying why (<text>), needs-human, back to <status>
+# for a person to check and approve again. Ends the run as stale.
+stage_send_back_stale() {
+  local transition
+  transition=$(stage_transition_id "$1")
+  jq -n -L "$HUB_DIR/lib" --arg title "$2" --arg text "$3" 'include "adf";
+    doc([para([strong("⚠️ \($title)"), text(" — \($text)")])])' | tracker_comment > /dev/null
+  tracker_labels "+$NEEDS_HUMAN_LABEL"
+  stage_move "$transition" "$1"
+  echo "proceed=false" >> "$GITHUB_OUTPUT"
+  echo "[$TICKET_KEY]($TICKET_URL) returned to $1: $4" >> "$GITHUB_STEP_SUMMARY"
+  stage_outcome stale
+}
+
+# stage_drop_md_section <title> < markdown: the Markdown without its "## <title>"
+# section (headings inside code blocks aren't sections), trailing blank lines
+# trimmed.
+stage_drop_md_section() {
+  jq -Rrs -L "$HUB_DIR/lib" --arg title "$1" 'include "markdown";
+    md_sections as $sections
+    | [$sections[0]] + [$sections[1:][] | select(heading_key != $title) | "## " + .] | join("\n") | rtrimstr("\n")'
+}

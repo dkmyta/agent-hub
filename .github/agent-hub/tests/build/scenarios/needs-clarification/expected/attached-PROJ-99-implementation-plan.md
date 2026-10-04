@@ -49,4 +49,3 @@ node --test
 ## Questions from the build
 
 - **Should greet trim the name?** Why it matters: The plan is silent on whitespace around names.
-

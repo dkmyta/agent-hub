@@ -8,7 +8,7 @@ Give `greet` an optional name.
 
 ## Changes by File
 
-None.
+None the build makes: every change is a manual change (Scope & Governance).
 
 ## Scope & Governance
 

@@ -176,10 +176,11 @@ _require_restricted() {
 # such as config or scheduling helpers — the pipeline doesn't use them).
 AGENT_PROFILE=${AGENT_PROFILE:-read-only}
 
-# Paths agents may never edit, whatever the profile: workflows and the hub,
-# Claude Code's settings and agents, code owners. Deny rules also bind
-# subagents (an allowlist alone doesn't).
-AGENT_DENIED_PATHS='[".github/**", ".claude/**", "CODEOWNERS", "**/CODEOWNERS"]'
+# Paths agents may never edit, whatever the profile (lib/paths.sh). Deny
+# rules also bind subagents (an allowlist alone doesn't).
+# shellcheck source=lib/paths.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../paths.sh"
+AGENT_DENIED_PATHS=$(hub_managed_json)
 
 # agent_sandbox_dir: the temp folder sandboxed commands may write (with
 # package caches in it) — the job's own, removed with it.
@@ -298,7 +299,7 @@ agent_run() {
   local prompt="$RUNNER_TEMP/draft-prompt.md" schema="$STAGE_DIR/schema.json"
   _load_extensions
   # Claude Code can update itself on the runner; record which version ran.
-  CLAUDE_VERSION=$(claude --version 2>/dev/null | head -n 1 | cut -d ' ' -f 1)
+  CLAUDE_VERSION=$(claude --version 2>/dev/null | head -n 1 | cut -d ' ' -f 1) || CLAUDE_VERSION=""
   _require_restricted
   if agent_revising; then
     # shellcheck source=/dev/null

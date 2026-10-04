@@ -5,12 +5,14 @@ Apply: skipped
 Send back: skipped
 Clear progress comment: success
 Report failure: skipped
-Remove agent session files: success
+Remove session and credential files: success
 --- Jira calls
 GET ?fields=summary,description,status
-GET /changelog?startAt=0&maxResults=100
 GET /myself
+GET /changelog?startAt=0&maxResults=100
 GET ?fields=attachment
 GET /attachment/content/10001
+GET /changelog?startAt=0&maxResults=100
+GET ?fields=attachment
 POST /comment — comment: 🧑‍🔧 Manual changes only
 PUT  — {"update":{"labels":[{"add":"needs-human"}]}}

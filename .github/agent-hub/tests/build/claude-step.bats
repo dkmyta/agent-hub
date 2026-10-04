@@ -12,8 +12,7 @@ setup() {
   use_run_env "$BATS_TEST_TMPDIR"
   echo "Key: PROJ-99" > "$RUNNER_TEMP/ticket.md"
   # The acceptance criteria of the fixture's work order, as the Fetch step extracts them.
-  jq -L "$HUB_LIB" 'include "adf"; [.fields.description | section_blocks("Acceptance Criteria")[]
-    | select(.type == "taskList") | .content[] | plain_text]' \
+  jq -L "$HUB_LIB" 'include "adf"; acceptance_criteria' \
     "$FIXTURES/tickets/plan-approved.json" > "$RUNNER_TEMP/acceptance-criteria.json"
   export CLAUDE_EXIT=0 CLAUDE_EDITS=""
 }

@@ -80,6 +80,10 @@ NEEDS_CLARIFICATION_TITLE='Needs clarification'
 # file name (KEY-<suffix>).
 PLAN_SECTION='Implementation Plan'
 PLAN_FILE_SUFFIX=implementation-plan.md
+PLAN_FILE_NAME="${TICKET_KEY:-}-$PLAN_FILE_SUFFIX"
+# The section the build adds to the plan file with its questions; the plan
+# stage answers them in a revision and removes it.
+BUILD_QUESTIONS_SECTION='Questions from the build'
 
 # Jira only: "false" suppresses watcher notifications for description
 # updates (needs Jira admin permission for the API user).

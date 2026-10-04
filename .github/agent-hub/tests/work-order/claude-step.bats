@@ -144,7 +144,7 @@ uuid='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
     "$CLAUDE_PROJECTS_ROOT/$project/$draft/subagents" "$CLAUDE_TEMP_ROOT/$project/$other"
   touch "$CLAUDE_TEMP_ROOT/$project/$draft/tasks/a1.output" "$CLAUDE_PROJECTS_ROOT/$project/$draft/subagents/a1.meta.json" \
     "$CLAUDE_PROJECTS_ROOT/$project/$review.jsonl" "$CLAUDE_PROJECTS_ROOT/$project/$other.jsonl"
-  run run_step "$STEPS" remove-agent-session-files
+  run run_step "$STEPS" remove-session-and-credential-files
   assert_success
   assert [ ! -e "$CLAUDE_TEMP_ROOT/$project/$draft" ]
   assert [ ! -e "$CLAUDE_TEMP_ROOT/$project/$review" ]
@@ -159,7 +159,7 @@ uuid='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 @test "session cleanup removes nothing for anything that isn't a session id" {
   printf '%s\n' '*' '..' '' 'not-a-session' "../$(basename "$BATS_TEST_TMPDIR")" > "$RUNNER_TEMP/agent-sessions"
   mkdir -p "$CLAUDE_TEMP_ROOT/-p/keep" "$CLAUDE_PROJECTS_ROOT/-p/keep"
-  run run_step "$STEPS" remove-agent-session-files
+  run run_step "$STEPS" remove-session-and-credential-files
   assert_success
   assert [ -d "$CLAUDE_TEMP_ROOT/-p/keep" ]
   assert [ -d "$CLAUDE_PROJECTS_ROOT/-p/keep" ]
@@ -169,12 +169,22 @@ uuid='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
 @test "the session cleanup step runs whatever happened, without tracker credentials" {
   run node "$TESTS_DIR/lib/workflow.mjs" shape "$WORKFLOW"
-  assert_line "Remove agent session files | id: - | if: always() | env: -"
+  assert_line "Remove session and credential files | id: - | if: always() | env: -"
+}
+
+@test "the cleanup step removes credential files a step couldn't (one killed by its time limit)" {
+  touch "$RUNNER_TEMP/jira-curl.AbC123" "$RUNNER_TEMP/github-curl.AbC123" "$RUNNER_TEMP/github-token.AbC123" \
+    "$RUNNER_TEMP/github-askpass.AbC123" "$RUNNER_TEMP/keep.json"
+  run run_step "$STEPS" remove-session-and-credential-files
+  assert_success
+  run ls "$RUNNER_TEMP"
+  refute_output --regexp "(jira-curl|github-curl|github-token|github-askpass)\."
+  assert_line "keep.json"
 }
 
 @test "the session cleanup step does nothing when the checkout failed" {
   mkdir -p "$BATS_TEST_TMPDIR/empty"
-  STEP_CWD="$BATS_TEST_TMPDIR/empty" run run_step "$STEPS" remove-agent-session-files
+  STEP_CWD="$BATS_TEST_TMPDIR/empty" run run_step "$STEPS" remove-session-and-credential-files
   assert_success
 }
 

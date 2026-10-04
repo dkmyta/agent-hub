@@ -62,6 +62,9 @@ jobs:
     # being cancelled.
     timeout-minutes: ${{ inputs.job-minutes }}
     env:
+      # Claude Code doesn't update itself during a run: the version is the
+      # runner's (and, for the build, the pinned one; docs/runners.md).
+      DISABLE_AUTOUPDATER: "1"
       STAGE: ${{ inputs.stage }}
       TICKET_KEY: ${{ inputs.ticket-key }}
       VARS: ${{ toJSON(vars) }}
@@ -176,11 +179,14 @@ jobs:
       # Claude Code's files for this job's sessions (its temp folder can be
       # read by later runs on the same runner) are deleted whatever happened:
       # success, failure, timeout or cancellation. See docs/architecture.md.
-      # Without the hub's copy nothing ran, so there's nothing to remove.
-      - name: Remove agent session files
+      # So are credential files a step couldn't remove itself (one killed by
+      # its time limit). Without the hub's copy nothing ran, so there's
+      # nothing more to remove.
+      - name: Remove session and credential files
         if: always()
         timeout-minutes: 1
         run: |
+          rm -f "$RUNNER_TEMP"/jira-curl.* "$RUNNER_TEMP"/github-curl.* "$RUNNER_TEMP"/github-token.* "$RUNNER_TEMP"/github-askpass.*
           [ -f "$RUNNER_TEMP/agent-hub/lib/load.sh" ] || exit 0
           source "$RUNNER_TEMP/agent-hub/lib/load.sh" agent
           agent_cleanup

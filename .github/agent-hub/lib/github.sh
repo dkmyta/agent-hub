@@ -24,7 +24,10 @@ GH_REMOTE=${GH_REMOTE:-origin}
 GH_CURL_CONFIG=$(umask 077 && mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/github-curl.XXXXXX")
 GH_TOKEN_FILE=$(umask 077 && mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/github-token.XXXXXX")
 GH_ASKPASS=$(umask 077 && mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/github-askpass.XXXXXX")
-trap 'rm -f "$GH_CURL_CONFIG" "$GH_TOKEN_FILE" "$GH_ASKPASS"' EXIT
+# Removed when the step ends, with the tracker's (the same trap: see
+# trackers/jira/tracker.sh).
+HUB_SECRET_FILES+=("$GH_CURL_CONFIG" "$GH_TOKEN_FILE" "$GH_ASKPASS")
+trap 'rm -f "${HUB_SECRET_FILES[@]}"' EXIT
 printf '%s' "${AGENT_HUB_GITHUB_TOKEN:-}" > "$GH_TOKEN_FILE"
 printf 'header = "Authorization: Bearer %s"\n' "$(printf '%s' "${AGENT_HUB_GITHUB_TOKEN:-}" | sed 's/[\\"]/\\&/g')" > "$GH_CURL_CONFIG"
 printf '#!/bin/sh\ncase "$1" in Username*) echo x-access-token ;; *) cat "%s" ;; esac\n' "$GH_TOKEN_FILE" > "$GH_ASKPASS"
@@ -63,9 +66,12 @@ GH_NAME=${GITHUB_REPOSITORY#*/}
 # comments are recognised by.
 gh_login() { gh_api GET /user | jq -r '.login'; }
 
-# public or private (internal counts as private: it isn't public).
+# gh_repo_visibility [repository JSON]: public or private (internal counts as
+# private: it isn't public) — from the repository JSON given (as from
+# `gh_api GET /repos/$GITHUB_REPOSITORY`), or fetched.
 gh_repo_visibility() {
-  gh_api GET "/repos/$GITHUB_REPOSITORY" | jq -r 'if .visibility == "public" or (.visibility == null and .private == false) then "public" else "private" end'
+  { if [ -n "${1:-}" ]; then printf '%s' "$1"; else gh_api GET "/repos/$GITHUB_REPOSITORY"; fi; } \
+    | jq -r 'if .visibility == "public" or (.visibility == null and .private == false) then "public" else "private" end'
 }
 
 # gh_pr_find <branch>: the pull request (open, closed or merged) from this
@@ -126,20 +132,23 @@ gh_git() { GIT_ASKPASS="$GH_ASKPASS" GIT_TERMINAL_PROMPT=0 git "$@"; }
 # gh_branch_head <branch>: the branch's head commit on the remote, or nothing.
 gh_branch_head() { gh_git ls-remote --heads "$GH_REMOTE" "refs/heads/$1" | cut -f1; }
 
-# gh_push <branch> <target branch>: push HEAD to <branch>, after scanning
-# every commit the push would send — those not already on the remote
-# <branch> (or, on a first push, on <target branch>) — for secrets. Any
-# finding, or a scan that can't run, blocks the push (lib/secret-scan.sh):
+# gh_push <branch> <target branch> [--new]: push HEAD to <branch>, after
+# scanning every commit the push would send — those not already on the
+# remote <branch> (or, on a first push, on <target branch>) — for secrets.
+# Any finding, or a scan that can't run, blocks the push (lib/secret-scan.sh):
 # 1 secrets found (rules and files printed), 2 couldn't scan, 3 rejected by
 # the remote. Never forced: if the branch moved on since this run fetched it,
-# the push is rejected and nothing changes.
+# the push is rejected and nothing changes. With --new, the branch must not
+# exist at all — one created meanwhile, even at the same commit, rejects the
+# push (git checks it on the remote, atomically).
 gh_push() {
-  local exclude=() head
+  local exclude=() head lease=()
+  [ "${3:-}" != --new ] || lease=("--force-with-lease=refs/heads/$1:")
   for head in "$(gh_branch_head "$1")" "$(gh_branch_head "$2")"; do
     [ -n "$head" ] && exclude+=("$head")
   done
   secret_scan "${exclude[@]}" || return $?
-  gh_git push --quiet "$GH_REMOTE" "HEAD:refs/heads/$1" || return 3
+  gh_git push --quiet "${lease[@]}" "$GH_REMOTE" "HEAD:refs/heads/$1" || return 3
 }
 
 # gh_branch_status <branch> [label]: what the stage's branch is, for the

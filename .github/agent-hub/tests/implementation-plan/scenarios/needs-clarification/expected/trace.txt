@@ -5,7 +5,7 @@ Apply: skipped
 Send back: success
 Clear progress comment: success
 Report failure: skipped
-Remove agent session files: success
+Remove session and credential files: success
 --- Jira calls
 GET ?fields=summary,description,status
 GET /changelog?startAt=0&maxResults=100

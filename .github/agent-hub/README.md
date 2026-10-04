@@ -65,7 +65,7 @@ with **[docs/setup.md](docs/setup.md)**.
 - [Runners and Claude access](docs/runners.md) — self-hosted runner with a Claude subscription, or the Claude API
 - [Work order workflow](docs/workflows/work-order.md) — usage, tracker setup, edge cases, known gaps
 - [Implementation plan workflow](docs/workflows/implementation-plan.md) — usage, tracker setup, guardrails, edge cases
-- [Build stage design](docs/workflows/build.md) (not built yet) — the planned build stage: flow, review and fixes, CI gate, human gates, safety, the build order and decisions
+- [Build stage](docs/workflows/build.md) (a development preview, being built) — what it does today and the full design: flow, review and fixes, CI gate, human gates, safety, the build order and decisions
 - [Workflow doc template](docs/workflows/TEMPLATE.md) — start here for a new workflow
 - [Contributing](CONTRIBUTING.md) — local setup, checks, and the definition of done
 - [Tests](tests/README.md) — what's covered and how to run it

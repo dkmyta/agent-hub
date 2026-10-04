@@ -8,9 +8,10 @@
 #
 # The publication policy ("Publication policy"): unless ticket content may be
 # published (a private repository, or the setting), it carries only the
-# ticket key and what comes from the code — files, commands and results,
-# the gates — never Claude's summary, the criteria, the decision log or the
-# manual steps, which come from the ticket.
+# ticket key and what the hub itself determined — files, the gates, each
+# check's result — never Claude's summary, the criteria, the decision log,
+# the manual steps or the commands it ran (Claude wrote them, so they could
+# carry ticket text).
 
 # Text from Claude or the ticket: no HTML (which could also forge a state
 # block's marker line), one line where a list item needs it.
@@ -37,7 +38,8 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
 
   section("Verification in the sandbox";
     (if any($b.tests_run[]; .result == "failed") then ["> [!WARNING]", "> Claude reported a failing check.", ""] else [] end)
-    + [$b.tests_run[] | "- \(.command | code) — **\(.result)**" + (if $publish then ": \(.summary | line)" else "" end)]),
+    + [$b.tests_run | to_entries[] | if $publish then "- \(.value.command | code) — **\(.value.result)**: \(.value.summary | line)"
+       else "- Check \(.key + 1) — **\(.value.result)**" end]),
 
   section("Manual testing"; if $publish then [$b.manual_checks[]
       | if .checked then "- [x] \(.step | line) — checked by the agent: \(.result | line)"

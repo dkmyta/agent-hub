@@ -6,12 +6,12 @@
   },
   {
     "method": "GET",
-    "path": "/changelog?startAt=0&maxResults=100",
+    "path": "/myself",
     "body": null
   },
   {
     "method": "GET",
-    "path": "/myself",
+    "path": "/changelog?startAt=0&maxResults=100",
     "body": null
   },
   {
@@ -22,6 +22,16 @@
   {
     "method": "GET",
     "path": "/attachment/content/10001",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/changelog?startAt=0&maxResults=100",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "?fields=attachment",
     "body": null
   },
   {
@@ -73,12 +83,22 @@
   },
   {
     "method": "GET",
-    "path": "/transitions",
+    "path": "/myself",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/changelog?startAt=0&maxResults=100",
     "body": null
   },
   {
     "method": "GET",
     "path": "?fields=attachment",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/transitions",
     "body": null
   },
   {

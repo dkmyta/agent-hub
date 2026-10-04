@@ -93,3 +93,69 @@ class_of() { jq -r --arg p "$1" '.files[] | select(.path == $p) | "\(.class): \(
   run gates
   assert_equal "$(class_of package.json)" "decision: a planned dependency change, which the hub can't resolve yet (the dependency step comes in a later version)"
 }
+
+# Git quotes paths with special characters in its ordinary output; the gates
+# read its NUL-separated output, so every path is checked as its exact bytes.
+@test "paths with special characters: classified by their exact names, with their real line counts" {
+  mkdir -p .github/workflows src
+  printf 'on: push\n' > .github/workflows/évil.yml
+  printf 'a\nb\n' > "src/tab	name.js"
+  printf 'a\n' > "src/new
+line.js"
+  printf 'a\n' > 'src/back\slash "quoted".js'
+  printf 'a\n' > .Claude-settings.json
+  mkdir -p .Claude && printf 'a\n' > .Claude/settings.json
+  printf 'o\n' > docs-CodeOwners && mkdir -p docs && printf 'o\n' > docs/codeowners
+  printf '\0\1\2' > "src/bin ary é.dat"
+  git add . && git commit -qm build
+  run gates
+  assert_success
+  assert_equal "$(class_of .github/workflows/évil.yml)" "refused: a hub-managed path (.github/, .claude/, CODEOWNERS)"
+  assert_equal "$(class_of .Claude/settings.json)" "refused: a hub-managed path (.github/, .claude/, CODEOWNERS)"
+  assert_equal "$(class_of docs/codeowners)" "refused: a hub-managed path (.github/, .claude/, CODEOWNERS)"
+  assert_equal "$(class_of "src/bin ary é.dat")" "refused: a binary file"
+  assert_equal "$(class_of "src/tab	name.js")" "decision: outside the plan's scope"
+  assert_equal "$(class_of "src/new
+line.js")" "decision: outside the plan's scope"
+  assert_equal "$(class_of 'src/back\slash "quoted".js')" "decision: outside the plan's scope"
+  assert_equal "$(class_of .Claude-settings.json)" "decision: outside the plan's scope"
+  # Lines counted from the real paths: 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1.
+  assert_equal "$(jq -c .totals <<< "$output")" '{"files":9,"lines":9}'
+}
+
+@test "git failing to list the changes fails the gates, never an empty result" {
+  echo two >> src/app.js && git commit -qam build
+  run bash -c "source '$HUB_DIR/stages/build/gates.sh'; build_gates 0000000000000000000000000000000000000000 '$BATS_TEST_TMPDIR/contract.json'"
+  assert_failure
+  refute_output --partial '"files"'
+}
+
+# The gates run as a condition (errexit off): a failure anywhere must fail
+# them, never leave an empty result that lets the push go ahead.
+@test "a size limit that isn't a number, or a contract that can't be read, fails the gates with no result" {
+  echo two >> src/app.js && git commit -qam build
+  BUILD_MAX_FILES=many run gates
+  assert_failure
+  refute_output --partial '"files"'
+  echo '{"changes": "nope"}' > "$BATS_TEST_TMPDIR/contract.json"
+  run gates
+  assert_failure
+  refute_output --partial '"files"'
+}
+
+# git check-attr -z separates path, attribute and value with NULs; a path with
+# a newline mustn't shift them (and its text mustn't read as a value).
+@test "attributes of paths with newlines: read exactly" {
+  printf '*.gen.js linguist-generated\n' > .gitattributes
+  printf 'a\n' > "src/a
+b.gen.js"
+  printf 'a\n' > "src/set
+x.js"
+  git add . && git commit -qm build
+  run gates
+  assert_success
+  assert_equal "$(class_of "src/a
+b.gen.js")" "decision: a generated, vendored or minified file"
+  assert_equal "$(class_of "src/set
+x.js")" "decision: outside the plan's scope"
+}

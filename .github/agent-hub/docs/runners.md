@@ -63,7 +63,8 @@ Things to know:
 2. **Choose where it runs**:
    - **GitHub-hosted runners**: set the variable **`AGENT_HUB_RUNS_ON`** to
      `["ubuntu-latest"]`. The workflows install Claude Code on the runner
-     (`AGENT_HUB_CLAUDE_CODE_VERSION`, default `latest` — pin it for repeatability).
+     (`AGENT_HUB_CLAUDE_CODE_VERSION`, default `latest` — pin it for repeatability;
+     the build requires an exact version).
    - **A self-hosted runner**: keep the default, but make sure Claude Code on
      that machine is **not logged in** — a login takes precedence over the API
      key.
@@ -102,14 +103,31 @@ rm -rf ~/.claude/projects/*actions-runner--work-* /tmp/claude-$(id -u)/*actions-
 
 Claude Code updates itself on a self-hosted runner by default, and an update
 can change how the agents behave without any change in the repository. The
-run summary and the evals show the version used. To upgrade deliberately
-instead:
+run summary and the evals show the version used. The workflows set
+`DISABLE_AUTOUPDATER=1`, so it never updates during a run; to keep it from
+updating between runs too (when you use Claude Code on that machine
+yourself), and to upgrade deliberately:
 
 1. Add `DISABLE_AUTOUPDATER=1` to the runner's `.env` file (in the runner's
    install directory) and restart the runner service.
-2. To upgrade: run `claude update` on the runner, then run **Agent hub: Evals** with stage **all**.
+2. To upgrade: run `claude update` on the runner, run the
+   [sandbox check](#checking-the-sandbox), then **Agent hub: Evals** with stage
+   **all**, and — for the build — set `AGENT_HUB_CLAUDE_CODE_VERSION` to the new
+   version.
 
-On GitHub-hosted runners, pin `AGENT_HUB_CLAUDE_CODE_VERSION` and change it deliberately.
+On GitHub-hosted runners, `AGENT_HUB_CLAUDE_CODE_VERSION` is the version
+installed; pin it and change it deliberately.
+
+**The build requires a pinned version.** Its boundary rests on how the
+installed version enforces the sandbox, so it runs only when
+`AGENT_HUB_CLAUDE_CODE_VERSION` is an exact version (e.g. `2.1.280`, not
+`latest`) and the runner's `claude --version` matches it. That's checked
+before any Claude usage, and a mismatch stops the build saying both versions.
+The pin keeps the version from changing beneath the build; it doesn't prove
+the sandbox works on the runner — that's the sandbox check, which uses
+Claude, so it's run by hand (on a new runner, after every Claude Code
+upgrade, and after changing the sandbox settings or the runner's setup) and
+never automatically before a build.
 
 The hub needs a Claude Code with restricted mode (`claude --help` lists
 `--restricted`): it keeps the agents inside the repository whatever the

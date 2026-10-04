@@ -24,6 +24,20 @@ git_remote() {
   echo one > file.txt && git add file.txt && git commit -qm one && git push -q origin HEAD:refs/heads/main
 }
 
+# The tracker and GitHub each write credential files; a code stage's steps
+# load both, and neither may undo the other's cleanup.
+@test "credential files: the tracker's and GitHub's are all removed when a step ends, on success or failure" {
+  local code
+  for code in 0 1; do
+    run env TICKET_KEY=PROJ-1 JIRA_DOMAIN=x JIRA_EMAIL=e JIRA_API_TOKEN=t bash -c \
+      "source '$HUB_DIR/trackers/jira/tracker.sh'; source '$HUB_DIR/lib/github.sh'; ls '$RUNNER_TEMP' | grep -c 'curl\\|github-'; exit $code"
+    assert_equal "$status" "$code"
+    assert_output 4
+    run ls "$RUNNER_TEMP"
+    refute_output --regexp "(jira-curl|github-curl|github-token|github-askpass)\."
+  done
+}
+
 @test "credentials never on a command line: curl reads a config file, git an askpass helper" {
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/curl-args.txt"\necho "{}"\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/bin/curl"
@@ -112,7 +126,7 @@ git_remote() {
   git_remote
   git checkout -q -b agent-hub/PROJ-1
   echo two > file.txt && git commit -qam two
-  run with_github 'gh_push agent-hub/PROJ-1 && gh_branch_head agent-hub/PROJ-1'
+  run with_github 'secret_scan() { :; }; gh_push agent-hub/PROJ-1 && gh_branch_head agent-hub/PROJ-1'
   assert_success
   assert_output "$(git rev-parse HEAD)"
   # Someone else pushes a commit; the run's own next commit doesn't build on it.
@@ -122,10 +136,27 @@ git_remote() {
     && git checkout -q agent-hub/PROJ-1 && echo theirs > file.txt && git commit -qam theirs && git push -q origin agent-hub/PROJ-1)
   theirs=$(git -C "$BATS_TEST_TMPDIR/other" rev-parse HEAD)
   echo ours > file.txt && git commit -qam ours
-  run with_github 'gh_push agent-hub/PROJ-1'
+  run with_github 'secret_scan() { :; }; gh_push agent-hub/PROJ-1'
   assert_failure
   run with_github 'gh_branch_head agent-hub/PROJ-1'
   assert_output "$theirs"
+}
+
+# A first push (--new) needs the branch absent: one someone created during the
+# run — even at the run's own base, where a plain push would fast-forward it —
+# rejects the push.
+@test "a first push (--new) needs the branch absent, even when it could fast-forward" {
+  git_remote
+  git push -q origin HEAD:refs/heads/agent-hub/PROJ-1
+  echo two > file.txt && git commit -qam two
+  run with_github 'secret_scan() { :; }; gh_push agent-hub/PROJ-1 main --new'
+  assert_failure 3
+  run with_github 'gh_branch_head agent-hub/PROJ-1'
+  assert_output "$(git rev-parse HEAD~1)"
+  # Absent: created.
+  run with_github 'secret_scan() { :; }; gh_push agent-hub/PROJ-2 main --new && gh_branch_head agent-hub/PROJ-2'
+  assert_success
+  assert_output "$(git rev-parse HEAD)"
 }
 
 @test "rewritten history is detected: a newer head must build on an older one" {

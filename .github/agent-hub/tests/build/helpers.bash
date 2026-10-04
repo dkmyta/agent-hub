@@ -6,8 +6,9 @@ load "$(dirname "${BASH_SOURCE[0]}")/../lib/helpers"
 export STAGE=build
 export SUITE_DIR="$TESTS_DIR/build"
 export FIXTURES="$SUITE_DIR/fixtures"
-# The build's development gate on (settings.sh); a test checks it off.
-export VARS='{"AGENT_HUB_BUILD_PREVIEW": "true"}'
+# The build's development gate on, and Claude Code pinned to the stub's
+# version (settings.sh); tests check both.
+export VARS='{"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9"}'
 # The secret scan's stand-in (lib/bin/gitleaks), so nothing is downloaded.
 export MOCK_GITLEAKS=1
 

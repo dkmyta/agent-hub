@@ -20,11 +20,7 @@ step_fetch() {
   # The ticket must carry a work order: its acceptance criteria (which
   # the plan must cover) and the section the plan goes into. Checked
   # before Claude runs, so no Claude usage is spent on a ticket without one.
-  jq -L "$HUB_DIR/lib" 'include "adf";
-    [.fields.description // {content: []} | section_blocks("Acceptance Criteria")[]
-     | select(.type == "taskList") | .content[] | plain_text]' \
-    "$RUNNER_TEMP/ticket.json" > "$RUNNER_TEMP/acceptance-criteria.json"
-  if [ "$(jq length "$RUNNER_TEMP/acceptance-criteria.json")" = 0 ] \
+  if [ "$(stage_acceptance_criteria)" = 0 ] \
     || ! jq -e -L "$HUB_DIR/lib" --arg section "$PLAN_SECTION" 'include "adf";
          .fields.description // {content: []} | section_index($section) != null' \
          "$RUNNER_TEMP/ticket.json" > /dev/null; then
@@ -51,7 +47,7 @@ step_fetch() {
   # arrived meanwhile and replaces only these.
   ATTACHMENTS=$(tracker_attachments) \
     || stage_fail "Couldn't read the ticket's attachments from $TRACKER_NAME, so nothing was changed."
-  jq --arg name "$TICKET_KEY-$PLAN_FILE_SUFFIX" '[.[] | select(.filename == $name)] | sort_by(.created)' \
+  jq --arg name "$PLAN_FILE_NAME" '[.[] | select(.filename == $name)] | sort_by(.created)' \
     <<< "$ATTACHMENTS" > "$RUNNER_TEMP/plan-attachments.json"
 
   # Revising: Claude starts from the attached plan (the description only
@@ -67,7 +63,7 @@ step_fetch() {
       # edited and re-uploaded it (the newest one wins).
       tracker_attachment_content "$PLAN_ID" > "$RUNNER_TEMP/current-plan.md"
       {
-        printf '\nCurrent implementation plan (attached as %s):\n\n' "$TICKET_KEY-$PLAN_FILE_SUFFIX"
+        printf '\nCurrent implementation plan (attached as %s):\n\n' "$PLAN_FILE_NAME"
         cat "$RUNNER_TEMP/current-plan.md"
       } >> "$RUNNER_TEMP/ticket.md"
       MODE=revision
@@ -91,18 +87,20 @@ step_fetch() {
 # back to Work Order for a person to check and approve again; no plan is
 # written from a work order nobody approved.
 _approval_stale() {
-  local transition
-  transition=$(stage_transition_id "$WORK_ORDER_STATUS")
   # shellcheck disable=SC1112 # curly apostrophe intended
-  jq -n -L "$HUB_DIR/lib" --arg status "$WORK_ORDER_STATUS" 'include "adf";
-    doc([para([strong("⚠️ Work order changed after approval"),
-      text(" — the description changed after it was approved, so no plan was written from it. It’s back in \($status): check the work order, then approve it again.")])])' \
-    | tracker_comment > /dev/null
-  tracker_labels "+$NEEDS_HUMAN_LABEL"
-  stage_move "$transition" "$WORK_ORDER_STATUS"
-  echo "proceed=false" >> "$GITHUB_OUTPUT"
-  echo "[$TICKET_KEY]($TICKET_URL) returned to $WORK_ORDER_STATUS: the work order was edited after its approval." >> "$GITHUB_STEP_SUMMARY"
-  stage_outcome stale
+  stage_send_back_stale "$WORK_ORDER_STATUS" "Work order changed after approval" \
+    "the description changed after it was approved, so no plan was written from it. It’s back in $WORK_ORDER_STATUS: check the work order, then approve it again." \
+    "the work order was edited after its approval."
+}
+
+# _work_order_changed: whether the description now (ticket-before.json)
+# differs from the one the run read (ticket.json), apart from the plan's own
+# section, which this run replaces. A section removed by hand counts as a
+# change.
+_work_order_changed() {
+  local filter='include "adf"; .fields.description // {content: []} | try replace_section($section; []) catch "no plan section"'
+  [ "$(jq -c -L "$HUB_DIR/lib" --arg section "$PLAN_SECTION" "$filter" "$RUNNER_TEMP/ticket.json")" \
+    != "$(jq -c -L "$HUB_DIR/lib" --arg section "$PLAN_SECTION" "$filter" "$RUNNER_TEMP/ticket-before.json")" ]
 }
 
 # _stop_if_newer_plan [ours] [restore]: fail if a plan file was uploaded
@@ -155,7 +153,7 @@ _plan_path_problem() {
   # Workflows, Claude Code's settings and code owners are for a person to
   # change: the plan lists them as manual changes (governance), never as
   # changes the build makes.
-  case "$path" in .github/* | .claude/* | CODEOWNERS | */CODEOWNERS) echo "for a person to change: list it as a manual change"; return ;; esac
+  if hub_managed_path "$path"; then echo "for a person to change: list it as a manual change"; return; fi
   root=$(pwd -P)
   if [ "$1" = add ]; then
     # A new file: nothing there yet, and the nearest folder that exists
@@ -193,12 +191,10 @@ step_agent() {
   # checked before). The log names positions and paths, never ticket text.
   if [ "$(jq -r '.structured_output.status' "$AGENT_OUTPUT")" = ready ]; then
     jq '.structured_output.plan // .structured_output.updates' "$AGENT_OUTPUT" > "$RUNNER_TEMP/plan-checked.json"
-    MISSING=$(jq -r --slurpfile plan "$RUNNER_TEMP/plan-checked.json" '
-      def norm: gsub("\\s+"; " ") | ltrimstr(" ") | rtrimstr(" ");
-      if $plan[0] | has("acceptance_criteria") | not then ""
-      else [$plan[0].acceptance_criteria[].criterion | norm] as $covered
-      | [to_entries[] | select((.value | norm) as $c | $covered | any(. == $c) | not) | .key + 1]
-      | join(", ") end' "$RUNNER_TEMP/acceptance-criteria.json")
+    MISSING=""
+    if jq -e 'has("acceptance_criteria")' "$RUNNER_TEMP/plan-checked.json" > /dev/null; then
+      MISSING=$(stage_uncovered_criteria "$(jq -c '[.acceptance_criteria[].criterion]' "$RUNNER_TEMP/plan-checked.json")")
+    fi
     if [ -n "$MISSING" ]; then
       stage_fail "The plan didn't cover acceptance criteria $MISSING (by position in the work order), so it wasn't applied. Comment $REVISE_COMMAND to try again."
     fi
@@ -235,7 +231,7 @@ step_apply() {
   # The full plan, as Markdown, to attach to the ticket. A revision
   # changes only its updated sections of the attached file, so the rest
   # — including people's edits to it — stays as it is.
-  PLAN_FILE="$RUNNER_TEMP/$TICKET_KEY-$PLAN_FILE_SUFFIX"
+  PLAN_FILE="$RUNNER_TEMP/$PLAN_FILE_NAME"
   if [ "$MODE" = revision ]; then
     source "$STAGE_DIR/revise.sh"
     jq '.structured_output.updates' "$RUNNER_TEMP/agent-output.json" > "$RUNNER_TEMP/updates.json"
@@ -267,8 +263,10 @@ step_apply() {
   fi
   {
     if [ "$MODE" = revision ]; then
+      # The build's questions (if it sent the plan back) are answered by this
+      # revision (prompt.md), so their section goes.
       revision_plan_markdown "$RUNNER_TEMP/updates.json" "$RUNNER_TEMP/current-plan.md" \
-        | revision_version_line "$VERSION"
+        | stage_drop_md_section "$BUILD_QUESTIONS_SECTION" | revision_version_line "$VERSION"
     else
       jq -r '"# Implementation plan: \(env.TICKET_KEY) — \(.fields.summary)\n"' "$RUNNER_TEMP/ticket.json"
       echo "$VERSION"
@@ -299,6 +297,13 @@ step_apply() {
   # plan can't be published after all (see below).
   tracker_issue description,labels > "$RUNNER_TEMP/ticket-before.json"
   jq '.fields.description' "$RUNNER_TEMP/ticket-before.json" > "$RUNNER_TEMP/description-before.json"
+  # The work order must still be the one the plan was written from: edited
+  # during the run, the plan may no longer match it. A new plan's approval
+  # is then stale; a revision stops for a person to check.
+  if _work_order_changed; then
+    if [ "$START_STATUS" = "$WORK_ORDER_APPROVED_STATUS" ]; then _approval_stale; exit 0; fi
+    stage_fail "The work order changed while the plan was being revised, so nothing was changed. Check it, then comment $REVISE_COMMAND to revise the plan against it."
+  fi
   jq -L "$HUB_DIR/lib" --arg section "$PLAN_SECTION" --slurpfile blocks "$RUNNER_TEMP/plan-summary.json" \
       'include "adf"; replace_section($section; $blocks[0])' "$RUNNER_TEMP/description-before.json" \
     > "$RUNNER_TEMP/description.json"

@@ -20,6 +20,13 @@ CLAUDE_MAX_BUDGET_USD=$(stage_setting MAX_BUDGET_USD 10.00)
 # repository variable AGENT_HUB_BUILD_PREVIEW=true. 3c removes this gate.
 BUILD_PREVIEW=$(stage_setting PREVIEW false)
 
+# The Claude Code version the build runs with: exact (e.g. 2.1.280), never
+# "latest" — the build's boundary rests on how that version enforces the
+# sandbox, so the version can't change beneath it (step_fetch checks the
+# runner has it). The same repository variable picks the version installed
+# on GitHub-hosted runners.
+CLAUDE_CODE_VERSION=$(setting AGENT_HUB_CLAUDE_CODE_VERSION "")
+
 # A code stage: the steps without an agent get GitHub (lib/github.sh, loaded
 # by lib/load.sh); the workflow's code-stage input gives them the token.
 CODE_STAGE=true

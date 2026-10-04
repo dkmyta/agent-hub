@@ -26,6 +26,7 @@ unless they start with `.github/`.
       load.sh                     what each workflow step sources (from the hub's copy in RUNNER_TEMP)
       github.sh, state.sh         GitHub and the pull request's state block (code stages)
       secret-scan.sh              the pinned secret scan before every push
+      paths.sh                    the paths only people change (.github/, .claude/, CODEOWNERS), for every check
       markdown.jq                 reading the attached plan's sections
       stage.sh                    fetching, progress and failure comments, revisions
       adf.jq                      the ticket document format (ADF) helpers
@@ -145,7 +146,7 @@ data to it: `{fields: {summary, description (ADF), status: {name}, attachment:
 | `tracker_status`, `tracker_require_status <status>` | The status name; succeed only in that status |
 | `tracker_account_id` | The automation account's id (`author.accountId` on its comments and attachments) |
 | `tracker_edited_after <status> <field>` | Whether a field was changed — by anyone, the automation included — after the ticket last entered a status (`yes`, `no`, or `unknown` if the history never shows it entering it), from the tracker's history; fails if the history can't be read in full |
-| `tracker_history_since <status>` | Every change since the ticket last entered a status (who moved it there and when, then each changed field with its old and new values), from the tracker's history; fails if it can't be read in full |
+| `tracker_history_since <status>` | Every change since the ticket last entered a status (who moved it there and when, then each change with its old and new values and a tracker-independent `kind`: `attachment` with the file's name, `description`, `status`), from the tracker's history; fails if it can't be read in full |
 | `tracker_set_description [+label\|-label]...` | Replace the description with the ADF on stdin, changing labels in the same update |
 | `tracker_comments`, `tracker_comment`, `tracker_update_comment <id>`, `tracker_delete_comment <id>` | Read comments; post the ADF on stdin (prints the id); replace; delete |
 | `tracker_labels <+label\|-label>...` | Add and remove labels, in one update |
@@ -264,8 +265,8 @@ The rules every stage keeps. Those marked *(build)* arrive with the build
 stage ([workflows/build.md](workflows/build.md)).
 
 1. A stage consumes only the exact upstream artifact that stayed unchanged
-   after its approval (the plan stage checks the work order today; the build
-   will check the plan).
+   after its approval (the plan stage checks the work order; the build checks
+   the plan file and the work order, again before it pushes).
 2. No agent output can increase the agent's own permissions or autonomy.
 3. Severity communicates urgency; hub policy decides what may change
    automatically; plan approval authorises only the governance changes the
@@ -315,7 +316,7 @@ stage ([workflows/build.md](workflows/build.md)).
   **Fetch ticket** (`id: start`) → **Agent (draft and review)** (`id: agent`)
   → **Apply to ticket** (`id: apply`, `status == 'ready'`) or **Send back**
   (`id: return`, any other status) → **Clear progress comment** → **Report
-  failure on ticket** (`if: failure()`) → **Remove agent session files**
+  failure on ticket** (`if: failure()`) → **Remove session and credential files**
   (`if: always()`). The test harness runs every stage with this shape.
 - Each step sources `lib/load.sh` (the settings, then the tracker — or, for
   the agent step, the agent runner — then `lib/stage.sh` and the stage's
@@ -425,8 +426,8 @@ the same way (the tracker side, and every path, is in
 
 A label or a "Changes requested" status were considered: both take two
 actions (the signal, plus the feedback) and a status adds one per stage; a
-comment command is one action and carries over to PR comments. For the PR
-stage (not built yet) the options to decide then: people commit to the
+comment command is one action and carries over to PR comments. For the
+build's pull requests (review items arrive with PR 5) the options to decide then: people commit to the
 branch; people leave review comments for the agent to apply; people ask the
 agent to apply selected mid/low-severity review findings (e.g. `/apply 2 4`);
 re-running the automated review after changes.
@@ -612,12 +613,15 @@ replace them or show up on other work.
 3. Add `tests/<stage>/` (scenarios, agent-step tests, schema tests, evals) —
    see [tests/README.md](../tests/README.md). `tests/shared/stage-workflow.bats`
    checks every stage has its files, step functions and a caller.
-4. Handle revisions and reverse paths as above: a revision mode, a
-   `revise.sh` (`REVISION_DEPTH`, `revision_preview`, and applying `updates`
-   section by section to the current output), the `revision_responses`
-   field, the reply and resolution, a scenario per path (including one
-   proving untouched sections and manual edits survive), and the stage's
-   statuses in the Revision Requested rule.
+4. Handle revisions and reverse paths as above, where the stage revises its
+   output (the document stages; the build's revisions come later): a revision
+   mode, a `revise.sh` (`REVISION_DEPTH`, `revision_preview`, and applying
+   `updates` section by section to the current output), the
+   `revision_responses` field, the reply and resolution, a scenario per path
+   (including one proving untouched sections and manual edits survive), and
+   the stage's statuses in the Revision Requested rule. A stage that changes
+   code sets `CODE_STAGE=true` in its settings and `code-stage: true` in its
+   caller, and checks its inputs again before every write (as the build does).
 5. Document it from [workflows/TEMPLATE.md](workflows/TEMPLATE.md), including
    its reverse paths and the steps to test it in the tracker.
 6. Add the tracker rule (Jira: [jira.md](jira.md)), and list it in the PR's deployment steps.

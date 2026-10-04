@@ -216,7 +216,7 @@ works from the current version: the description for a work order, the newest
 |---|---|---|---|
 | Intake → work order | Blank or template-only: the Work Order Requested rule keeps it in Intake (Needs details, Jira). Filled in but vague: Claude returns it to Intake with *what's missing* (Needs details, Claude). The requester edits the description or comments `/revise` with the details | Listed in the work order's Open Questions; a person decides before approving | Researched and answered in the work order where they matter |
 | Work order → plan | The work order stops being plannable (no acceptance criteria or plan section): fails before Claude runs, with the reason | Back to Work Order with the questions (`needs-clarification`); answer, then approve again | Answered by Claude from the code and documentation, listed in Resolved Technical Questions |
-| Plan → build *(not built yet)* | Should follow the same pattern: send the ticket back to Implementation Plan with its questions, never guess | | |
+| Plan → build | The plan can't be read as a contract, or names no changes: fails before Claude runs, with the reason | Back to Implementation Plan with the questions in a new plan version and a comment (`needs-clarification`); revise, then approve again | Claude resolves them from the code; the decision log in the pull request records each judgement call |
 | A revision (any stage) | A vague request is answered with what's needed, and nothing changes for it | The stage's usual send-back, with the request left open | Researched and answered in the 🔁 reply (and recorded in the output where useful) |
 
 ## Automation usage
@@ -281,8 +281,10 @@ request to it and rename it.
 ```
 
 The build checks the approval itself: it builds only from the newest plan
-file, and only if no plan file was added or removed after the move here and a
-person (not the automation account) made the move. To retry a build, move
+file, and only if a person (not the automation account) made the move here,
+the plan file predates it, and since then no plan file was added or removed
+and the work order (the description) wasn't edited — checked again before it
+pushes or sends the ticket back. To retry a build, move
 the ticket back to Implementation Plan and approve it again.
 
 ## Permissions for the automation account

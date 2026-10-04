@@ -121,3 +121,17 @@ EOF
   run with_jira PROJ-1 'tracker_delete_attachment 8001; jq -r "[.method, .path] | join(\" \")" "$CALLS"'
   assert_output "DELETE /attachment/8001"
 }
+
+# Stages read the history by tracker-independent kinds, never Jira's field names.
+@test "history: changes since the last move into a status, each with its kind (and an attachment's file)" {
+  jq -n '{startAt: 0, maxResults: 100, total: 3, isLast: true, values: [
+    {created: "2026-10-01T09:00:00.000+0000", author: {accountId: "a"}, items: [{field: "status", toString: "Done"}]},
+    {created: "2026-10-01T10:00:00.000+0000", author: {accountId: "dana", displayName: "Dana"}, items: [{field: "status", toString: "Done"}]},
+    {created: "2026-10-01T11:00:00.000+0000", author: {accountId: "b"}, items: [
+      {field: "Attachment", to: "1", toString: "plan.md"}, {field: "Attachment", from: "2", fromString: "old.md"},
+      {field: "description"}, {field: "labels"}]}]}' > "$BATS_TEST_TMPDIR/changelog.json"
+  CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/changelog.json" run with_jira PROJ-1 'tracker_history_since Done'
+  assert_success
+  assert_equal "$(jq -c '[.entered, .at, .by_name, [.changes[] | [.kind, .file]]]' <<< "$output")" \
+    '[true,"2026-10-01T10:00:00.000+0000","Dana",[["attachment","plan.md"],["attachment","old.md"],["description",null],["labels",null]]]'
+}

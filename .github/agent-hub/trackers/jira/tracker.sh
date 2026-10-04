@@ -24,9 +24,13 @@ ISSUE_URL="https://$JIRA_DOMAIN/rest/api/3/issue/$TICKET_KEY"
 TICKET_URL="https://$JIRA_DOMAIN/browse/$TICKET_KEY"
 
 # Credentials go to curl through a file only this user can read, never on its
-# command line, where other users of the runner machine could see them.
+# command line, where other users of the runner machine could see them. It's
+# removed when the step ends: every library adds its credential files to
+# HUB_SECRET_FILES behind the same trap, so loading another one (lib/github.sh)
+# doesn't replace this cleanup.
 JIRA_CURL_CONFIG=$(umask 077 && mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/jira-curl.XXXXXX")
-trap 'rm -f "$JIRA_CURL_CONFIG"' EXIT
+HUB_SECRET_FILES+=("$JIRA_CURL_CONFIG")
+trap 'rm -f "${HUB_SECRET_FILES[@]}"' EXIT
 printf 'user = "%s:%s"\n' \
   "$(printf '%s' "$JIRA_EMAIL" | sed 's/[\\"]/\\&/g')" \
   "$(printf '%s' "$JIRA_API_TOKEN" | sed 's/[\\"]/\\&/g')" > "$JIRA_CURL_CONFIG"
@@ -112,8 +116,11 @@ tracker_comments() {
 
 # tracker_history_since <status>: the ticket's changes since it last entered
 # <status>, from Jira's change history, as {entered, at, by, by_name, changes:
-# [{field, from, fromString, to, toString, author}]} — entered false (and no
-# changes) if the history never shows it entering <status>. Changes by anyone
+# [{kind, file, field, from, fromString, to, toString, author}]} — entered
+# false (and no changes) if the history never shows it entering <status>.
+# `kind` is the tracker-independent name stages use: "attachment" (with the
+# file's name in `file`, added or removed), "description", "status", or
+# Jira's own field name for anything else. Changes by anyone
 # count, the automation included. A page of 100 at a time; fails (rather than
 # read only some) on an API error or past 5,000 entries.
 tracker_history_since() {
@@ -134,7 +141,9 @@ tracker_history_since() {
       else {entered: true, at: (.[$at].created // ""), by: (.[$at].author.accountId // ""),
             by_name: (.[$at].author.displayName // ""),
             changes: [.[$at + 1:][] | (.author.accountId // "") as $who
-              | .items[] | {field, from, fromString, to, toString, author: $who}]} end' <<< "$all"
+              | .items[] | {kind: ({Attachment: "attachment", description: "description", status: "status"}[.field] // .field),
+                  file: (if .field == "Attachment" then (.toString // .fromString) else null end),
+                  field, from, fromString, to, toString, author: $who}]} end' <<< "$all"
 }
 
 # tracker_edited_after <status> <field>: whether <field> (e.g. description)

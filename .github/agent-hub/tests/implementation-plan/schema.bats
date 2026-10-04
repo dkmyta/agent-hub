@@ -42,9 +42,9 @@ render() { # <mode> <heading level>
   render summary 5 > "$BATS_TEST_TMPDIR/summary.json"
   jq -L "$HUB_LIB" --slurpfile b "$BATS_TEST_TMPDIR/summary.json" 'include "adf";
     .fields.description | replace_section("Implementation Plan"; $b[0])' \
-    "$FIXTURES/tickets/work-order-approved.json" > "$BATS_TEST_TMPDIR/description.json"
+    "$WORK_ORDER_FIXTURES/tickets/work-order.json" > "$BATS_TEST_TMPDIR/description.json"
   # Every work-order heading is still there, in order, around the plan summary.
-  diff <(jq -r '.fields.description.content[] | select(.type == "heading" and .attrs.level <= 4) | .content[0].text' "$FIXTURES/tickets/work-order-approved.json") \
+  diff <(jq -r '.fields.description.content[] | select(.type == "heading" and .attrs.level <= 4) | .content[0].text' "$WORK_ORDER_FIXTURES/tickets/work-order.json") \
        <(jq -r '.content[] | select(.type == "heading" and .attrs.level <= 4) | .content[0].text' "$BATS_TEST_TMPDIR/description.json")
   jq -c '{method: "PUT", path: "(render)", body: {fields: {description: .}}}' "$BATS_TEST_TMPDIR/description.json" > "$BATS_TEST_TMPDIR/calls.jsonl"
   assert_valid_adf "$BATS_TEST_TMPDIR/calls.jsonl"

@@ -117,7 +117,7 @@ with `stages/implementation-plan/`):
    **Or Send back** (needs clarification) — re-checks the status and the
    transition to Work Order first; comments, labels, moves to **Work Order**.
 5. **Clear progress comment**, or **Report failure** (with the reason).
-6. **Remove agent session files** — always, so nothing from the run stays
+6. **Remove session and credential files** — always, so nothing from the run stays
    on the runner.
 
 ## What it produces
@@ -191,6 +191,7 @@ Shared ones (revisions, failures, retries) are in
 |---|---|
 | Ticket has no work order | Fails before Claude runs (no Claude usage), with the reason |
 | The work order was edited after its approval | Back to Work Order with `needs-human` and a comment, before Claude runs; approve it again. Any edit counts, the automation's own included (e.g. a plan run that wrote its summary and then failed before moving the ticket) |
+| The work order is edited while the plan is written | Checked again before anything is written: a new plan isn't published and the ticket goes back to Work Order (stale); a revision stops with the failure comment. Edits to the Implementation Plan section alone don't count (the run replaces it) |
 | No approval in the ticket's history, or the history can't be read | Fails with the reason, before Claude runs — a plan is never written from an approval it can't confirm |
 | The plan needs a workflow, Claude Code setting or CODEOWNERS changed | Listed as a manual change for a person; never in Changes by File (a plan that puts one there isn't applied). If all the work is manual, Changes by File is empty and the plan is still ready; a plan with no changes at all isn't applied |
 | A plan file uploaded while a run works | Fails before changing anything, with the reason; `/revise` again revises the newest. If it lands while the run publishes, the run takes back its own upload and description change first |
@@ -206,9 +207,10 @@ Shared ones (revisions, failures, retries) are in
 
 ## Known gaps
 
-- **Nothing acts on an approved plan yet**: the build stage is planned
-  ([build.md](build.md)); approval only clears `needs-human`
-  ([jira.md](../jira.md#rule-implementation-plan-approved)).
+- **Approving a plan starts the build** only where the build preview is
+  enabled ([build.md](build.md)); otherwise the Build Requested rule
+  ([jira.md](../jira.md#rule-build-requested)) clears `needs-human` and the
+  build stops at its first step, saying it isn't enabled.
 - **The full plan is an attachment**; reviewing it means opening it, and
   editing it means downloading and re-uploading it.
 - **The plan reflects the code when it was written.** If the code changes

@@ -59,7 +59,11 @@ as it's attached to the ticket).
   `current_state`, `approach`, `acceptance_criteria`, `changes`, `steps`,
   `dependencies`, `testing`, `security`, `risks`, `release`,
   `resolved_questions`, `assumptions`. An updated `acceptance_criteria`
-  must still cover every criterion in the work order, word for word.
+  must still cover every criterion in the work order, word for word. If the
+  plan has a **Questions from the build** section (questions the build
+  couldn't resolve), answer each one in the plan where it belongs — a
+  decision in Approach, a step, a resolved question — or, if only a person
+  can answer it, ask it as below; the workflow removes that section.
 
 Either way, when there are change requests, fill `revision_responses`: one
 entry per listed request, with its `request_id` — no more — saying what changed, or why it didn't

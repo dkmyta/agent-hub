@@ -97,11 +97,16 @@ ends as *no change needed* — a normal outcome.
    first step, with a notice.
 2. **Approval check (exact artifact):** from Jira's change history, the
    approved plan is the newest plan file uploaded before the transition to
-   Implementation Plan Approved. That attachment must still exist and still be
-   the newest plan file, and no plan attachment may have been added or deleted
-   after the approval. Otherwise the approval is **stale**: back to
-   Implementation Plan with the reason, to be approved again. The plan's
-   content hash and the approver go into the change set.
+   Implementation Plan Approved, which a person (not the automation account)
+   made. That attachment must still exist and still be the newest plan file,
+   no plan attachment may have been added or deleted after the approval, and
+   the work order (the description) mustn't have been edited since. The
+   history and the attachments are read together and read again after the
+   plan downloads, before the push and before any send-back: the approval and
+   the set of plan files must be exactly as first read. Otherwise the approval
+   is **stale**: back to Implementation Plan with the reason, to be approved
+   again (or, once the agent has run, the run stops without pushing). The
+   plan's content hash and the approver go into the change set.
 3. **Reconcile:** the run collects all outstanding work from its sources —
    unhandled `/apply` and `/revise` requests, the current pull request head and
    its CI state, the plan hash, the review items — and does the next step. The
@@ -619,9 +624,14 @@ environments with required reviewers).
 Checkouts cleaned (`git clean -ffdx`) and temp folders per job, verified at
 the start of each run · package caches in the job's temp folder · escaping
 symlinks and gitlinks refused · **all actions pinned to full commit SHAs**
-(GitHub-owned too), kept current by Dependabot · a pinned Claude Code version
-required for the build profile · sandbox capability verified before build mode
-starts · sessions, temp and credential files removed `if: always()` · nothing
+(GitHub-owned too), kept current by Dependabot · **an exact, pinned Claude Code
+version required for the build**, checked against the runner's before any
+Claude usage, and no automatic updates during runs · the sandbox check run by
+hand (it uses Claude) on a new runner, after every Claude Code upgrade and
+after changing the sandbox settings or the runner's setup — a matching version
+doesn't prove a runner passed it, and it isn't run before each build ·
+sessions, temp and credential files removed `if: always()` (and by each step
+as it ends, whatever libraries it loaded) · nothing
 an agent leaves in the checkout runs later: the hub runs from a copy made
 before the agent, git from metadata copied before it, and the gates and
 secret scan check the commit, not the working tree
@@ -688,7 +698,7 @@ only wakes the per-ticket run, which reads the checks itself.
 | Unit (jq, shell helpers) | bats | No |
 | Scenario (whole workflow runs) | Extracted workflow steps, Jira and GitHub mocks, a local bare git remote, the Claude stub replaying recorded outputs; snapshots of every call | No |
 | Variants | `run_scenario <name> VAR=value` for one-setting differences | No |
-| Gates | Each gate mutation-tested: its test fails when the gate is removed | No |
+| Gates | A test per class and boundary case (special characters in paths, any letter case, git failing); each fix's test is checked to fail without the fix. An automated mutation check is a later improvement | No |
 | Boundary checks | `scripts/check-sandbox.sh`: real Claude Code against hostile settings and sandbox escape attempts, results checked on disk ([runners.md](../runners.md#checking-the-sandbox)) | Yes, about $0.20, confirmed with `use-claude` |
 | Evals | Manual, `use-claude`, capped; one build case on a small fixture repository | Yes |
 | Pipeline test | Real systems, the scenarios under [Building it](#building-it) | Yes |
@@ -770,7 +780,7 @@ and git from metadata copied before the agent ([architecture.md](../architecture
 
 ## Building it
 
-Each step is a pull request with tests (mocked, parallel), mutation-checked
+Each step is a pull request with tests (mocked, parallel), boundary-tested
 gates, docs in the same pull request and a changelog entry; real Claude only
 where stated and only with the owner's OK.
 
@@ -805,12 +815,29 @@ where stated and only with the owner's OK.
      as the package manager; the dependency step (a planned dependency
      change resolved by the hub — today a decision item); the deterministic
      verify step (the repository's checks re-run by the hub, not reported by
-     the agent); reconciliation of an existing pull request; then the
-     preview gate is removed and the stage is enabled for real tickets.
+     the agent); reconciliation of an existing pull request; gitleaks cached
+     in the runner's tool cache (still checksum-verified) rather than
+     downloaded per run; then the preview gate is removed and the stage is
+     enabled for real tickets.
 4. **Review, fix, CI gate, hand-off** — the review with its policy table; the
    fix pass, fix check and second verify; review coverage; sync and drift; the
    CI-result workflow, the evaluation commit (head and test merge commit both
    covered), conservative classification and CI fixes; hand-off eligibility.
+   **Prerequisites, before the review pass or reconciliation is enabled**
+   (from the 2.5.0 reviews):
+   - *A read-only review profile, proven.* The review profile drops the
+     file-editing tools, but its sandbox doesn't yet deny shell writes to the
+     checkout (Claude Code's default allows the working directory). Deny them
+     explicitly, keep a temp folder writable for test output, and add a
+     review-profile run to the sandbox check (shell redirection, a script or
+     child process writing, the file tools).
+   - *GitHub's edit-history format, recorded.* `gh_pr_body_versions` reads
+     each `userContentEdit.diff` as the whole description after that edit —
+     confirmed read-only against the API in 2.4.0, but the test mock encodes
+     the same assumption. Record real responses (creation, a person's edit
+     outside the state block, an edit to it, deleted history) as fixtures,
+     and bind the newest version to the description the API returns, before
+     the state block is trusted for reconciliation.
 5. **Review items, `/apply`, PR sync, docs** — the relay; `/apply` and
    `/skip` with the approvers-group condition; item clearing; the paused
    label; PR sync with the conditional post-merge check; superseded builds; a
