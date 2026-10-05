@@ -5,6 +5,36 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.5.2 — 2026-10-05
+
+From the first real build: its pull request was hard to follow in a public
+repository, and the details it held back went nowhere.
+
+- **The ticket gets the build's whole report**, whatever the repository's
+  visibility: the "🔨 Draft pull request opened" comment now has what changed,
+  how each acceptance criterion is verified, the checks run and their results
+  (including why one failed), the manual steps, the build's decisions and
+  what's left for a person. The work order's **Pull Request** and **Testing
+  Instructions** sections are filled in (the link; the manual steps as a
+  checklist and the checks run), with `needs-human`. A description without
+  those sections, or one that would pass Jira's size limit, keeps its text —
+  the comment has it all.
+- **Clearer pull requests.** The title names what changed when ticket text
+  can't be published ("PROJ-1: change src/a.js and src/b.js"); the description
+  opens with what the pull request is and where the details are, lists each
+  file with its line counts, refers to criteria and checks by number with a
+  pointer to the ticket, and shows the run's real duration.
+- **The plan's Must not touch and Also in scope lists** are paths or patterns
+  only, never sentences.
+- **Docs:** adding the Jira service account; restricting both "…Approved"
+  transitions to people (team-managed and company-managed); every Jira web
+  request (six across the four rules) sends the same dispatch token to
+  `…/dispatches`; testing with your own Jira account works for the document
+  stages, not the build.
+
+**Updating:** nothing to do. To see the full report on an existing ticket,
+rebuild it (close its pull request, delete the branch, approve the plan again).
+
 ## 2.5.1 — 2026-10-04
 
 Boundary hardening, from two full reviews of 2.5.0 — before the build runs

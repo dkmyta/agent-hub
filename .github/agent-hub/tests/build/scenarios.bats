@@ -29,6 +29,30 @@ main"
   run bash -c "source '$HUB_LIB/state.sh'; jq -r 'select(.path | endswith(\"/pulls\")) | .body.body' '$GH_CALLS' | state_read"
   assert_success
   assert_equal "$(jq -r '[.ticket, .generation, .plan.attachment, .target, .risk, (.items | length)] | join(" ")' <<< "$output")" "PROJ-99 1 10001 main low 0"
+  # The ticket: the whole report as a comment, and the Delivery sections —
+  # the link and the testing steps — with needs-human, in one update.
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | objects | select(.type == "text") | .text] | join("")' "$CALLS"
+  assert_output --partial "Draft pull request opened"
+  assert_output --partial 'greet("Ada") returns "Hello, Ada!" — updated test'
+  assert_output --partial "node --test — passed: 2 tests passed."
+  assert_output --partial "An empty name greets without one"
+  run jq -c 'select(.method == "PUT" and (.path | startswith("?notifyUsers"))) | .body' "$CALLS"
+  assert_equal "$(jq -r '.update.labels | tostring' <<< "$output")" '[{"add":"needs-human"}]'
+  assert_equal "$(jq -r -L "$HUB_LIB" 'include "adf"; .fields.description | section_blocks("Pull Request") | tostring | test("pull/101")' <<< "$output")" true
+  assert_equal "$(jq -r -L "$HUB_LIB" 'include "adf"; [.fields.description | section_blocks("Testing Instructions")[] | .. | objects | select(.type == "taskItem") | .attrs.state] | join(" ")' <<< "$output")" DONE
+}
+
+@test "a description without the Delivery sections: the report comment has it all, and only the label is added" {
+  jq 'del(.fields.description.content[] | select(.type == "heading" and (.content[0].text | IN("Testing Instructions", "Pull Request"))))' \
+    "$FIXTURES/tickets/plan-approved.json" > "$BATS_TEST_TMPDIR/no-delivery.json"
+  run_scenario ready TICKET_FIXTURE="$BATS_TEST_TMPDIR/no-delivery.json"
+  run trace
+  assert_line "Apply: success"
+  run writes
+  refute_line --regexp '^PUT \?notifyUsers'
+  assert_line "PUT "
+  run grep -c "no Pull Request or Testing Instructions section" "$RUNNER_TEMP/log.txt"
+  assert_output 1
 }
 
 @test "the agent can't make a later step run its code: the checkout's git hooks and config are ignored" {
@@ -56,13 +80,17 @@ test/greet.test.js expected"
   run_scenario ready MOCK_GH_VISIBILITY=public \
     'CLAUDE_FIXTURE_EDIT=.structured_output.build.tests_run[0].command = "node check.js --customer PRIVATE-CANARY"'
   run jq -r 'select(.path | endswith("/pulls")) | .body | .title, .body' "$GH_CALLS"
-  assert_line --index 0 "PROJ-99: build from the approved plan"
+  # The title says what the hub itself knows: the files changed.
+  assert_line --index 0 "PROJ-99: change src/greet.js and test/greet.test.js"
+  assert_output --partial "are on the ticket, not here"
+  assert_output --partial "1. Criterion 1 (on the ticket) — verified by **updated test**"
+  assert_output --partial '- `src/greet.js` — modified, +2 −2 — expected'
   refute_output --partial "Greet people by name"
   refute_output --partial "Hello, Ada"
   refute_output --partial "example.atlassian.net"
   refute_output --partial "PRIVATE-CANARY"
   assert_output --partial "- Check 1 — **passed**"
-  assert_output --partial "Ticket: PROJ-99 ·"
+  assert_output --partial "for **PROJ-99**. This repository is public"
   run git --git-dir="$REMOTE" log -1 --format=%s agent-hub/PROJ-99
   assert_output "Build PROJ-99 from its approved implementation plan"
   fresh_repo

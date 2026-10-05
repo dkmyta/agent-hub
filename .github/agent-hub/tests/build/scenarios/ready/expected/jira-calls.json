@@ -134,7 +134,251 @@
               },
               {
                 "type": "text",
-                "text": ". Automated review and CI checks come in a later version, so review it on GitHub."
+                "text": ". It’s a draft: automated review and the CI gate come in a later version, so review it on GitHub. The build’s report:"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "What changed",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "src/greet.js: greet takes an optional name and returns \"Hello, <name>!\", or \"Hello!\" without one. test/greet.test.js covers both."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Acceptance criteria — how each is verified",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "greet(\"Ada\") returns \"Hello, Ada!\"",
+                        "marks": [
+                          {
+                            "type": "strong"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": " — updated test: test/greet.test.js: \"greets by name\""
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "greet() with no name still returns \"Hello!\"",
+                        "marks": [
+                          {
+                            "type": "strong"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": " — existing test: test/greet.test.js: \"greets\""
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Checks run in the sandbox",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "node --test",
+                        "marks": [
+                          {
+                            "type": "code"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": " — "
+                      },
+                      {
+                        "type": "text",
+                        "text": "passed",
+                        "marks": [
+                          {
+                            "type": "strong"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": ": 2 tests passed."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Manual testing",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "✓ Run node -e 'import(\"./src/greet.js\").then(m => console.log(m.greet(\"Ada\")))' — checked by the build: Printed Hello, Ada!"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Decisions the build made",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "An empty name greets without one",
+                        "marks": [
+                          {
+                            "type": "strong"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": " — greet(\"\") reading \"Hello, !\" looks broken. Alternatives: Return \"Hello, !\"."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Claude: 2.41 USD (API-equivalent), 612s. ",
+                "marks": [
+                  {
+                    "type": "em"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "Run summary",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://github.com/example/repo/actions/runs/1000"
+                    }
+                  }
+                ]
               }
             ]
           }
@@ -143,9 +387,247 @@
     }
   },
   {
+    "method": "GET",
+    "path": "?fields=description",
+    "body": null
+  },
+  {
     "method": "PUT",
-    "path": "",
+    "path": "?notifyUsers=true",
     "body": {
+      "fields": {
+        "description": {
+          "type": "doc",
+          "version": 1,
+          "content": [
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 2
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Overview"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The greeter should say hello to people by name."
+                }
+              ]
+            },
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 3
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Acceptance Criteria"
+                }
+              ]
+            },
+            {
+              "type": "taskList",
+              "attrs": {
+                "localId": "ac"
+              },
+              "content": [
+                {
+                  "type": "taskItem",
+                  "attrs": {
+                    "localId": "ac-1",
+                    "state": "TODO"
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "greet(\"Ada\") returns \"Hello, Ada!\""
+                    }
+                  ]
+                },
+                {
+                  "type": "taskItem",
+                  "attrs": {
+                    "localId": "ac-2",
+                    "state": "TODO"
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "greet() with no name still returns \"Hello!\""
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 3
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Delivery"
+                }
+              ]
+            },
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 4
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Implementation Plan"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Summary of the attached plan."
+                }
+              ]
+            },
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 4
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Testing Instructions"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "To check by hand:"
+                }
+              ]
+            },
+            {
+              "type": "taskList",
+              "attrs": {
+                "localId": "testing"
+              },
+              "content": [
+                {
+                  "type": "taskItem",
+                  "attrs": {
+                    "localId": "testing-0",
+                    "state": "DONE"
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Run node -e 'import(\"./src/greet.js\").then(m => console.log(m.greet(\"Ada\")))' (checked by the build: Printed Hello, Ada!)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Checks the build ran:"
+                }
+              ]
+            },
+            {
+              "type": "bulletList",
+              "content": [
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "node --test",
+                          "marks": [
+                            {
+                              "type": "code"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": " — passed"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 4
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Pull Request"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "#101",
+                  "marks": [
+                    {
+                      "type": "link",
+                      "attrs": {
+                        "href": "https://github.com/example/repo/pull/101"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " — a draft on "
+                },
+                {
+                  "type": "text",
+                  "text": "agent-hub/PROJ-99",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": ", opened by the build from the approved plan. See the 🔨 comment for the build’s report."
+                }
+              ]
+            }
+          ]
+        }
+      },
       "update": {
         "labels": [
           {

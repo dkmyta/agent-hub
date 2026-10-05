@@ -20,32 +20,40 @@ def line: safe | gsub("\\s*\\n\\s*"; " ");
 def code: "`" + (tostring | gsub("`"; "'") | gsub("\\n"; " ")) + "`";
 def section($title; $lines): if ($lines | length) > 0 then "", "## \($title)", "", $lines[] else empty end;
 
+def status_word: {A: "added", M: "modified", D: "deleted"}[.] // .;
+def line_counts: if .added == null then "binary" else "+\(.added) −\(.deleted)" end;
+def duration: (. / 1000 | floor) as $s | if $s < 60 then "\($s)s" else "\($s / 60 | floor) min \($s % 60)s" end;
+
 $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0] as $g
 | $contract[0] as $p | $state[0] as $s | $c.publish as $publish
-| "# Build: \($ticket)",
-  "",
-  (if $url != "" then "Ticket: [\($ticket)](\($url))" else "Ticket: \($ticket)" end)
-    + " · from the approved implementation plan (attachment \($c.plan.attachment), sha256 \($c.plan.sha256[0:12]))",
+| (if $url != "" then "[\($ticket)](\($url))" else "**\($ticket)**" end) as $ref
+| "Built by the agent hub from the approved implementation plan for \($ref)."
+    + (if $publish then ""
+       else " This repository is public, so the ticket's details — the request, the acceptance criteria and how each is verified, the commands the checks ran, the manual testing steps and the decision log — are on the ticket, not here." end),
   "",
   "> [!NOTE]",
-  "> A draft from the agent hub. Automated review and the CI gate come in a later version: a person reviews this before it's marked ready.",
+  "> A draft: automated review and the CI gate come in a later version, so a person reviews this before it's marked ready.",
 
-  section("Summary"; if $publish then [$b.summary | safe] else [] end),
+  section("What changed"; (if $publish then [$b.summary | safe, ""] else [] end)
+    + ["\($g.totals.files) file(s), \($g.totals.lines) changed line(s):", ""]
+    + [$g.files[] | "- \(.path | code) — \(.status | status_word), \(line_counts) — \(.class)" + (if .reason != "" then ": \(.reason)" else "" end)]),
 
   section("Acceptance criteria"; [$b.verification | to_entries[]
     | if $publish then "\(.key + 1). \(.value.criterion | line) — **\(.value.method)**: \(.value.detail | line)"
-      else "\(.key + 1). **\(.value.method)**" end]),
+      else "\(.key + 1). Criterion \(.key + 1) (on the ticket) — verified by **\(.value.method)**" end]),
 
-  section("Verification in the sandbox";
-    (if any($b.tests_run[]; .result == "failed") then ["> [!WARNING]", "> Claude reported a failing check.", ""] else [] end)
+  section("Checks run in the sandbox";
+    (if any($b.tests_run[]; .result == "failed")
+     then ["> [!WARNING]", "> Claude reported a failing check" + (if $publish then "." else " — what it ran and why it failed are on the ticket." end), ""]
+     else [] end)
     + [$b.tests_run | to_entries[] | if $publish then "- \(.value.command | code) — **\(.value.result)**: \(.value.summary | line)"
-       else "- Check \(.key + 1) — **\(.value.result)**" end]),
+       else "- Check \(.key + 1) — **\(.value.result)**" + (if .value.result == "passed" then "" else " (details on the ticket)" end) end]),
 
   section("Manual testing"; if $publish then [$b.manual_checks[]
       | if .checked then "- [x] \(.step | line) — checked by the agent: \(.result | line)"
         else "- [ ] \(.step | line) — needs a person" end]
     elif ($b.manual_checks | length) > 0 then
-      ["\($b.manual_checks | length) manual step(s), \([$b.manual_checks[] | select(.checked)] | length) checked by the agent; the rest need a person (the steps are in the plan)."]
+      ["\($b.manual_checks | length) manual step(s), \([$b.manual_checks[] | select(.checked)] | length) checked by the agent; the steps are on the ticket, under Testing Instructions."]
     else [] end),
 
   section("Decision log"; if $publish then [$b.decision_log[]
@@ -57,13 +65,11 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
         "- **\(.id)** " + (if .path != "" then "\(.path | code) — " else "" end) + "decision: \(.reason)"
       else .path as $path
         | "- **\(.id)** \(.path | code) — a manual change for a person"
-          + (if $publish then ": \([$p.governance.manual_changes[] | select(.path == $path)][0].change // "" | line)" else "" end)
+          + (if $publish then ": \([$p.governance.manual_changes[] | select(.path == $path)][0].change // "" | line)" else " (described on the ticket)" end)
       end]),
 
-  section("Scope"; ["\($g.totals.files) file(s), \($g.totals.lines) changed line(s), against the plan's Changes by File:", ""]
-    + [$g.files[] | "- \(.path | code) (\(.status)) — \(.class)" + (if .reason != "" then ": \(.reason)" else "" end)]),
-
   section("Risk and governance"; ["- Risk: **\($p.governance.risk.level)**" + (if $publish then " — \($p.governance.risk.reason | line)" else "" end),
-    "- Declared in the plan: " + ([$p.governance.includes | to_entries[] | select(.value) | .key | gsub("_"; " ")] | if length > 0 then join(", ") else "none of the sensitive kinds" end)]),
+    "- Declared in the plan: " + ([$p.governance.includes | to_entries[] | select(.value) | .key | gsub("_"; " ")] | if length > 0 then join(", ") else "none of the sensitive kinds" end),
+    "- Plan: attachment \($c.plan.attachment) on the ticket (sha256 \($c.plan.sha256[0:12]))"]),
 
-  section("Run"; ["Claude: \($o.total_cost_usd // 0 | . * 100 | round / 100) USD (API-equivalent), \(($o.duration_ms // 0) / 60000 | floor) min · hub \($s.hub_version) · [run summary](\($run))"])
+  section("Run"; ["Claude: \($o.total_cost_usd // 0 | . * 100 | round / 100) USD (API-equivalent), \($o.duration_ms // 0 | duration) · hub \($s.hub_version) · [run summary](\($run))"])

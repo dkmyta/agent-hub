@@ -85,6 +85,11 @@ PLAN_FILE_NAME="${TICKET_KEY:-}-$PLAN_FILE_SUFFIX"
 # stage answers them in a revision and removes it.
 BUILD_QUESTIONS_SECTION='Questions from the build'
 
+# The tracker's limit on the description (Jira's: 32,000 characters): a stage
+# that would exceed it says so clearly instead of the tracker rejecting the
+# update.
+DESCRIPTION_MAX_CHARS=32000
+
 # Jira only: "false" suppresses watcher notifications for description
 # updates (needs Jira admin permission for the API user).
 JIRA_NOTIFY_USERS=$(setting AGENT_HUB_JIRA_NOTIFY_USERS true)

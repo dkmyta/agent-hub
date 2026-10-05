@@ -21,7 +21,3 @@ REVIEW_CLAUDE_MAX_BUDGET_USD=$(stage_setting REVIEW_MAX_BUDGET_USD 5.00)
 REVISION_MAX_BUDGET_USD=$(stage_setting REVISION_MAX_BUDGET_USD 2.00)
 
 NEEDS_CLARIFICATION_MESSAGE='The implementation plan needs answers to these questions before it can be written. Answer them in the work order or in a comment, then move the ticket to Work Order Approved to try again.'
-# The tracker's limit on the description (Jira's: 32,000 characters); a
-# summary that would exceed it fails the run with a clear message instead of
-# the tracker rejecting the update.
-DESCRIPTION_MAX_CHARS=32000

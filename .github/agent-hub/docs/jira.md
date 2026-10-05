@@ -64,8 +64,9 @@ the same settings live in the workflow scheme and permission scheme.
 | Implementation Plan Approved → Implementation Plan | Automation (the build has questions, or the plan changed after its approval); people — to revise the plan |
 
 In a team-managed project, **"Allow all statuses to transition to this one"**
-on each status is the simplest way to allow these; restrict later with the
-recommendations below.
+on each status is the simplest way to allow these (an "Any status → <status>"
+transition per status). Then restrict the two approvals to people:
+[Restrict approvals to people](#restrict-approvals-to-people).
 
 ## Labels
 
@@ -250,12 +251,16 @@ token ([the two GitHub tokens](setup.md#the-two-github-tokens)).
 
 **It lives in Jira only.** Jira sends it, so Jira holds it: never add it to
 GitHub's secrets, where nothing would read it and it would only be one more
-copy to leak or forget when rotating. Keep it in one place in Jira if you
-can: if your site's automation has **secrets** (Automation settings →
-Secrets), store it there once and put `Bearer {{secrets.<name>}}` in each
-rule's `Authorization` header, so rotating it is one edit. Otherwise paste it
-into each rule's header, marked **hidden**, and update every rule when you
-rotate it.
+copy to leak or forget when rotating. Every **Send web request** action sends
+the same token in its `Authorization` header (`Bearer <token>`, marked
+**hidden**) to the same URL (`…/dispatches`) — six of them: one each in Work
+Order Requested, Implementation Plan Requested and Build Requested, and three
+in Revision Requested (one per status block). When you regenerate the token,
+update all six. (The build's own
+token, `AGENT_HUB_GITHUB_TOKEN`, is a different one and never goes in Jira.)
+A rule whose header is missing or wrong gets **404** from GitHub (for a public
+repository; 401 for a token GitHub doesn't recognise), shown in the rule's
+audit log.
 
 Ownership, expiry and alerts: [setup.md](setup.md#6-plan-for-credential-expiry).
 
@@ -300,13 +305,13 @@ by default.
 automation — not a person's — for three reasons:
 
 1. **The automation never approves.** People approve work orders and plans
-   (and, with the build stage, code). Add a workflow *condition* to each
-   "…Approved" transition (Work Order → Work Order Approved, Implementation
-   Plan → Implementation Plan Approved) allowing only your approvers' group or
-   role, which the service account isn't in. With a person's account that's
-   impossible: the person approves. The build stage also uses this approvers
-   group: commands that start code changes will need it (and it refuses to
-   build from a move to Implementation Plan Approved the service account made).
+   (and, with the build stage, code). Restrict both "…Approved" transitions to
+   your approvers, which the service account isn't one of — see
+   [Restrict approvals to people](#restrict-approvals-to-people). With a
+   person's account that's impossible: the person approves. The build also
+   refuses to build from a move to Implementation Plan Approved the service
+   account made, and commands that start code changes will need the approvers
+   group.
 2. **People's plan files are kept.** The hub replaces only its own earlier
    plan files, recognised by the uploader's account. With a person's account,
    a plan file that person uploads by hand looks like the hub's, so the next
@@ -316,19 +321,76 @@ automation — not a person's — for three reasons:
    notifications come from the account; with a person's, the automation's
    actions and theirs can't be told apart.
 
-**Testing with your own account** works: nothing in the hub checks the
-account type, and the workflows never approve (no code does). The three
-points above are what you give up until you switch — keep a local copy of any
-plan file you edit by hand. Switching later is only the two secrets
-(`AGENT_HUB_JIRA_EMAIL`, `AGENT_HUB_JIRA_API_TOKEN`) and the approval
-conditions.
+**Testing the document stages with your own account** works: the workflows
+never approve (no code does). The three points above are what you give up
+until you switch — keep a local copy of any plan file you edit by hand. **The
+build doesn't work that way:** it refuses an approval made by the automation
+account, and when that account is yours, so is your approval. To try the
+build, use the service account (or have someone else approve). Switching is
+only the two secrets (`AGENT_HUB_JIRA_EMAIL`, `AGENT_HUB_JIRA_API_TOKEN`), the
+service account's project access, and the approval restriction below.
+
+### Adding the service account
+
+1. Create an Atlassian account for the automation, with an email you control
+   (e.g. `you+agenthub@example.com`). It counts as a user on your plan.
+2. Invite it to the project: **Project settings** → **Access** (team-managed)
+   or **People** (company-managed) → **Add people** → its email → role
+   **Member** (or your project's regular contributor role) — never an
+   administrator. Give it **Jira** only: no other products, no admin roles.
+   Every invite also lists the account in your organisation's directory
+   (admin.atlassian.com); that grants nothing by itself — the product access
+   and project role are what count.
+3. Sign in as it once (a private window) to accept the invite.
+4. As it, create an API token at id.atlassian.com → **Security** → **API
+   tokens**, named for its use (e.g. `agent-hub-jira-<repo>`), and put the
+   email and token in the `AGENT_HUB_JIRA_EMAIL` and `AGENT_HUB_JIRA_API_TOKEN`
+   secrets ([setup.md](setup.md#3-add-secrets)). Note the token's expiry
+   ([setup.md](setup.md#6-plan-for-credential-expiry)).
+
+### Restrict approvals to people
+
+The two approvals — moving a ticket to **Work Order Approved** and to
+**Implementation Plan Approved** — are people's decisions. Restrict both
+transitions so only your approvers can make them, and keep the service account
+out of that set. Every other transition stays open (the automation moves
+tickets between the other statuses).
+
+**Team-managed project** (transitions as "Any status → <status>"):
+
+1. Board → **⋯** → **Manage workflow** (or **Project settings** → **Work
+   types** → **Task** → **Edit workflow**).
+2. Select the **Any status → Work Order Approved** transition → **Add rule** →
+   **Restrict who can move a work item** → **Only people in these roles** →
+   **Administrator** (or **Only these people** → your approvers).
+3. The same for **Any status → Implementation Plan Approved**.
+4. **Update workflow**.
+
+This works when your approvers are the project's administrators and the
+service account is a **Member** (as [above](#permissions-for-the-automation-account)).
+
+**Company-managed project:**
+
+1. At admin.atlassian.com → **Directory** → **Groups**, create
+   `agent-hub-approvers` with your approvers — not the service account.
+2. **Project settings** → **Workflows** → edit the workflow; on the
+   transitions into **Work Order Approved** and **Implementation Plan
+   Approved**, add the condition **User Is In Group** → `agent-hub-approvers`.
+3. **Publish draft**.
+
+**Check it:** signed in as the service account (a private browser window),
+the two "…Approved" statuses are missing from a ticket's status menu; signed
+in as an approver, they're there. The automation rules need no change: these
+moves trigger them, but they never make them.
 
 ## Checklist for a new installation
 
 - [ ] Task work type with the intake template
 - [ ] Statuses and board columns above; transitions allowed
-- [ ] A dedicated service account with the permissions below, unable to make
-      the "…Approved" transitions
+- [ ] A dedicated service account with the permissions below (Member, Jira
+      access only)
+- [ ] Both "…Approved" transitions restricted to approvers
+      ([how](#restrict-approvals-to-people))
 - [ ] Rules: Work Order Requested, Implementation Plan Requested, Revision
       Requested and Build Requested
 - [ ] The token in every rule's `Authorization` header, hidden
@@ -346,7 +408,7 @@ content). Worth adding when you can:
 2. **Assign a reviewer** on entering Work Order and Implementation Plan (the
    delivery lead, or a round-robin of reviewers).
 3. **Restrict approvals** — required, see
-   [Permissions](#permissions-for-the-automation-account).
+   [Restrict approvals to people](#restrict-approvals-to-people).
 4. **Block approving while flags are open.** Workflow *validators* that
    refuse Work Order → Work Order Approved while `needs-details` or
    `needs-clarification` is present.
