@@ -378,16 +378,19 @@ step_apply() {
       --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile contract "$RUNNER_TEMP/contract.json" \
       --slurpfile state "$RUNNER_TEMP/state.json" --arg ticket "$TICKET_KEY" --arg url "$url" --arg run "$RUN_URL" \
     | state_render "$(cat "$RUNNER_TEMP/state.json")" > "$RUNNER_TEMP/pr-body.md"
-  title="$TICKET_KEY: build from the approved plan"
-  [ "$publish" != true ] || title="$TICKET_KEY: $(jq -r '.fields.summary | .[0:200]' "$RUNNER_TEMP/ticket.json")"
+  title=$(_pr_title "$publish")
   number=$(gh_pr_open_draft "$branch" "$target" "$title" < "$RUNNER_TEMP/pr-body.md") \
     || stage_fail "The branch $branch was pushed, but GitHub didn't open its pull request. Open a draft pull request from it by hand, or delete the branch and retry."
   gh_label "$number" "$BUILD_LABEL" \
     || stage_fail "Pull request #$number was opened, but its $BUILD_LABEL label couldn't be added. Add it by hand: the hub treats only labelled pull requests as its own."
 
-  # Until the review, CI and hand-off steps exist, a person takes it from here.
-  _pr_comment "$number"
-  tracker_labels "+$NEEDS_HUMAN_LABEL"
+  # The ticket gets the whole report — it's private, unlike a public
+  # repository's pull request — and its Delivery sections the link and the
+  # testing steps. Until the review, CI and hand-off steps exist, a person
+  # takes it from here.
+  url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$number"
+  _ticket_report "$number" "$url"
+  _ticket_delivery "$number" "$url" "$branch"
   echo "[$TICKET_KEY]($TICKET_URL): draft pull request #$number opened from $branch, with $(jq '.decisions | length' "$RUNNER_TEMP/gates.json") decision item(s)." >> "$GITHUB_STEP_SUMMARY"
   stage_outcome written
 }
@@ -419,16 +422,99 @@ _require_same_plan() {
   fi
 }
 
-# _pr_comment <number>: the ticket comment linking the draft pull request.
-_pr_comment() {
-  jq -n -L "$HUB_DIR/lib" --arg number "$1" --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$1" \
-      --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile contract "$RUNNER_TEMP/contract.json" 'include "adf";
-    ($gates[0].decisions | length) as $d | ($contract[0].governance.manual_changes | length) as $m
-    | doc([para([strong("🔨 Draft pull request opened"), text(" — "), link("#\($number)"; $url),
-        text(". Automated review and CI checks come in a later version, so review it on GitHub"
-          + (if $d > 0 then "; \($d) decision item(s) need a person" else "" end)
-          + (if $m > 0 then "; \($m) manual change(s) to make on the branch" else "" end) + ".")])])' \
+# _pr_title <publish>: the pull request's title. With ticket text allowed,
+# the ticket's summary; otherwise what the hub itself knows — the files the
+# build changed (gates.json): "<KEY>: change a.js and b.js", or "<KEY>:
+# change 5 files in src/".
+_pr_title() {
+  if [ "$1" = true ]; then
+    jq -r --arg key "$TICKET_KEY" '"\($key): \(.fields.summary | .[0:200])"' "$RUNNER_TEMP/ticket.json"
+    return
+  fi
+  jq -r --arg key "$TICKET_KEY" '
+    [.files[].path] as $paths
+    | ([.files[].status] | unique) as $statuses
+    | (if $statuses == ["A"] then "add" elif $statuses == ["D"] then "remove" else "change" end) as $verb
+    # The folder every path is in: the folders their paths start with, up to
+    # the first that differs ("" if none).
+    | [$paths[] | split("/")[:-1]] as $folders
+    | ([range(0; [$folders[] | length] | min) | select(. as $i | any($folders[]; .[$i] != $folders[0][$i]))]
+       | first // ([$folders[] | length] | min)) as $common
+    | ($folders[0][:$common] | join("/")) as $folder
+    | if ($paths | length) == 1 then "\($key): \($verb) \($paths[0])"
+      elif ($paths | length) == 2 and ($paths | join(" and ") | length) <= 160 then "\($key): \($verb) \($paths[0]) and \($paths[1])"
+      elif $folder != "" then "\($key): \($verb) \($paths | length) files in \($folder)/"
+      else "\($key): \($verb) \($paths | length) files" end' "$RUNNER_TEMP/gates.json"
+}
+
+# _ticket_report <number> <url>: the "🔨 Draft pull request opened" comment
+# with the build's whole report — what changed, how each criterion is
+# verified, the checks it ran and their results, the manual steps, its
+# decisions and what's left for a person. The ticket is private, so it gets
+# all of it, whatever the repository's visibility.
+_ticket_report() {
+  # shellcheck disable=SC1112 # curly apostrophes intended
+  jq -n -L "$HUB_DIR/lib" --arg number "$1" --arg url "$2" --arg run "$RUN_URL" \
+      --slurpfile out "$BUILD_OUTPUT" --slurpfile gates "$RUNNER_TEMP/gates.json" \
+      --slurpfile contract "$RUNNER_TEMP/contract.json" 'include "adf";
+    $out[0] as $o | $o.structured_output.build as $b | $gates[0] as $g | $contract[0] as $p
+    | def heading($t): para([strong($t)]);
+    doc([para([strong("🔨 Draft pull request opened"), text(" — "), link("#\($number)"; $url),
+          text(". It’s a draft: automated review and the CI gate come in a later version, so review it on GitHub. The build’s report:")]),
+        heading("What changed"), para($b.summary),
+        heading("Acceptance criteria — how each is verified"),
+        bullets([$b.verification[] | [strong(.criterion), text(" — \(.method): \(.detail)")]]),
+        heading("Checks run in the sandbox"),
+        bullets([$b.tests_run[] | [code(.command), text(" — "), strong(.result), text(": \(.summary)")]]),
+        heading("Manual testing"),
+        bullets([$b.manual_checks[] | if .checked then [text("✓ \(.step) — checked by the build: \(.result)")]
+                 else [text("☐ \(.step) — needs a person: \(.result)")] end]),
+        heading("Decisions the build made"),
+        bullets([$b.decision_log[] | [strong(.decision), text(" — \(.why)"
+          + (if (.alternatives // []) != [] then " Alternatives: \(.alternatives | join("; "))." else "" end))]])]
+      + (if ($g.decisions | length) + ($p.governance.manual_changes | length) > 0 then
+          [heading("For a person"),
+           bullets([($g.decisions[] | [text("Decision: "), code(if .path == "" then "the whole change" else .path end), text(" — \(.reason)")]),
+                    ($p.governance.manual_changes[] | [text("Manual change: "), code(.path), text(" — \(.change)")])])]
+         else [] end)
+      + [para([em("Claude: \($o.total_cost_usd // 0 | . * 100 | round / 100) USD (API-equivalent), \(($o.duration_ms // 0) / 1000 | floor)s. "),
+               link("Run summary"; $run)])])' \
     | tracker_comment > /dev/null
+}
+
+# _ticket_delivery <number> <url> <branch>: the work order's Delivery
+# sections — Pull Request (the link) and Testing Instructions (the manual
+# steps, and the checks the build ran) — in the description as it is now,
+# with needs-human, in one update. A description without those sections, or
+# one that would grow past the tracker's limit, keeps its text: only the
+# label is added, and the report comment has it all. Never fails the run —
+# the pull request is already open.
+_ticket_delivery() {
+  local updated size
+  # shellcheck disable=SC1112 # curly apostrophe intended
+  updated=$(tracker_issue description | jq -c -L "$HUB_DIR/lib" --arg number "$1" --arg url "$2" --arg branch "$3" \
+      --slurpfile out "$BUILD_OUTPUT" 'include "adf";
+    $out[0].structured_output.build as $b
+    | .fields.description
+    | replace_section("Pull Request"; [para([link("#\($number)"; $url), text(" — a draft on "), code($branch),
+        text(", opened by the build from the approved plan. See the 🔨 comment for the build’s report.")])])
+    | replace_section("Testing Instructions";
+        (if ($b.manual_checks | length) > 0 then
+          [para("To check by hand:"),
+           {type: "taskList", attrs: {localId: "testing"}, content: [$b.manual_checks | to_entries[] | {type: "taskItem",
+             attrs: {localId: "testing-\(.key)", state: (if .value.checked then "DONE" else "TODO" end)},
+             content: [text(.value.step + (if .value.checked then " (checked by the build: \(.value.result))" else "" end))]}]}]
+         else [] end)
+        + [para("Checks the build ran:"), bullets([$b.tests_run[] | [code(.command), text(" — \(.result)")]])])' 2> /dev/null) \
+    || { echo "::warning::The description has no Pull Request or Testing Instructions section, so only the report comment has them."; tracker_labels "+$NEEDS_HUMAN_LABEL"; return 0; }
+  size=$(jq -r -L "$HUB_DIR/lib" 'include "adf"; to_markdown | length' <<< "$updated")
+  if [ "$size" -gt "$DESCRIPTION_MAX_CHARS" ]; then
+    echo "::warning::With the testing steps, the description would pass $TRACKER_NAME's limit, so only the report comment has them."
+    tracker_labels "+$NEEDS_HUMAN_LABEL"
+    return 0
+  fi
+  tracker_set_description "+$NEEDS_HUMAN_LABEL" <<< "$updated" \
+    || { echo "::warning::$TRACKER_NAME didn't take the description's Delivery sections; the report comment has them."; tracker_labels "+$NEEDS_HUMAN_LABEL"; }
 }
 
 # step_return: Send the ticket back: the build can't go ahead as approved.

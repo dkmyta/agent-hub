@@ -40,7 +40,7 @@ are for Jira (GitHub Projects will use the workflow's own GitHub token):
 | Secret | Required | Value |
 |---|---|---|
 | `AGENT_HUB_JIRA_DOMAIN` | Yes | Your Jira site, e.g. `your-team.atlassian.net` |
-| `AGENT_HUB_JIRA_EMAIL` | Yes | The Jira account the automation acts as — a dedicated service account, barred from approving ([jira.md](jira.md#permissions-for-the-automation-account)) |
+| `AGENT_HUB_JIRA_EMAIL` | Yes | The Jira account the automation acts as — a dedicated service account ([adding it](jira.md#adding-the-service-account)), barred from approving ([how](jira.md#restrict-approvals-to-people)) |
 | `AGENT_HUB_JIRA_API_TOKEN` | Yes | An [API token](https://id.atlassian.com/manage-profile/security/api-tokens) for that account |
 | `AGENT_HUB_ANTHROPIC_API_KEY` | Only for the Claude API | See [runners.md](runners.md#using-the-claude-api) |
 | `AGENT_HUB_GITHUB_TOKEN` | For the build stage | The **build token**, named `agent-hub-build-<repo>` in GitHub (not the Jira rules' dispatch token — [the two GitHub tokens](#the-two-github-tokens)): a **machine user's** fine-grained token for this repository only, with Contents and Pull requests read/write — no Workflows, no Administration. The build pushes and opens pull requests with it (a workflow's own token wouldn't start your CI), and commits as its account, with that account's GitHub noreply address; branch protection keeps that user from merging. Only the build's fetch and apply steps get it — never an agent step, nor any step that runs the repository's code. **For development**, your own fine-grained token (same scope) works: the build's commits and pull requests are then yours, and branch protection can't stop you merging them — use a machine user before the build runs real tickets |
@@ -134,7 +134,7 @@ token), and Jira holds what it sends (the dispatch token).
 | Credential | Lives in | Expires | When it expires | To renew |
 |---|---|---|---|---|
 | Jira API token | `AGENT_HUB_JIRA_API_TOKEN` secret | On the date set when it was created | Every run fails, and the failure comment can't be posted either (it uses the same token): tickets sit in Work Order | Create a new token for the same Jira account and update the secret |
-| Dispatch token (`agent-hub-dispatch-<repo>`) | Jira: an automation secret, or each rule's `Authorization` header | On the date set when it was created | Jira's web request fails, so no run starts | Regenerate it (same access) and update Jira — the secret, or every rule |
+| Dispatch token (`agent-hub-dispatch-<repo>`) | Each Jira rule's `Authorization` header | On the date set when it was created | Jira's web request fails, so no run starts | Regenerate it (same access) and update the header in every web request (six across the four rules) |
 | Claude login | The runner machine | Occasionally | Runs fail with the failure comment | Run `claude` on the runner and log in |
 | `AGENT_HUB_ANTHROPIC_API_KEY` | Secret (API setup only) | When revoked | Runs fail with the failure comment | Create a new key and update the secret |
 | Build token (`agent-hub-build-<repo>`) | `AGENT_HUB_GITHUB_TOKEN` secret (build stage) | On the date set when it was created | Builds fail at their first step; the failure comment says so | Regenerate it for the same user (same access) and update the secret |
@@ -162,7 +162,7 @@ both.
 
 **Own them with accounts that aren't a person's**, so they don't break when
 someone leaves or changes role:
-- **Jira**: a dedicated service account for `AGENT_HUB_JIRA_EMAIL` / `AGENT_HUB_JIRA_API_TOKEN` — required, so it can be barred from approving and the hub can tell its own plan files from people's. Your own account works for testing ([jira.md](jira.md#permissions-for-the-automation-account)).
+- **Jira**: a dedicated service account for `AGENT_HUB_JIRA_EMAIL` / `AGENT_HUB_JIRA_API_TOKEN` — required, so it can be barred from approving and the hub can tell its own plan files from people's. Your own account works for testing the document stages, not the build ([jira.md](jira.md#permissions-for-the-automation-account)).
 - **GitHub**: a machine user (a GitHub account for automation) that owns the
   fine-grained token in the Jira rule, limited to the repository with
   **Contents: Read and write**. (A GitHub App can't be used here: its tokens

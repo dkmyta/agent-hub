@@ -290,7 +290,7 @@
             },
             "scope_patterns": {
               "type": "array",
-              "description": "Directories or glob patterns beyond Changes by File where changes are expected, e.g. tests/orders/** \u2014 empty if none.",
+              "description": "Repository paths or glob patterns beyond Changes by File where changes are expected, e.g. tests/orders/** \u2014 each one a path or pattern, never a sentence; empty if none.",
               "items": {
                 "type": "string",
                 "minLength": 1
@@ -298,7 +298,7 @@
             },
             "must_not_touch": {
               "type": "array",
-              "description": "Files, directories or areas the change must leave alone \u2014 empty if none.",
+              "description": "Repository paths or glob patterns the change must leave alone, e.g. legacy/** or src/cli.js \u2014 each one a path or pattern, never a sentence (anything not named is already out of scope); empty if none.",
               "items": {
                 "type": "string",
                 "minLength": 1

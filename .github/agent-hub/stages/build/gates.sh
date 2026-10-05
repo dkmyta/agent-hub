@@ -7,8 +7,9 @@
 #
 #   build_gates <base commit> <contract JSON file>   (in the repository)
 #
-# → {files: [{path, status, class, reason}], refused: [...], decisions: [...],
-#    totals: {files, lines}} where class is one of:
+# → {files: [{path, status, class, reason, added, deleted}], refused: [...], decisions: [...],
+#    totals: {files, lines}} — added and deleted are line counts (null for a
+#    binary file) — where class is one of:
 #   expected     a file the plan's Changes by File names
 #   incidental   tests or docs, or a path the plan's scope patterns allow
 #   refused      never pushed: hub-managed paths (.github/, .claude/,
@@ -92,7 +93,9 @@ build_gates() {
     elif [[ "$path" =~ $BUILD_INCIDENTAL ]] || { [ ${#scope[@]} -gt 0 ] && matches_any "$path" "${scope[@]}"; }; then class=incidental
     else class=decision reason="outside the plan's scope"; fi
     jq -nc --arg path "$path" --arg status "$status" --arg class "$class" --arg reason "$reason" \
-      '{path: $path, status: $status, class: $class, reason: $reason}' >> "$work/records" || : > "$work/failed"
+        --arg added "$added" --arg deleted "$deleted" \
+      '{path: $path, status: $status, class: $class, reason: $reason,
+        added: ($added | tonumber? // null), deleted: ($deleted | tonumber? // null)}' >> "$work/records" || : > "$work/failed"
   done < "$work/changes"
   touch "$work/records"
   # A file's attributes or record that couldn't be produced fails the gates.

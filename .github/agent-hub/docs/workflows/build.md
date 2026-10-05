@@ -376,7 +376,10 @@ resolution, rulesets, branch protection); the hub doesn't reproduce it.
 ### Content
 
 Opened as a **draft** at the first push, from a hub template (never
-free-form), labelled `agent-hub`:
+free-form), labelled `agent-hub`. Its **title** is the ticket key and the
+ticket's summary — or, where ticket text can't be published, the files the
+build changed ("PROJ-1: change src/a.js and src/b.js", "PROJ-1: change 5
+files in src/"). Its description covers:
 
 - summary and ticket link
 - each acceptance criterion: how it's met, how it's verified
@@ -400,7 +403,15 @@ components, tests and results, code-derived findings). Acceptance-criteria
 text, private context and the ticket-derived parts of the decision log stay
 out unless a setting opts in. No model-generated "redacted" summary: private
 context doesn't cross into a public repository unless explicitly allowed.
-Private repositories get the full pull request.
+Private repositories get the full pull request. A public repository's pull
+request still reads on its own: it says the details are on the ticket, lists
+each changed file with its line counts, and refers to criteria and checks by
+number ("Criterion 1 (on the ticket) — verified by a new test", "Check 1 —
+failed (details on the ticket)"). **The ticket always gets everything** — it's
+private: a "🔨 Draft pull request opened" comment with the build's whole
+report (what changed, how each criterion is verified, the checks and their
+results, the manual steps, its decisions, what's left for a person), and the
+work order's **Pull Request** and **Testing Instructions** sections filled in.
 
 ### Change set and state block
 
@@ -806,8 +817,10 @@ where stated and only with the owner's OK.
      publication policy), validate and build in one agent pass, gates and
      size limits on the commit, the secret scan, the draft pull request from
      the hub's template with its state block; the `playground/` folder.
-     Until PR 4 the ticket gets a link to the draft and `needs-human`, and a
-     ticket that already has a hub pull request isn't built again. Gated
+     Until PR 4 the ticket stays in Implementation Plan Approved with the
+     report comment, its Delivery sections filled in and `needs-human`; the
+     move to Ready for Review is the hand-off's. A ticket that already has a
+     hub pull request isn't built again. Gated
      behind `AGENT_HUB_BUILD_PREVIEW=true` (development only).
    - *3c*: the install step (frozen, registries-only network, in the sandbox
      runtime, without the GitHub token) with its probes — including that a
