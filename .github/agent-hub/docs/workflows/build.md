@@ -8,8 +8,10 @@
 > known environment — the Node version the repository declares, its
 > dependencies installed from the lockfile — and the hub runs the
 > repository's checks on the build's commit itself, pushing nothing if one
-> fails ([Toolchain](#toolchain), [Install](#install), [Verify](#verify)). The
-> dependency step, the review, CI gate and hand-off come in later versions.
+> fails ([Toolchain](#toolchain), [Install](#install), [Verify](#verify)).
+> Since 2.7.0 the plan's dependency changes are applied and checked by the
+> hub before the agent starts ([Dependencies](#dependencies-planned-changes-only)). The review, CI
+> gate and hand-off come in later versions.
 > The agreed plan, reviewed externally three times. Items marked
 > *provisional* are defaults to revisit after the first full pipeline test.
 > When the stage is complete, this page becomes its workflow doc (in the
@@ -899,7 +901,7 @@ only wakes the per-ticket run, which reads the checks itself.
 ## Jira
 
 - **Build Requested** rule: on the transition to Implementation Plan Approved,
-  remove `needs-human` (closing today's known gap) and dispatch the build.
+  remove `needs-human` (closing the known gap in [jira.md](../jira.md)) and dispatch the build.
 - **Revision Requested** gets a branch for Ready for Review (`/revise`) and the
   `/apply` and `/skip` commands, with the approvers-group condition for
   commands that start code changes.
@@ -980,7 +982,12 @@ runner's, and the docs say so · the checks from the base commit's
 `package.json` scripts or `build/checks.json` · a check that fails means no
 push, its output on the ticket only · the install and checks in the sandbox
 runtime (`srt`), installed from a hub lockfile · the preview gate kept until
-PR 4 (the reason is in [Building it](#building-it)).
+PR 4 (the reason is in [Building it](#building-it)) · in 2.7.2: **people
+merge, on GitHub**, under branch protection; the hub has no merge
+capability. It observes the merge, checks the merged head is the one it
+recorded (the post-merge check under
+[Revisions and reverse paths](#revisions-and-reverse-paths)) and moves the
+ticket to Done. Automating more of that is a [later](#later) item.
 
 **Still open (*provisional* defaults):**
 
@@ -1092,8 +1099,10 @@ where stated and only with the owner's OK.
    runner happens to have, and the hub checks its own commit — but a person
    is still the build's only reviewer, and nothing yet re-checks a pull
    request after people or later runs push to it. The gate comes off with
-   the review, the CI gate and the hand-off, after a dedicated runner user
-   or machine ([Later](#later)).
+   the review, the CI gate and the hand-off, and **only once the runner is a
+   dedicated user, machine or GitHub-hosted** — a blocker, not a
+   recommendation ([Later](#later)). Since 2.7.2 a run warns when the
+   runner's user also runs Claude Code outside the runner.
 4. **Review, fix, CI gate, hand-off** — the review with its policy table; the
    fix pass, fix check and second verify; review coverage; sync and drift; the
    CI-result workflow, the evaluation commit (head and test merge commit both
@@ -1107,6 +1116,11 @@ where stated and only with the owner's OK.
      explicitly, keep a temp folder writable for test output, and add a
      review-profile run to the sandbox check (shell redirection, a script or
      child process writing, the file tools).
+   - *A spend cap per ticket.* Each run has its own budget, but a ticket's
+     runs (retries, revisions, the review and fix passes) add up with
+     nothing stopping them. Record each run's cost, and stop before Claude
+     is used once the ticket's total reaches the cap (provisional default
+     under [Decisions](#decisions)), with `needs-human`.
    - *GitHub's edit-history format, recorded.* `gh_pr_body_versions` reads
      each `userContentEdit.diff` as the whole description after that edit —
      confirmed read-only against the API in 2.4.0, but the test mock encodes
@@ -1139,6 +1153,7 @@ settings, and that session files are removed after each run.
 | Ephemeral runners | The first hardening item after v1 |
 | Browser and end-to-end automation | Where the repository has Playwright or Cypress: run the app on localhost, run the relevant specs, screenshots of changed UI, console errors; with a fresh browser profile per run, headless, downloads in temp, artifacts under the publication policy, and browser processes added to the sandbox probes |
 | Hub-provided browser tooling | For repositories without an end-to-end framework |
+| Merge, branch clean-up and the Jira moves after a person's approval | v1: a person merges on GitHub, deletes the branch (or GitHub's "Automatically delete head branches" setting does) and the hub moves the ticket to Done. Worth automating **if it can be done safely and securely**: the merge would still follow a person's approval and GitHub's own rules (required reviews, checks, rulesets), never the hub's judgement, and the token able to merge would be scoped to that alone. Investigate after v1, alongside merge-queue support. Distinct from risk-based autonomy (Not planned), where the hub would decide |
 | Merge-queue support | v1 detects a merge queue and says it's unsupported; people merge |
 | Resuming a run that reached its budget cap | Today a retry starts the pass again (sessions aren't saved, by design). Keeping a capped build's work-in-progress — privately, for the next run to continue from — would save the spend already made; it needs the same isolation as sessions |
 | HMAC-signed state | If lower-trust writers ever appear |

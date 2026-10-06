@@ -5,6 +5,56 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.7.2 — 2026-10-07
+
+Fixes from the full review before PR 4 (the lower-risk group; retries and
+reconciliation for Jira and GitHub calls follow in 2.7.3), and the decisions
+that review asked for, recorded.
+
+- **A failure's retry advice fits the reason.** Shared failure messages no
+  longer tell people to comment `/revise` (the build has no `/revise`); each
+  says what went wrong, and the comment's "To try again" line says how, for
+  that stage and that reason. A build stopped by an earlier pull request or
+  branch now says exactly what to close, delete or approve again. A test
+  keeps `/revise` out of shared messages.
+- **Settings checked before Claude:** a stage's Claude budget that isn't a
+  positive number of dollars, or an `AGENT_HUB_TRACKER` / runner that isn't
+  one of the hub's, stops the run by name, before anything is loaded or
+  Claude is used.
+- **A shared runner user is flagged:** a self-hosted run warns when the
+  runner's user also runs Claude Code outside the runner, since the agent's
+  sandboxed commands then share Claude Code's temp folder with that person's
+  sessions. A dedicated runner user (or machine, or GitHub-hosted runners) is
+  now a stated blocker before the build's preview gate comes off. The
+  sandbox check also removes the Claude Code project folder it creates.
+- **Dependency folders checked at plan time:** a plan whose dependency
+  changes name a folder that isn't an npm project with a lockfile (or is the
+  hub's) is sent back by the plan stage, before anyone approves it.
+- **Plan paths through chains of links** are followed link by link (no
+  `realpath`, which older macOS lacks).
+- **The work order's group headings are one list**, used both to render it
+  and to recognise an existing work order.
+- **CI:** the stages' scenarios also run on macOS with its own Bash 3.2, as
+  part of **Agent hub: Test**; every job has a time limit (and a test keeps
+  it so).
+- **Docs:** runners.md lists every tool a runner needs, per stage; stale
+  status text fixed (the build's status, the stage header, update.sh's
+  example version and extensions note, the actions-pinning note, the
+  sandbox-check workflow in the README and architecture); Dependabot noted as
+  the hub repository's own; CONTRIBUTING.md says which tests need the
+  network and what to do when a download fails. build.md records that people
+  merge on GitHub and the hub only observes the merge (automating the steps
+  after a person's approval is a later item), a per-ticket spend cap as a
+  PR 4 prerequisite; github-projects.md says why the intake is a form.
+
+The hub's own repository also gets a `LICENSE` (all rights reserved),
+`SECURITY.md` and `CODEOWNERS`; none of them are hub files, so updating
+doesn't install them.
+
+**Updating:** nothing to do. A self-hosted runner that warns about a shared
+user should get its own user before real tickets (docs/runners.md, "Before
+running the build on real tickets").
+
 ## 2.7.1 — 2026-10-07
 
 Both ways of reaching Claude — a self-hosted runner logged in to a Claude

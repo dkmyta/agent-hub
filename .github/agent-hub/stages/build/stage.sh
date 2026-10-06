@@ -10,8 +10,9 @@
 # (install), validate and build in one agent pass, the commit and the
 # repository's own checks run on it by the hub (verify), then the gates, the
 # secret scan and the draft pull request with its state block (apply). The
-# dependency step, the review, CI and hand-off come in later versions; until
-# then a person reviews the draft.
+# install step also applies the plan's dependency changes (dependencies.sh).
+# The review, CI and hand-off come in later versions; until then a person
+# reviews the draft.
 #
 # The agent can change anything in the checkout — .git included — so no
 # later step trusts it: each loads the hub from the workflow's copy, and git
@@ -270,23 +271,34 @@ _branch() {
   branch="$BUILD_BRANCH_PREFIX$TICKET_KEY"
   status=$(gh_branch_status "$branch" "$BUILD_LABEL") \
     || stage_fail "Couldn't check GitHub for an existing $branch, so nothing was built."
+  # Each says what's in the way, and — instead of the usual "approve it
+  # again or re-run", which would stop here again — what a person does first.
   case "$status" in
     absent) ;;
-    "open "*) stage_fail "$TICKET_KEY already has the hub's pull request #${status#open }, so nothing was built. Updating it comes in a later version; to build again, close it, delete $branch, then approve the plan again." ;;
-    "foreign "*) stage_fail "Pull request #${status#foreign } from $branch wasn't opened by the hub (it has no $BUILD_LABEL label), so nothing was built. A person decides: to build, close it, delete the branch, then approve the plan again." ;;
-    orphan) stage_fail "The branch $branch exists with no pull request (a failed earlier build?), so nothing was built. A person decides: delete it to build again." ;;
-    "merged "*) stage_fail "Pull request #${status#merged } from $branch was already merged, so nothing was built." ;;
+    "open "*) stage_retry "close pull request #${status#open } and delete $branch, then approve the plan again (updating an open one comes in a later version)."
+      stage_fail "$TICKET_KEY already has the hub's pull request #${status#open }, so nothing was built." ;;
+    "foreign "*) stage_retry "a person decides: close pull request #${status#foreign } and delete $branch, then approve the plan again."
+      stage_fail "Pull request #${status#foreign } from $branch wasn't opened by the hub (it has no $BUILD_LABEL label), so nothing was built." ;;
+    orphan) stage_retry "a person decides: delete $branch, then approve the plan again."
+      stage_fail "The branch $branch exists with no pull request (a failed earlier build?), so nothing was built." ;;
+    "merged "*) stage_retry "nothing to retry: the plan was built and merged. A change needs a new ticket."
+      stage_fail "Pull request #${status#merged } from $branch was already merged, so nothing was built." ;;
     # Closed unmerged: a person decides. Closing it and deleting the branch
     # only say what state it's in (a bot or a branch rule could do either);
     # building again needs a person's new approval of the plan after it
     # was closed.
     "closed "*)
       head=$(gh_branch_head "$branch") || stage_fail "Couldn't check GitHub for $branch, so nothing was built."
-      [ -z "$head" ] \
-        || stage_fail "Pull request #${status#closed } from $branch was closed unmerged and its branch is still there, so nothing was built. A person decides: to build again, delete the branch, then approve the plan again."
-      _approved_after_close "$branch" \
-        || stage_fail "Pull request #${status#closed } from $branch was closed unmerged after the plan's latest approval, so that approval isn't for a new build and nothing was built. To build again, approve the plan again." ;;
-    "deleted "*) stage_fail "Pull request #${status#deleted } is open but its branch $branch is gone, so nothing was built. A person decides: to build again, close it, then approve the plan again." ;;
+      if [ -n "$head" ]; then
+        stage_retry "a person decides: delete $branch, then approve the plan again."
+        stage_fail "Pull request #${status#closed } from $branch was closed unmerged and its branch is still there, so nothing was built."
+      fi
+      if ! _approved_after_close "$branch"; then
+        stage_retry "approve the plan again (move the ticket back to $PLAN_STATUS, then to $PLAN_APPROVED_STATUS)."
+        stage_fail "Pull request #${status#closed } from $branch was closed unmerged after the plan's latest approval, so that approval isn't for a new build and nothing was built."
+      fi ;;
+    "deleted "*) stage_retry "a person decides: close pull request #${status#deleted }, then approve the plan again."
+      stage_fail "Pull request #${status#deleted } is open but its branch $branch is gone, so nothing was built." ;;
     *) stage_fail "Couldn't tell what state $branch is in, so nothing was built." ;;
   esac
   gh_publish_ticket_text "$visibility" "$PUBLISH_TICKET_CONTENT" && publish=true

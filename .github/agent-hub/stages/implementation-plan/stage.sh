@@ -168,7 +168,14 @@ _plan_path_problem() {
     real=$(cd "$dir" && pwd -P)
   else
     [ -f "$path" ] || { echo "doesn't exist"; return; }
-    if [ -L "$path" ]; then real=$(realpath "$path"); else real=$(cd "$(dirname "$path")" && pwd -P); fi
+    # A link: where it really leads (readlink -f isn't on every macOS, nor
+    # realpath before macOS 13), resolved one link at a time.
+    real=$path
+    while [ -L "$real" ]; do
+      dir=$(dirname "$real") real=$(readlink "$real")
+      case "$real" in /*) ;; *) real="$dir/$real" ;; esac
+    done
+    real=$(cd "$(dirname "$real")" 2> /dev/null && pwd -P) || { echo "outside the repository"; return; }
   fi
   case "$real/" in "$root"/*) ;; *) echo "outside the repository" ;; esac
 }
@@ -213,6 +220,22 @@ step_agent() {
       # The paths come from Claude, so they go only on the ticket.
       stage_fail "The plan names $(echo "$BAD_FILES" | wc -l | tr -d ' ') file(s) it can't change — missing, already there to add, outside the repository, or for a person to change — so it wasn't applied. Comment $REVISE_COMMAND to try again." \
         "Files: $(echo "$BAD_FILES" | paste -sd ',' - | sed 's/,/, /g')."
+    fi
+    # Each folder the plan's dependency changes name is an npm project the
+    # build can change (a package.json and package-lock.json, real files,
+    # not a path only people change) — checked here, before a person
+    # approves the plan; the build checks again, and resolves them.
+    BAD_FOLDERS=$(jq -r '[(.governance.dependency_changes // [])[].folder] | unique | .[]' "$RUNNER_TEMP/plan-checked.json" \
+      | while IFS= read -r FOLDER; do
+          if hub_managed_path "$FOLDER/package.json"; then echo "$FOLDER (for a person to change)"
+          elif [ ! -f "$FOLDER/package.json" ] || [ -L "$FOLDER/package.json" ] \
+            || [ ! -f "$FOLDER/package-lock.json" ] || [ -L "$FOLDER/package-lock.json" ]; then
+            echo "$FOLDER (not an npm project with a package.json and package-lock.json)"
+          fi
+        done)
+    if [ -n "$BAD_FOLDERS" ]; then
+      stage_fail "The plan's dependency changes name $(echo "$BAD_FOLDERS" | wc -l | tr -d ' ') folder(s) the build can't apply them in — it changes npm projects with a lockfile only; a change anywhere else is a manual change — so it wasn't applied. Comment $REVISE_COMMAND to try again." \
+        "Folders: $(echo "$BAD_FOLDERS" | paste -sd ',' - | sed 's/,/, /g')."
     fi
   fi
   agent_summary "Implementation plan"

@@ -22,6 +22,12 @@ export HUB_DIR
 source "$HUB_DIR/lib/settings.sh"
 source "$HUB_DIR/lib/paths.sh"
 source "$HUB_DIR/lib/toolchain.sh"
+# The tracker and the runner are chosen by repository variables, and each
+# names a file to load: only one of the hub's own.
+[[ "$TRACKER" =~ ^[a-z0-9-]+$ ]] && [ -f "$HUB_DIR/trackers/$TRACKER/tracker.sh" ] \
+  || { echo "::error::AGENT_HUB_TRACKER is '$TRACKER', which isn't one of the hub's trackers ($(ls "$HUB_DIR/trackers" | paste -sd ' ' -))."; exit 1; }
+[[ "$AGENT_RUNNER" =~ ^[a-z0-9-]+$ ]] && [ -f "$HUB_DIR/lib/runners/$AGENT_RUNNER.sh" ] \
+  || { echo "::error::AGENT_HUB_RUNNER is '$AGENT_RUNNER', which isn't one of the hub's agent runners ($(cd "$HUB_DIR/lib/runners" && ls ./*.sh | sed 's|^\./||; s|\.sh$||' | paste -sd ' ' -))."; exit 1; }
 case "$1" in
   tracker)
     source "$HUB_DIR/trackers/$TRACKER/tracker.sh"

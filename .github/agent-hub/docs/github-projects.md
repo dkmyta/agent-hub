@@ -93,6 +93,11 @@ live in a different repository, copy it there too, on its default branch.
 - **The request is required**: the form can't be submitted without the
   Original Request. The other fields are optional, as in Jira; the
   work-order stage sends back anything too vague to work from.
+- **Why a form, not a Markdown issue template** (decided in 2.7.2): a form
+  enforces the required field and adds the label itself, so whether an issue
+  enters the pipeline never depends on someone remembering to. It stays thin
+  — the fields and the label only; every judgement about the request is the
+  work-order stage's.
 
 ## Built-in project workflows
 

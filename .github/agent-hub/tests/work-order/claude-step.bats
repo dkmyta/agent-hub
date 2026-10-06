@@ -567,3 +567,36 @@ $RUNNER_TEMP/plugins/repository"
   run grep -c "::warning::Claude Code reports no access" "$RUNNER_TEMP/log.txt"
   assert_output 1
 }
+
+@test "a Claude budget that isn't a positive number stops the run before Claude is used" {
+  for budget in 0 0.00 five "-1" "5,00"; do
+    VARS="{\"AGENT_HUB_WORK_ORDER_MAX_BUDGET_USD\": \"$budget\"}" claude_step ready.json
+    assert_failure
+    [ ! -s "$RUNNER_TEMP/claude-args.txt" ] || fail "Claude was called with budget '$budget'"
+    run cat "$RUNNER_TEMP/failure-reason"
+    assert_output --partial "must be a positive number of dollars"
+  done
+}
+
+@test "a self-hosted runner whose user also runs Claude Code elsewhere gets a warning (shared temp folder); its own sessions don't count" {
+  export RUNNER_ENVIRONMENT=self-hosted RUNNER_WORKSPACE="/home/runner/actions-runner/_work/repo"
+  mkdir -p "$CLAUDE_PROJECTS_ROOT/-home-runner-actions-runner--work-repo-repo" \
+    "$CLAUDE_PROJECTS_ROOT/-home-runner--agent-hub-sandbox-check-AbC123-repo"
+  : > "$RUNNER_TEMP/log.txt"
+  claude_step ready.json
+  assert_success
+  run grep -c "Shared runner user" "$RUNNER_TEMP/log.txt"
+  assert_output 0
+  # Someone's own project on the same account.
+  mkdir -p "$CLAUDE_PROJECTS_ROOT/-home-runner-code-my-app"
+  : > "$RUNNER_TEMP/log.txt"
+  claude_step ready.json
+  run grep -c "::warning title=Shared runner user::" "$RUNNER_TEMP/log.txt"
+  assert_output 1
+  # GitHub-hosted runners start fresh: never.
+  export RUNNER_ENVIRONMENT=github-hosted
+  : > "$RUNNER_TEMP/log.txt"
+  claude_step ready.json
+  run grep -c "Shared runner user" "$RUNNER_TEMP/log.txt"
+  assert_output 0
+}

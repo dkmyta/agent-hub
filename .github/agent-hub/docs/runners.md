@@ -36,11 +36,23 @@ pull request and ticket say which).
    repositories.)
 2. **Label it `claude`** (Settings → Actions → Runners → the runner → labels).
    Jobs wait indefinitely for a runner with the labels in `AGENT_HUB_RUNS_ON`.
-3. **Install on the machine**, on the runner service's `PATH`: Claude Code
-   (`claude`), `jq` 1.7+, `curl`, `bash`, `git`, and Node 22
-   (for the evals).
+3. **Install on the machine**, on the runner service's `PATH`:
+   - every stage: Claude Code (`claude`, and the Node it runs on), `jq`
+     1.7+, `curl`, `bash` (3.2, as macOS has it, is enough) and `git`;
+   - the build, too: `git` 2.40+, `perl` and `npm` (the hub installs its
+     sandbox runtime with it; the build sets up the repository's own Node
+     version for each job), and on Linux the sandbox's tools
+     ([The sandbox](#the-sandbox-build-stage));
+   - the sandbox check: `rsync` and `python3`;
+   - the evals: Node 22.
+
+   macOS and Ubuntu have all of these but Claude Code, `jq` and Node.
 4. **Log in**: run `claude` once as the user the runner service runs as, and
-   log in with the Claude account the automation should use.
+   log in with the Claude account the automation should use. Make that a user
+   of its own, not yours: Claude Code shares its temp folder between
+   everything one user runs, so the agents' commands would share it with
+   your own sessions. A run warns when it finds that
+   ([Before running the build on real tickets](#before-running-the-build-on-real-tickets)).
 5. **Check it**: Actions → **Agent hub: Work order → Run workflow** with a test
    ticket's key.
 

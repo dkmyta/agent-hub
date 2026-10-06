@@ -127,7 +127,7 @@ _load_extensions() {
     [ -d "$dir" ] || continue
     problems=$(agent_extension_problems "$dir")
     if [ -n "$problems" ]; then
-      stage_fail "The repository extension $dir has files an extension can't contain: $(echo "$problems" | paste -sd ',' - | sed 's/,/, /g'). Extensions hold only guidance.md, review.md, agents/ and skills/ (docs/extending.md). Nothing was changed; fix the folder, then comment $REVISE_COMMAND to try again."
+      stage_fail "The repository extension $dir has files an extension can't contain: $(echo "$problems" | paste -sd ',' - | sed 's/,/, /g'). Extensions hold only guidance.md, review.md, agents/ and skills/ — and build/checks.json (docs/extending.md). Nothing was changed; fix the folder, then try again."
     fi
     EXTENSION_DIRS+=("$dir")
     if [ -d "$dir/agents" ] || [ -d "$dir/skills" ]; then _plugin "$dir" "extension-$(basename "$dir")"; fi
@@ -167,7 +167,7 @@ _extension_text() {
 _require_restricted() {
   local help
   help=$(claude --help 2>/dev/null) || true
-  [[ "$help" == *--restricted* ]] || stage_fail "Claude Code ${CLAUDE_VERSION:-(unknown version)} has no restricted mode, which keeps the agents inside the repository whatever its settings say, so nothing was changed. Update Claude Code on the runner (docs/runners.md), then comment $REVISE_COMMAND."
+  [[ "$help" == *--restricted* ]] || stage_fail "Claude Code ${CLAUDE_VERSION:-(unknown version)} has no restricted mode, which keeps the agents inside the repository whatever its settings say, so nothing was changed. Update Claude Code on the runner (docs/runners.md), then try again."
 }
 
 # Agent tool profiles, chosen by the hub per pass (AGENT_PROFILE, set by the
@@ -286,6 +286,14 @@ _claude() {
 
 agent_revising() { [ "$(cat "$RUNNER_TEMP/mode" 2>/dev/null)" = revision ]; }
 
+# _require_budget <cap>: a cap that's a positive number of dollars —
+# anything else would be refused by Claude Code with a less clear error, or
+# (0, an empty cap) not be a cap at all. Before Claude is used.
+_require_budget() {
+  [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]] && [ "$(printf '%s' "$1" | tr -d '0.')" != "" ] \
+    || stage_fail "This stage's Claude budget (the repository variables AGENT_HUB_$(printf '%s' "$STAGE" | tr 'a-z-' 'A-Z_')_*MAX_BUDGET_USD) must be a positive number of dollars (e.g. 5.00), not '$1', so Claude wasn't used."
+}
+
 # agent_budget <cap>: the per-pass budget cap — a revision is scoped to the
 # requested changes, so it has its own, lower cap (REVISION_MAX_BUDGET_USD)
 # when the stage sets one.
@@ -333,6 +341,24 @@ agent_access() {
     both) echo "::warning::This runner has an API key (AGENT_HUB_ANTHROPIC_API_KEY) and a logged-in Claude account. Which one Claude Code uses here isn't verified yet: keep only one (docs/runners.md, \"How the hub reaches Claude\")." ;;
     unknown) echo "::warning::Claude Code reports no access on this runner (no login, no API key). Log in on the runner, or set AGENT_HUB_ANTHROPIC_API_KEY (docs/runners.md)." ;;
   esac
+  _warn_shared_user
+}
+
+# _warn_shared_user: on a self-hosted runner, warn when its user also runs
+# Claude Code outside the runner — sessions (in CLAUDE_PROJECTS_ROOT) for
+# folders other than the runner's work folder or the sandbox check's. Then
+# the agent's sandboxed commands share Claude Code's per-user temp folder
+# (/tmp/claude-<uid>) with that person's own sessions; a dedicated runner user
+# keeps them apart — required before real tickets (docs/runners.md).
+_warn_shared_user() {
+  local work others
+  [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -n "${RUNNER_WORKSPACE:-}" ] && [ -d "$CLAUDE_PROJECTS_ROOT" ] || return 0
+  # Claude Code names a project's folder after its path, with every
+  # character but letters and digits as - (…/actions-runner/_work → …-actions-runner--work).
+  work=$(printf '%s' "$(dirname "$RUNNER_WORKSPACE")" | sed 's/[^A-Za-z0-9]/-/g')
+  others=$(find "$CLAUDE_PROJECTS_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name "$work*" ! -name '*-agent-hub-sandbox-check-*' | wc -l | tr -d ' ')
+  [ "$others" = 0 ] \
+    || echo "::warning title=Shared runner user::This runner's user also runs Claude Code outside the runner, so the agent's sandboxed commands share Claude Code's temp folder (/tmp/claude-$(id -u)) with that person's sessions. Before real tickets, run the runner as a dedicated user (docs/runners.md, \"Before running the build on real tickets\")."
 }
 
 # agent_run <instruction> <payload field>: the draft. Never fails itself —
@@ -356,6 +382,7 @@ agent_run() {
     _repository_guidance
     _extension_text guidance.md "Repository guidance"
   } > "$prompt"
+  _require_budget "$(agent_budget "$CLAUDE_MAX_BUDGET_USD")"
   _claude "$CLAUDE_MODEL" "$CLAUDE_FALLBACK_MODEL" "$(agent_budget "$CLAUDE_MAX_BUDGET_USD")" \
     "$prompt" "$(jq -c . "$schema")" \
     "$(printf '%s\n\n<ticket>\n%s\n</ticket>' "$1" "$(cat "$RUNNER_TEMP/ticket.md")")" \
@@ -380,9 +407,9 @@ agent_check() {
     echo "::error::Claude returned no usable result."
     # The reason for the ticket's failure comment (see stage_fail).
     if jq -e '.subtype == "error_max_budget_usd"' "$AGENT_OUTPUT" > /dev/null 2>&1; then
-      echo "Claude reached its budget cap before finishing. Comment $REVISE_COMMAND to try again; if it keeps happening, raise the stage's AGENT_HUB_*_MAX_BUDGET_USD variable (docs/setup.md)." > "$RUNNER_TEMP/failure-reason"
+      echo "Claude reached its budget cap before finishing. If it keeps happening, raise the stage's AGENT_HUB_*_MAX_BUDGET_USD variable (docs/setup.md)." > "$RUNNER_TEMP/failure-reason"
     else
-      echo "Claude didn't return a usable result (the run log has the error type). Comment $REVISE_COMMAND to try again." > "$RUNNER_TEMP/failure-reason"
+      echo "Claude didn't return a usable result (the run log has the error type)." > "$RUNNER_TEMP/failure-reason"
     fi
     # The error type and messages only (e.g. error_max_budget_usd) — never
     # `result`, which can quote the ticket.
@@ -449,6 +476,7 @@ agent_review() {
   _repository_guidance >> "$prompt"
   _extension_text review.md "Repository review checklist" >> "$prompt"
 
+  _require_budget "$(agent_budget "$REVIEW_CLAUDE_MAX_BUDGET_USD")"
   _claude "$REVIEW_CLAUDE_MODEL" "$REVIEW_CLAUDE_FALLBACK_MODEL" "$(agent_budget "$REVIEW_CLAUDE_MAX_BUDGET_USD")" "$prompt" "$schema" \
     "$input" > "$RUNNER_TEMP/agent-review-output.json"
 
@@ -456,7 +484,7 @@ agent_review() {
        '.is_error == false and .structured_output.result.status != null and .structured_output.review.note != null' \
        "$RUNNER_TEMP/agent-review-output.json" > /dev/null 2>&1; then
     echo "::error::The review returned no usable result, so the draft wasn't applied."
-    echo "The expert review didn't return a usable result, so nothing was changed. Comment $REVISE_COMMAND to try again." > "$RUNNER_TEMP/failure-reason"
+    echo "The expert review didn't return a usable result, so nothing was changed." > "$RUNNER_TEMP/failure-reason"
     jq -c '{is_error, subtype, errors}' "$RUNNER_TEMP/agent-review-output.json" 2>/dev/null \
       || echo "Claude Code produced no JSON output for the review."
     exit 1

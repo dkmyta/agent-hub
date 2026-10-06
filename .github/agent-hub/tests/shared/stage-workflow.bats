@@ -193,3 +193,27 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
     | grep -vE "uses: [^@]+@[0-9a-f]{40}( #.*)?$"' _ "$REPO_DIR"
   assert_output ""
 }
+
+# A job without a time limit can hold a runner for GitHub's default six hours.
+# Jobs that call a reusable workflow get the called workflow's limits.
+@test "every job in the hub's workflows has a time limit" {
+  run awk '
+    function check() { if (job != "" && !ok) print job; job = "" }
+    FNR == 1 { check(); injobs = 0 }
+    /^jobs:/ { injobs = 1; next }
+    injobs && /^  [A-Za-z0-9_-]+:/ { check(); job = FILENAME ": " $1; ok = 0; next }
+    injobs && /^    (timeout-minutes|uses):/ { ok = 1 }
+    END { check() }
+  ' "$REPO_DIR"/.github/workflows/agent-hub-*.yml
+  assert_success
+  assert_output ""
+}
+
+# Drift guard: the shared libraries serve every stage, and not every stage has
+# /revise (the build doesn't). A failure's retry advice comes from the
+# failure comment (the stage's RETRY_INSTRUCTIONS, or stage_retry) — never
+# from a shared message.
+@test "shared failure messages never tell people to use /revise (each stage's comment says how to retry)" {
+  run bash -c 'grep -nE "(stage_fail|failure-reason).*REVISE_COMMAND|REVISE_COMMAND.*failure-reason" "$1"/lib/*.sh "$1"/lib/runners/*.sh "$1"/stages/build/*.sh' _ "$HUB_DIR"
+  assert_output ""
+}

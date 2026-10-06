@@ -2,7 +2,8 @@ name: "Agent hub: Tests"
 
 # The agent hub's own checks: the same checks as its local hooks
 # (.github/agent-hub/.pre-commit-config.yaml), which contributors can skip,
-# plus its test suite on both jq versions. In a repository that has the hub
+# plus its test suite on both jq versions, and the stages' scenarios on macOS
+# with its own Bash 3.2. In a repository that has the hub
 # copied in, they only run when a pull request changes hub files
 # (.github/agent-hub/, .github/workflows/agent-hub-*,
 # .github/ISSUE_TEMPLATE/agent-hub-*) or the repository's extensions
@@ -31,6 +32,7 @@ jobs:
   changes:
     name: Hub changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       hub: ${{ steps.check.outputs.hub }}
     steps:
@@ -54,6 +56,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.hub == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -76,6 +79,7 @@ jobs:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.hub == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -118,6 +122,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.hub == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -171,6 +176,46 @@ jobs:
 
       - run: npm test --prefix .github/agent-hub/tests
 
+  # A self-hosted Mac runner has macOS's own Bash 3.2 unless someone installs
+  # a newer one, so every stage's scenarios — the most shell code — also run
+  # with it. The rest of the suite runs above, on Linux.
+  test-macos:
+    name: Test (macOS, Bash 3.2)
+    needs: changes
+    if: needs.changes.outputs.hub == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .github/agent-hub/tests/package-lock.json
+
+      # /bin/bash first on PATH, for the scripts' `#!/usr/bin/env bash` too.
+      - name: Use macOS's Bash 3.2
+        run: |
+          mkdir -p "$RUNNER_TEMP/bash32"
+          ln -s /bin/bash "$RUNNER_TEMP/bash32/bash"
+          echo "$RUNNER_TEMP/bash32" >> "$GITHUB_PATH"
+
+      - name: Check the tools
+        run: |
+          bash --version | head -1
+          bash -c '[ "${BASH_VERSINFO[0]}" = 3 ]'
+          jq --version
+          command -v parallel || brew install parallel
+
+      - run: npm ci --prefix .github/agent-hub/tests --ignore-scripts
+
+      - name: Stage scenarios
+        working-directory: .github/agent-hub/tests
+        run: lib/run-tests.sh --timing work-order/scenarios.bats implementation-plan/scenarios.bats build/scenarios.bats shared/stage-workflow.bats
+
   # The checks to require: each passes if its jobs passed, or were skipped
   # because the hub didn't change. Changing the jq versions never changes the
   # name of a required check.
@@ -179,6 +224,7 @@ jobs:
     if: always()
     needs: [changes, lint]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - env:
           RESULT: ${{ needs.lint.result }}
@@ -190,12 +236,16 @@ jobs:
   test-result:
     name: "Agent hub: Test"
     if: always()
-    needs: [changes, test]
+    needs: [changes, test, test-macos]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - env:
           RESULT: ${{ needs.test.result }}
+          MACOS: ${{ needs.test-macos.result }}
           HUB: ${{ needs.changes.outputs.hub }}
         run: |
-          echo "Test matrix: $RESULT (hub changed: $HUB)"
-          [ "$RESULT" = success ] || { [ "$RESULT" = skipped ] && [ "$HUB" = false ]; }
+          echo "Test matrix: $RESULT; macOS: $MACOS (hub changed: $HUB)"
+          for result in "$RESULT" "$MACOS"; do
+            [ "$result" = success ] || { [ "$result" = skipped ] && [ "$HUB" = false ]; } || exit 1
+          done
