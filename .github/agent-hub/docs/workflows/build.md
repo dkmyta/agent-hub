@@ -192,6 +192,13 @@ doesn't cover): `git status` must be clean afterwards. A repository with no
 `package.json`, or no dependencies, installs nothing. The output stays on
 the runner, never in the run log.
 
+**Then it rehearses the verify step, before Claude runs (and is paid
+for):** the clean copy of the base commit, its install, the list of checks
+and the sandbox runtime. Anything in the environment that would stop the
+verify step stops the build here instead, so after the agent only the checks
+themselves can fail. (Since 2.6.1: the first real build in 2.6.0 spent its
+Claude budget, then couldn't make the verify copy.)
+
 ### Validate
 
 The agent reads the whole plan and checks it against the code as it is now,
@@ -256,8 +263,9 @@ item.
 tracker, no GitHub token) commits the agent's changes — the commit the
 apply step checks and pushes — then clones exactly that commit into a
 clean folder (not the checkout, which something the agent left running could
-still change), installs its dependencies the same way and runs the
-repository's checks there, each in the [hub's sandbox](#install) with no
+still change) — sparse like the checkout, so the hub's own test data, whose
+content the checkout never fetched, is left out — installs its dependencies
+the same way and runs the repository's checks there, each in the [hub's sandbox](#install) with no
 network but localhost and its own time limit:
 
 - **Which checks:** the repository's `build/checks.json`
