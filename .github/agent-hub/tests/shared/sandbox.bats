@@ -174,3 +174,12 @@ JS
   assert_equal "$(jq -r .version "$RUNNER_TEMP/agent-hub-srt/node_modules/@anthropic-ai/sandbox-runtime/package.json")" \
     "$(jq -r '.packages["node_modules/@anthropic-ai/sandbox-runtime"].version' "$HUB_DIR/lib/sandbox/package-lock.json")"
 }
+
+@test "real sandbox: the command's temp folder is the job's, and it exists (srt would otherwise use a shared /tmp/claude)" {
+  real_srt
+  run with_sandbox "sandbox_run check '$WORK' 1 '$BATS_TEST_TMPDIR/log' 'echo \"tmpdir: \$TMPDIR\"; node -e \"console.log(\\\"resolves: \\\" + require(\\\"fs\\\").realpathSync(require(\\\"os\\\").tmpdir()))\"'"
+  assert_success
+  run cat "$BATS_TEST_TMPDIR/log"
+  assert_line "tmpdir: $(cd "$RUNNER_TEMP/sandbox/tmp" && pwd -P)"
+  assert_line "resolves: $(cd "$RUNNER_TEMP/sandbox/tmp" && pwd -P)"
+}

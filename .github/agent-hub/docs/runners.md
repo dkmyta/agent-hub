@@ -156,6 +156,13 @@ commands, so they don't need it.
 | Linux (self-hosted) | `bubblewrap`, `socat` and `ripgrep`: `sudo apt-get install bubblewrap socat ripgrep` (Debian/Ubuntu) or your distribution's equivalent. On Ubuntu 24.04 and later, also allow unprivileged user namespaces: `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` (and in `/etc/sysctl.d/` to keep it) |
 | GitHub-hosted (Linux, with the Claude API) | Installed by the build workflow (its **Install sandbox tools** step) |
 
+The hub's sandboxed commands get the job's temp folder as `TMPDIR` (srt
+would otherwise hand them a shared `/tmp/claude`). srt itself keeps
+`/tmp/claude` writable for every sandboxed command, whatever the settings: a
+folder on the runner that commands from different jobs can write to. On a
+runner that builds untrusted code, prefer one that starts fresh for each job
+(GitHub-hosted, or ephemeral self-hosted runners).
+
 Every runner also needs **npm** on its `PATH` before the build starts (the
 workflow's **Set up Node** step provides it) — the hub installs `srt` with
 it — and network access to `registry.npmjs.org` the first time (and

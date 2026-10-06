@@ -59,6 +59,12 @@ supply-chain checks dependency bots use. The second part of 3d.
 - **Fixed:** a hub sandbox policy for npm's signature check (`verify`): the
   registries and Sigstore's trust metadata (`tuf-repo-cdn.sigstore.dev`),
   found by the new real-registry probes.
+- **Fixed: the hub's sandboxed commands' temp folder.** srt replaces the
+  command's `TMPDIR` with its own, a shared `/tmp/claude`, unless
+  `CLAUDE_CODE_TMPDIR` is set: the commands wrote temp files there rather
+  than in the job's temp folder, and on a runner without that folder (CI's
+  Linux) npm's signature check failed. Both now point at the job's temp
+  folder. (srt itself keeps `/tmp/claude` writable; see runners.md.)
 - **This repository:** the playground has a `package-lock.json` (so plans can
   add packages to it), and `build/checks.json` installs it for its checks.
 - **Evals:** a plan case, `npm-dependency`, checks the plan lists exactly the

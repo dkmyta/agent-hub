@@ -114,7 +114,11 @@ sandbox_run() {
   (
     cd "$folder" || exit 125
     # Only what the commands need: no secrets, no repository variables.
-    exec env -i PATH="$PATH" HOME="$temp/home" TMPDIR="$temp/tmp" LANG="${LANG:-C.UTF-8}" CI=true \
+    # srt sets the command's TMPDIR itself — to CLAUDE_CODE_TMPDIR, or a
+    # shared /tmp/claude that may not exist (npm's signature check then
+    # fails) — so both point at the job's temp folder.
+    exec env -i PATH="$PATH" HOME="$temp/home" TMPDIR="$temp/tmp" CLAUDE_CODE_TMPDIR="$temp/tmp" \
+      LANG="${LANG:-C.UTF-8}" CI=true \
       npm_config_cache="$temp/npm" COREPACK_HOME="$temp/corepack" YARN_CACHE_FOLDER="$temp/yarn" \
       npm_config_store_dir="$temp/pnpm" \
       perl -e '
