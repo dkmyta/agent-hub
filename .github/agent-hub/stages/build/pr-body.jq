@@ -4,7 +4,7 @@
 #
 #   jq -nr -f pr-body.jq --slurpfile out agent-output.json --slurpfile context build-context.json \
 #     --slurpfile gates gates.json --slurpfile contract contract.json --slurpfile state state.json \
-#     --slurpfile verify verify.json \
+#     --slurpfile verify verify.json --slurpfile deps dependencies.json \
 #     --arg ticket KEY --arg url "<ticket URL, or empty>" --arg run "<run URL>"
 #
 # The publication policy ("Publication policy"): unless ticket content may be
@@ -18,6 +18,16 @@
 # block's marker line), one line where a list item needs it.
 def safe: tostring | gsub("<"; "&lt;");
 def unstop: sub("[.\\s]+$"; "");
+# What the dependency step found in one folder (dependencies.sh), as one
+# line: the lockfile's changes, publication times, signatures, advisories and
+# licences — the same on the pull request and the ticket.
+def dependency_summary($before):
+  "\(.lockfile.added) package\(if .lockfile.added == 1 then "" else "s" end) added, \(.lockfile.changed) changed, \(.lockfile.removed) removed"
+  + (if $before != "" then "; every new version published on or before \($before) (checked against the registry)" else "" end)
+  + "; registry signatures verified for \(.signatures.verified) package\(if .signatures.verified == 1 then "" else "s" end) (\(.signatures.with_provenance) with provenance)"
+  + "; known advisories: \(.advisories.before) before, \(.advisories.after) after"
+  + (if (.advisories.new | length) > 0 then ", new: \(.advisories.new | map("\(.package) (\(.severity))") | join(", "))" else ", none new" end)
+  + (if (.licenses_outside | length) > 0 then "; licences outside the allowed list: \(.licenses_outside | map("\(.name)@\(.version) (\(.license // "not stated"))") | .[:5] | join(", "))" else "; every new package’s licence on the allowed list" end);
 def plural($n; $word): "\($n) \($word)" + (if $n == 1 then "" else "s" end);
 # How a criterion is verified, as a phrase: "verified manually", "verified
 # by a new test".
@@ -52,6 +62,20 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
   section("Checks run by the hub"; ["The repository's own checks, run by the hub on exactly this commit, in the sandbox (no network) — the build pushes only a commit they pass on:", ""]
     + (if ($verify[0].checks | length) > 0 then [$verify[0].checks[] | "- \(.command | code) — **\(.result)**"]
        else ["- None: the repository declares no checks (no test, lint, typecheck or build script)."] end)),
+
+  # The plan's dependency changes, as the hub applied them (dependencies.sh):
+  # package names, ranges, versions and licences are in the diff anyway.
+  section("Dependency changes"; if ($deps[0].changes // []) == [] then [] else
+    ["Applied by the hub before the agent ran, exactly as the plan lists them"
+      + (if $deps[0].min_release_age_days > 0
+         then ": only versions published at least \($deps[0].min_release_age_days) days ago (before \($deps[0].before))"
+         else " (no minimum release age)" end)
+      + ":", ""]
+    + [$deps[0].changes[] | "- \(.folder | code): \(.action) "
+        + (if .action == "remove" then (.package | code)
+           else "\("\(.package)@\(.version_range)" | code) (\(.kind)) → \(.version // "?"), licence \(.license // "not stated")" end)]
+    + [$deps[0].folders[] | "- In \(.folder | code): \(dependency_summary($deps[0].before))"]
+  end),
 
   section("Checks the build agent reported";
     (if any($b.tests_run[]; .result == "failed")

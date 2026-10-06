@@ -18,6 +18,10 @@
 # runs with the repository's metadata as copied before the agent started
 # (build_git), taking only the files' content from the checkout.
 
+# The dependency step (the plan's dependency changes, before the agent).
+# shellcheck source=stages/build/dependencies.sh
+source "$(dirname "${BASH_SOURCE[0]}")/dependencies.sh"
+
 BUILD_CONTEXT="$RUNNER_TEMP/build-context.json"
 BUILD_GIT="$RUNNER_TEMP/build-git"
 # The agent's result (the runner's AGENT_OUTPUT), for the steps after it.
@@ -89,6 +93,10 @@ _require_limits() {
     [[ "${limit#*=}" =~ ^[0-9]+$ ]] \
       || stage_fail "The repository variable AGENT_HUB_BUILD_${limit%%=*} must be a whole number, not '${limit#*=}', so nothing was built."
   done
+  [[ "$BUILD_MIN_RELEASE_AGE_DAYS" =~ ^[0-9]+$ ]] \
+    || stage_fail "The repository variable AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS must be a whole number of days (0 for none), not '$BUILD_MIN_RELEASE_AGE_DAYS', so nothing was built."
+  [[ "$BUILD_ALLOWED_LICENSES" =~ ^[A-Za-z0-9.+-]+(,[A-Za-z0-9.+-]+)*$ ]] \
+    || stage_fail "The repository variable AGENT_HUB_BUILD_ALLOWED_LICENSES must be SPDX licence ids separated by commas (e.g. MIT,Apache-2.0), not '$BUILD_ALLOWED_LICENSES', so nothing was built."
   [[ "$BUILD_BASELINE" =~ ^(stop|warn|off)$ ]] \
     || stage_fail "The repository variable AGENT_HUB_BUILD_BASELINE must be stop, warn or off, not '$BUILD_BASELINE', so nothing was built."
   # A time limit of 0 would be none at all.
@@ -327,20 +335,34 @@ step_agent() {
 
 # step_install: Install the repository's dependencies, from its lockfile, in the sandbox.
 step_install() {
-  local rc=0 log="$RUNNER_TEMP/install.log"
-  _install_dependencies "$PWD" "$log" || rc=$?
-  case "$rc" in
-    0) ;;
-    2) stage_fail "The repository has dependencies but no lockfile (package-lock.json, pnpm-lock.yaml or yarn.lock), so they can't be installed the same way every time and nothing was built. Commit a lockfile, then retry." ;;
-    3) stage_fail "The repository's .npmrc points at a private registry or holds credentials, which the build doesn't support yet, so nothing was built." ;;
-    124) stage_fail "Installing the dependencies took longer than $BUILD_INSTALL_MINUTES minutes, so nothing was built. Raise AGENT_HUB_BUILD_INSTALL_MINUTES if it's expected, then retry." ;;
-    125) stage_fail "The sandbox couldn't start for the install ($(tail -n 1 "$log" 2> /dev/null || true)), so nothing was built." ;;
-    *) stage_fail "Installing the dependencies failed (exit $rc), so nothing was built. The install's output is on the runner; retry, and check the lockfile if it fails again." ;;
-  esac
-  # The install changes nothing tracked and leaves nothing untracked: the
-  # agent starts from the repository exactly as it is.
-  [ -z "$(git status --porcelain)" ] \
+  local rc folder where log="$RUNNER_TEMP/install.log" allowed unexpected
+  # The plan's dependency changes first (dependencies.sh), so the install
+  # below installs them too.
+  build_dependency_step
+  while IFS= read -r folder; do
+    [ "$folder" = . ] && where="" || where=" in $folder"
+    rc=0
+    _install_dependencies "$PWD/$folder" "$log" || rc=$?
+    case "$rc" in
+      0) ;;
+      2) stage_fail "The repository has dependencies$where but no lockfile (package-lock.json, pnpm-lock.yaml or yarn.lock), so they can't be installed the same way every time and nothing was built. Commit a lockfile, then retry." ;;
+      3) stage_fail "The repository's .npmrc$where points at a private registry or holds credentials, which the build doesn't support yet, so nothing was built." ;;
+      124) stage_fail "Installing the dependencies$where took longer than $BUILD_INSTALL_MINUTES minutes, so nothing was built. Raise AGENT_HUB_BUILD_INSTALL_MINUTES if it's expected, then retry." ;;
+      125) stage_fail "The sandbox couldn't start for the install ($(tail -n 1 "$log" 2> /dev/null || true)), so nothing was built." ;;
+      *) stage_fail "Installing the dependencies$where failed (exit $rc), so nothing was built. The install's output is on the runner; retry, and check the lockfile if it fails again." ;;
+    esac
+  done < <(build_install_folders "$(context .base)")
+  # The install changes nothing tracked and leaves nothing untracked — apart
+  # from the manifests and lockfiles of the plan's dependency changes: the
+  # agent starts from the repository exactly as it is, plus those.
+  allowed=$(jq -r '.governance.dependency_changes // [] | [.[].folder] | unique[]
+    | if . == "." then "package.json", "package-lock.json" else "\(.)/package.json", "\(.)/package-lock.json" end' "$RUNNER_TEMP/contract.json")
+  unexpected=$(git status --porcelain | while IFS= read -r line; do
+    [ "${line:0:3}" = " M " ] && [ -n "$allowed" ] && grep -qxF -- "${line:3}" <<< "$allowed" && continue
+    echo "$line"; done)
+  [ -z "$unexpected" ] \
     || stage_fail "Installing the dependencies changed files in the repository (a lockfile rewritten, or installed files not ignored — e.g. node_modules/ missing from .gitignore), so nothing was built."
+  build_dependency_checks
 
   # A rehearsal of the verify step on the base commit, before Claude runs (and
   # is paid for): the copy, its install, the list of checks and the sandbox
@@ -349,10 +371,15 @@ step_install() {
   build_git
   _verify_copy "$(context .base)" "$RUNNER_TEMP/verify" \
     || stage_fail "Couldn't make a copy of the repository to run its checks in, so nothing was built." "Git said: $(_git_said)"
-  rc=0
-  _install_dependencies "$RUNNER_TEMP/verify" "$RUNNER_TEMP/verify-install.log" > /dev/null || rc=$?
-  [ "$rc" = 0 ] || stage_fail "Installing the dependencies in a copy of the repository for its checks failed (exit $rc), so nothing was built."
   _checks "$(context .base)" > /dev/null || stage_fail "$(_checks_invalid "nothing was built")"
+  while IFS= read -r folder; do
+    # (The plan's dependency changes aren't on the base commit: its folders
+    # install as they were.)
+    [ -d "$RUNNER_TEMP/verify/$folder" ] || continue
+    rc=0
+    _install_dependencies "$RUNNER_TEMP/verify/$folder" "$RUNNER_TEMP/verify-install.log" > /dev/null || rc=$?
+    [ "$rc" = 0 ] || stage_fail "Installing the dependencies in a copy of the repository for its checks failed (exit $rc), so nothing was built."
+  done < <(build_install_folders "$(context .base)")
   sandbox_install > /dev/null 2> "$RUNNER_TEMP/sandbox-install.log" \
     || stage_fail "The sandbox runtime the checks run in couldn't be installed ($(tail -n 1 "$RUNNER_TEMP/sandbox-install.log")), so nothing was built."
   # And it runs a command, as the checks will: the toolchain starting in the
@@ -441,7 +468,7 @@ _install_dependencies() {
 
 # step_verify: Commit the agent's changes and run the repository's checks on exactly that commit, in the sandbox.
 step_verify() {
-  local base publish message clone rc results
+  local base publish message clone rc results folder
   build_git
   base=$(context .base) publish=$(context .publish)
   # A hard link would pull in a file from elsewhere on the runner that the
@@ -472,9 +499,12 @@ step_verify() {
   # agent ran.)
   clone="$RUNNER_TEMP/verify"
   _verify_copy "$(git rev-parse HEAD)" "$clone" || stage_fail "Couldn't make a copy of the build's commit to check, so nothing was pushed." "Git said: $(_git_said)"
-  rc=0
-  _install_dependencies "$clone" "$RUNNER_TEMP/verify-install.log" > /dev/null || rc=$?
-  [ "$rc" = 0 ] || stage_fail "Installing the dependencies for the checks failed (exit $rc), so nothing was pushed."
+  while IFS= read -r folder; do
+    [ -d "$clone/$folder" ] || continue
+    rc=0
+    _install_dependencies "$clone/$folder" "$RUNNER_TEMP/verify-install.log" > /dev/null || rc=$?
+    [ "$rc" = 0 ] || stage_fail "Installing the dependencies for the checks failed (exit $rc), so nothing was pushed."
+  done < <(build_install_folders "$base")
   mkdir -p "$RUNNER_TEMP/checks"
   _checks "$base" > "$RUNNER_TEMP/checks.tsv" || stage_fail "$(_checks_invalid "nothing was pushed")"
   results=$(_run_checks "$clone" "$RUNNER_TEMP/checks.tsv" "$RUNNER_TEMP/checks" 1 Check)
@@ -522,6 +552,7 @@ _run_checks() {
 _checks() {
   local listed runner=npm
   if listed=$(git show "$1:$EXTENSIONS_DIR/build/checks.json" 2> /dev/null); then
+    build_install_list_valid <<< "$listed" || return 1
     build_checks_list <<< "$listed"
     return
   fi
@@ -582,6 +613,9 @@ step_apply() {
   build_git
   _require_same_plan
   base=$(context .base) branch=$(context .branch) target=$(context .target) publish=$(context .publish)
+  # The dependency step's result (an empty one when the plan had no
+  # dependency changes), for the pull request and the report.
+  [ -s "$RUNNER_TEMP/dependencies.json" ] || echo '{}' > "$RUNNER_TEMP/dependencies.json"
   # Only the commit the checks passed on is pushed.
   [ "$(git rev-parse HEAD)" = "$(jq -r '.head' "$RUNNER_TEMP/verify.json" 2> /dev/null)" ] \
     || stage_fail "The build's commit isn't the one the checks passed on, so nothing was pushed."
@@ -631,6 +665,7 @@ step_apply() {
   jq -nr -f "$STAGE_DIR/pr-body.jq" --slurpfile out "$BUILD_OUTPUT" --slurpfile context "$BUILD_CONTEXT" \
       --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile contract "$RUNNER_TEMP/contract.json" \
       --slurpfile state "$RUNNER_TEMP/state.json" --slurpfile verify "$RUNNER_TEMP/verify.json" \
+      --slurpfile deps "$RUNNER_TEMP/dependencies.json" \
       --arg ticket "$TICKET_KEY" --arg url "$url" --arg run "$RUN_URL" \
     | state_render "$(cat "$RUNNER_TEMP/state.json")" > "$RUNNER_TEMP/pr-body.md"
   title=$(_pr_title "$publish")
@@ -711,9 +746,20 @@ _ticket_report() {
   # shellcheck disable=SC1112 # curly apostrophes intended
   jq -n -L "$HUB_DIR/lib" --arg number "$1" --arg url "$2" --arg run "$RUN_URL" \
       --slurpfile out "$BUILD_OUTPUT" --slurpfile gates "$RUNNER_TEMP/gates.json" \
-      --slurpfile contract "$RUNNER_TEMP/contract.json" --slurpfile verify "$RUNNER_TEMP/verify.json" 'include "adf";
-    $out[0] as $o | $o.structured_output.build as $b | $gates[0] as $g | $contract[0] as $p
+      --slurpfile contract "$RUNNER_TEMP/contract.json" --slurpfile verify "$RUNNER_TEMP/verify.json" \
+      --slurpfile deps "$RUNNER_TEMP/dependencies.json" 'include "adf";
+    $out[0] as $o | $o.structured_output.build as $b | $gates[0] as $g | $contract[0] as $p | $deps[0] as $d
     | def heading($t): para([strong($t)]);
+    # What the dependency step found in one folder (dependencies.sh), as one
+    # line: the changes to the lockfile, publication times, signatures,
+    # advisories and licences — the same on the pull request (pr-body.jq).
+    def dependency_summary($before):
+      "\(.lockfile.added) package\(if .lockfile.added == 1 then "" else "s" end) added, \(.lockfile.changed) changed, \(.lockfile.removed) removed"
+      + (if $before != "" then "; every new version published on or before \($before) (checked against the registry)" else "" end)
+      + "; registry signatures verified for \(.signatures.verified) package\(if .signatures.verified == 1 then "" else "s" end) (\(.signatures.with_provenance) with provenance)"
+      + "; known advisories: \(.advisories.before) before, \(.advisories.after) after"
+      + (if (.advisories.new | length) > 0 then ", new: \(.advisories.new | map("\(.package) (\(.severity))") | join(", "))" else ", none new" end)
+      + (if (.licenses_outside | length) > 0 then "; licences outside the allowed list: \(.licenses_outside | map("\(.name)@\(.version) (\(.license // "not stated"))") | .[:5] | join(", "))" else "; every new package’s licence on the allowed list" end);
     doc([para([strong("🔨 Draft pull request opened"), text(" — "), link("#\($number)"; $url),
           text(". It’s a draft: automated review and the CI gate come in a later version, so a person reviews it — the steps are in the description, under Testing Instructions. The ticket stays in Implementation Plan Approved until then: once you’ve reviewed it, move it on yourself (the hand-off will do this later). The build’s report:")]),
         heading("What changed"), para($b.summary),
@@ -723,6 +769,16 @@ _ticket_report() {
         (if ($verify[0].checks | length) > 0
          then bullets([$verify[0].checks[] | [code(.command), text(" — "), strong(.result)]])
          else para("None: the repository declares no checks (no test, lint, typecheck or build script).") end),
+        (if ($d.changes // []) == [] then empty else
+          heading("Dependency changes — applied by the hub before the agent ran"),
+          para("Exactly as the plan lists them"
+            + (if $d.min_release_age_days > 0 then "; only versions published at least \($d.min_release_age_days) days ago (before \($d.before))" else "; no minimum release age" end)
+            + "."),
+          bullets([($d.changes[] | [code(.folder), text(": \(.action) "),
+                     code(if .action == "remove" then .package else "\(.package)@\(.version_range)" end)]
+                     + (if .action == "remove" then [] else [text(" (\(.kind)) → \(.version // "?"), licence \(.license // "not stated")")] end)),
+                   ($d.folders[] | [text("In "), code(.folder), text(": \(dependency_summary($d.before))")])])
+         end),
         heading("Checks the build agent ran"),
         bullets([$b.tests_run[] | [code(.command), text(" — "), strong(.result), text(": \(.summary)")]]),
         heading("How to review — and what the build saw"),

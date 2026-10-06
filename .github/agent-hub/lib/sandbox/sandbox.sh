@@ -7,12 +7,13 @@
 # Every command gets: the home folder unreadable (where the runner's
 # credentials live) except the toolchain it needs; writes only to its working
 # folder and the job's temp folder; network only as its policy allows —
-# "install" the package registries, "check" localhost — and an environment
+# "install" the package registries, "verify" those and Sigstore's trust
+# metadata (npm's signature and provenance check), "check" localhost — and an environment
 # with nothing but what it needs (no secrets, no repository variables). The
 # limits hold for every process it starts (install scripts and their
 # children included): the operating system enforces them on the whole tree.
 #
-#   sandbox_run <install|check> <folder> <minutes> <log file> <command>
+#   sandbox_run <install|verify|check> <folder> <minutes> <log file> <command>
 #
 # srt is installed into each job's temp folder from this folder's lockfile
 # (package.json, package-lock.json): every package pinned by its integrity
@@ -25,6 +26,9 @@
 SANDBOX_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # The registries an install may reach (npm, and yarn's; pnpm uses npm's).
 SANDBOX_REGISTRIES='["registry.npmjs.org", "registry.yarnpkg.com", "repo.yarnpkg.com"]'
+# What npm's signature check also needs: Sigstore's TUF repository, where the
+# trusted keys come from (the signatures themselves come from the registry).
+SANDBOX_SIGSTORE='["tuf-repo-cdn.sigstore.dev"]'
 
 # sandbox_dir: where srt is installed — the job's temp folder (once per job,
 # before any agent runs; agents can't write there).
@@ -74,13 +78,14 @@ sandbox_helpers() {
   [ ! -d "$dir" ] || (cd "$dir" && pwd -P)
 }
 
-# sandbox_settings <install|check> <folder> > settings.json
+# sandbox_settings <install|verify|check> <folder> > settings.json
 sandbox_settings() {
   local toolchain helpers
   toolchain=$(sandbox_toolchain) helpers=$(sandbox_helpers)
   jq -n --arg policy "$1" --arg work "$(cd "$2" && pwd -P)" --arg temp "$(sandbox_temp)" \
-      --arg home "$HOME" --arg toolchain "$toolchain" --arg helpers "$helpers" --argjson registries "$SANDBOX_REGISTRIES" '{
-    network: {allowedDomains: (if $policy == "install" then $registries else [] end), deniedDomains: [],
+      --arg home "$HOME" --arg toolchain "$toolchain" --arg helpers "$helpers" --argjson registries "$SANDBOX_REGISTRIES" \
+      --argjson sigstore "$SANDBOX_SIGSTORE" '{
+    network: {allowedDomains: ({install: $registries, verify: ($registries + $sigstore)}[$policy] // []), deniedDomains: [],
       allowLocalBinding: ($policy == "check")},
     filesystem: {denyRead: [$home],
       allowRead: ([$work, $temp] + ([$toolchain, $helpers] | map(select(. != "")))),
@@ -93,7 +98,7 @@ sandbox_temp() {
   mkdir -p "$RUNNER_TEMP/sandbox/home" "$RUNNER_TEMP/sandbox/tmp" && (cd "$RUNNER_TEMP/sandbox" && pwd -P)
 }
 
-# sandbox_run <install|check> <folder> <minutes> <log file> <command>: run
+# sandbox_run <install|verify|check> <folder> <minutes> <log file> <command>: run
 # <command> (a shell command string) in <folder>, sandboxed, with a time
 # limit; its output goes to <log file> (never to the run log, which can be
 # public) through a pipe: the command never gets the file itself, which on a

@@ -123,7 +123,14 @@ def full_section($field; $plan):
     para([strong("Manual changes")]),
     (if ($plan.governance.manual_changes | length) > 0
      then bullets([$plan.governance.manual_changes[] | [code(.path), text(" — \(.change)")]])
-     else para("None.") end)
+     else para("None.") end),
+    para([strong("Dependency changes")]),
+    (if ($plan.governance.dependency_changes // [] | length) > 0
+     then bullets([$plan.governance.dependency_changes[]
+       | [code(.folder), text(": \(.action) "),
+          code(if .action == "remove" then .package else "\(.package)@\(.version_range)" end),
+          text(" (\(.kind))")]])
+     else para("No dependency changes.") end)
   elif $field == "steps" then
     section("Implementation Steps"),
     numbered([$plan.steps[] |

@@ -132,7 +132,7 @@ empty; Security & Privacy always appears):
 | **Approach** | The approach, why it was chosen, alternatives considered (*optional*) |
 | **Acceptance Criteria Coverage** | Every criterion, word for word: how it's met, how to verify it |
 | **Changes by File** | Each file to add, modify or delete, with the specific changes |
-| **Scope & Governance** | The risk level and why; a fixed table of the sensitive kinds of change the plan includes (dependencies, schema or migration, public API, auth or permissions, sensitive data, infrastructure, workflow or CI, configuration); paths also in scope; areas that must not be touched; manual changes a person has to make. Its labels are fixed: the build stage reads it |
+| **Scope & Governance** | The risk level and why; a fixed table of the sensitive kinds of change the plan includes (dependencies, schema or migration, public API, auth or permissions, sensitive data, infrastructure, workflow or CI, configuration); paths also in scope; areas that must not be touched; manual changes a person has to make; and the **Dependency changes**: each npm package added, updated or removed, exactly (its folder, range, runtime or dev), which the build applies itself before its agent starts (a dependency change outside an npm project is a manual change). Its labels are fixed: the build stage reads it |
 | **Implementation Steps** | Ordered steps, each with its files and the criteria it covers |
 | **Dependencies & Configuration** | Packages, environment variables, secrets, migrations, permissions (*optional*) |
 | **Testing** | Automated tests, exact commands, manual checks |

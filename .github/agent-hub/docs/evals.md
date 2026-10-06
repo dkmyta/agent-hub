@@ -51,7 +51,8 @@ work order, rendered into a ticket as the work-order stage writes it):
 |---|---|---|
 | `readme-quick-start` | A clear, current request for a small README change | Write a plan that changes the hub README (`.github/agent-hub/README.md`), covers every criterion, and stays short |
 | `open-product-decision` | Leaves open who is notified and how | Ask the delivery lead instead of guessing |
-| `stale-work-order` | Describes a workflow that doesn't exist in the code | Ask, saying what it found — not quietly redefine the scope |
+| `npm-dependency` | A clear request that needs one npm package in the playground | List exactly that dependency change (its folder, the package, add, runtime) for the build to apply, without editing package.json or the lockfile itself; every other case must list none |
+| `stale-work-order` | Describes a workflow that doesn't exist in the code (a deploy workflow; until 2.7.0 a build workflow, which stopped being missing in 2.5.0) | Ask, saying what it found — not quietly redefine the scope |
 
 Every case runs the same passes as a real run — the draft, and the expert
 review when the draft proceeds (a draft that sends the ticket back isn't

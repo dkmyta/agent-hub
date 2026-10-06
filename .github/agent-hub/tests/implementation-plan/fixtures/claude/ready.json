@@ -115,7 +115,8 @@
         "must_not_touch": [
           ".github/workflows/**"
         ],
-        "manual_changes": []
+        "manual_changes": [],
+        "dependency_changes": []
       },
       "steps": [
         {

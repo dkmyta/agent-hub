@@ -55,6 +55,17 @@ BUILD_MAX_FILE_LINES=$(stage_setting MAX_FILE_LINES 1000)
 BUILD_INSTALL_MINUTES=$(stage_setting INSTALL_MINUTES 10)
 BUILD_CHECK_MINUTES=$(stage_setting CHECK_MINUTES 10)
 
+# The minimum age, in days, of any package version the dependency step
+# chooses (docs/workflows/build.md, "Dependencies"): a version published more
+# recently isn't used — most malicious releases are caught within days. 0
+# for none.
+BUILD_MIN_RELEASE_AGE_DAYS=$(stage_setting MIN_RELEASE_AGE_DAYS 3)
+
+# The licences a package the dependency step adds may have, as SPDX ids
+# (comma-separated): any other, or none, is a decision item for a person
+# (docs/workflows/build.md, "Dependencies"). Permissive licences by default.
+BUILD_ALLOWED_LICENSES=$(stage_setting ALLOWED_LICENSES "MIT,MIT-0,ISC,BSD-2-Clause,BSD-3-Clause,0BSD,Apache-2.0,Unlicense,CC0-1.0,BlueOak-1.0.0,Zlib,Python-2.0")
+
 # Whether the repository's checks run on the base commit before the agent
 # (docs/workflows/build.md, "Baseline"): stop (a check already failing there
 # stops the build before Claude is used), warn (build anyway) or off.

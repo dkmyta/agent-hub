@@ -87,11 +87,32 @@ class_of() { jq -r --arg p "$1" '.files[] | select(.path == $p) | "\(.class): \(
   assert_output "over the size limits (3 files, 2000 changed lines)"
 }
 
-@test "a planned dependency change is still a decision until the hub can resolve dependencies" {
-  jq '.governance.includes.dependencies = true' "$BATS_TEST_TMPDIR/contract.json" > c && mv c "$BATS_TEST_TMPDIR/contract.json"
-  echo '{}' > package.json && git add . && git commit -qm build
+@test "dependency changes: the dependency step's files pass byte for byte, uncounted; anything else is a decision" {
+  # Declared, and the dependency step produced web/package.json and its
+  # lockfile, flagging the lockfile (its format changed).
+  mkdir -p web && echo '{"dependencies": {"a": "^1.0.0"}}' > web/package.json && echo '{"lockfileVersion": 3}' > web/package-lock.json
+  echo '{}' > package.json
+  jq --arg m "$(git hash-object web/package.json)" --arg l "$(git hash-object web/package-lock.json)" \
+    '.governance.includes.dependencies = true
+     | .dependency_step = {files: {"web/package.json": $m, "web/package-lock.json": $l},
+         decisions: [{path: "web/package-lock.json", reason: "npm changed the lockfile format"}]}' \
+    "$BATS_TEST_TMPDIR/contract.json" > c && mv c "$BATS_TEST_TMPDIR/contract.json"
+  git add . && git commit -qm build
   run gates
-  assert_equal "$(class_of package.json)" "decision: a planned dependency change, which the hub can't resolve yet (the dependency step comes in a later version)"
+  assert_equal "$(class_of web/package.json)" "expected: the plan's dependency change, applied by the hub"
+  assert_equal "$(class_of web/package-lock.json)" "decision: npm changed the lockfile format"
+  # The root's package.json wasn't the dependency step's: not listed exactly.
+  assert_equal "$(class_of package.json)" "decision: a dependency change the plan doesn't list exactly (its Dependency changes)"
+  # The step's files don't count towards the size limits: only package.json's line.
+  assert_equal "$(jq '.totals.lines' <<< "$output")" 1
+  # Changed after the step (by the agent): a decision, whatever it is.
+  echo '{"dependencies": {"a": "^1.0.0", "b": "^2.0.0"}}' > web/package.json && git add . && git commit -qm agent
+  run gates
+  assert_equal "$(class_of web/package.json)" "decision: changed after the hub applied the plan's dependency changes"
+  # Not declared at all.
+  jq '.governance.includes.dependencies = false | del(.dependency_step)' "$BATS_TEST_TMPDIR/contract.json" > c && mv c "$BATS_TEST_TMPDIR/contract.json"
+  run gates
+  assert_equal "$(class_of web/package.json)" "decision: a dependency change the plan didn't declare"
 }
 
 # Git quotes paths with special characters in its ordinary output; the gates

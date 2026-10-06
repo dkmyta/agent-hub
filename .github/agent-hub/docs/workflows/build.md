@@ -263,18 +263,88 @@ needed*; a person takes over.
 
 ### Dependencies (planned changes only)
 
-The agent may edit a dependency declaration the approved plan describes, but
-never gets registry access. When the build's diff touches a manifest:
+Since 2.7.0 the plan names each dependency change exactly, and **the hub
+applies them before the agent starts** (`stages/build/dependencies.sh`, in
+the install step) — the way dependency bots do it — so the agent writes code
+and runs its tests with them installed, and never reaches a registry.
 
-1. **Gate:** the manifest changes must match the plan's dependency changes
-   exactly (package, version range); anything else → decision item, and this
-   step doesn't run.
-2. **Resolve (no agent):** a hub step runs the repository's package manager
-   to resolve and install — registries-only network, no credentials, in the
-   sandbox — updating the lockfile and the installed packages.
-3. **Gate again:** the resulting manifest and lockfile diff is rechecked
-   against the approved change (direct dependencies only those planned;
-   lockfile changes only from this step).
+**The plan's list.** Scope & Governance has a **Dependency changes** list:
+for each, the folder holding the package.json (`.` for the root), the
+package, add, update or remove, the version range to save (from the npm
+registry: no URL, git or file reference) and runtime or dev. The build reads
+it back strictly (`contract.jq`): an entry it can't apply exactly is a
+problem, and nothing is built. A dependency change outside an npm project
+goes in the plan's Manual changes, for a person.
+
+**The process**, in order — every step before the agent, so a failure costs
+no Claude usage:
+
+1. **Check every change first** (nothing is changed unless all can be): the
+   folder is an npm project with a package.json and package-lock.json
+   (lockfile version 2 or 3), no workspaces, not a hub-managed path; a
+   package to update or remove is there, and none is an optional or peer
+   dependency.
+2. **Write the plan's ranges** into package.json, exactly (npm on its own
+   rewrites them: `7.x` would be saved as `^7.0.0`).
+3. **Resolve the lockfile** with npm, without install scripts, in the hub's
+   sandbox (only the registries reachable), choosing only versions published
+   by the cut-off (npm's `--before`); an update then moves to the newest such
+   version in range.
+4. **Check every version the lockfile adds or changes** — direct and
+   transitive — against the registry, independently of npm's choice.
+5. **Record** the manifest's and lockfile's blob ids.
+6. **Install** (`npm ci`, sandboxed: new packages' install scripts run with
+   the install step's limits), then **check** that the install consumed
+   exactly the recorded files, the signatures, the vulnerabilities and the
+   licences.
+7. **Gate** the commit: its manifest and lockfile must be byte for byte the
+   recorded ones.
+
+**The policy**, check by check:
+
+| Check | Rule | If it fails |
+|---|---|---|
+| Release age | Every package version the lockfile adds or changes, direct and transitive, was published on or before the cut-off: **published_at ≤ now − N × 24 h**, N = `AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS` (3; `0` turns it off), now = the step's start, in UTC. published_at is the registry's own publication time for that version (its metadata's `time` field, read from the registry, never a cache) | Nothing is built. A range only newer releases satisfy can't be built until they're old enough |
+| Registry source | Every such version comes from the npm registry (`registry.npmjs.org`) — bundled packages ship inside their parent's tarball and are checked with it | Nothing is built: a git, URL or other-registry package's age and signature can't be checked |
+| Lockfile determinism | The install consumes exactly the files step 5 recorded: `npm ci` never writes them, and the step checks it; the verify step's copy installs the committed files; the gates compare the commit's files with the recorded ids | Nothing is built (the install changed them), or a decision item (changed after the step, e.g. by the agent) |
+| Signatures | Every installed package's registry signature verifies (`npm audit signatures`; with no packages installed, there's nothing to verify) | Nothing is built: a signature that doesn't verify, is missing, or can't be checked |
+| Provenance | A package that publishes provenance must have it verify; one that publishes none is allowed and counted ("N packages, M with provenance") | Nothing is built (provenance that doesn't verify) |
+| Vulnerabilities | Advisories (npm audit) are compared one by one, before the change and after it. A **new** high or critical advisory blocks; a new moderate, low or info one is for a person; existing ones are reported | Nothing is built (new high or critical; or the audit couldn't run, before or after — the change can't be shown not to add one), or a decision item (new, lower) |
+| Licences | Every package version the lockfile adds or changes, direct and transitive, has a licence on the allowed list (`AGENT_HUB_BUILD_ALLOWED_LICENSES`, SPDX ids: permissive licences by default — MIT, MIT-0, ISC, BSD-2-Clause, BSD-3-Clause, 0BSD, Apache-2.0, Unlicense, CC0-1.0, BlueOak-1.0.0, Zlib, Python-2.0). An SPDX expression passes if it allows one on the list (one side of an OR, every side of an AND). The licence is the package's own package.json field, as the lockfile records it | A decision item, naming the packages: a person decides (a licence is a governance question, never the agent's) |
+| Lockfile format | npm keeps the lockfile's format version | A decision item (a new format rewrites every entry) |
+
+**Which folders are installed** — never a folder just because it has a
+package.json: the repository root (as before); the folders of the plan's
+dependency changes (the approved plan names them); and the folders the
+repository's `build/checks.json` lists under `install` (its own
+configuration, read from the base commit like the checks, and reviewed like
+code). Nothing else.
+
+The pull request and the ticket list each change with the version it
+resolved to and its licence, and per folder: the lockfile's added, changed
+and removed packages, the cut-off, the signatures (and how many with
+provenance), the advisories before and after (and any new), and any licences
+outside the list.
+
+**npm only, in this version.** pnpm's and Yarn's equivalents of the minimum
+release age exist only in their newest versions, and the signature check is
+npm's: a plan whose dependency changes are in a pnpm or Yarn project stops
+before Claude, saying so. A plan from before 2.7.0 (no Dependency changes
+list) keeps the earlier behaviour: its dependency changes are decision items.
+
+**Decided in review (2.7.0)**, after an external review of the plan, each
+point checked against npm and the code before acting on it:
+
+| Point | Decision |
+|---|---|
+| The age rule must be exact, cover transitive versions, and use registry times | **Adopted.** npm's `--before` already uses registry times across the tree (npm's documentation), but a test couldn't show it for a transitive package, so the hub now checks every added or changed version itself, against the registry — the guarantee doesn't rest on npm's internals |
+| The install must not silently change the resolved lockfile | **Adopted** — a real gap: the files were recorded *after* the install, so a changed lockfile would have been accepted as the hub's. They're now recorded after resolving and checked after every install |
+| Signature and provenance failures need explicit semantics | **Adopted**, with one difference: **absent provenance is allowed** (and counted), not blocking. Most packages publish none — including long-standing ones like `is-number` — so requiring it would block nearly every dependency |
+| Licences need a policy, not just collection | **Adopted** — the first version had a short denylist (GPL, AGPL, SSPL, none) for direct packages only, which let other licences (MPL, BUSL, commercial ones) and every transitive package through. Now an allowlist, for every new package, that the repository can replace |
+| Vulnerabilities by advisory and severity, not counts | **Adopted** — counts hid a new critical advisory behind removed low ones |
+| Unsupported package managers rejected before the step changes anything | **Adopted**: every change is checked before any is applied |
+| Installs limited to the plan's package roots | **Already so** (no recursive installs); the root and `checks.json`'s `install` list are installed too — repository configuration, from the base commit |
+| Evals for every dependency case (malformed entries, pnpm, several roots, …) | **Partly.** Those are decided by the hub's code, not the model, and are covered by deterministic tests (`contract.bats`, the build scenarios, real-registry probes). The plan eval checks what the model decides: an ordinary npm addition listed exactly, and nothing listed when nothing changes |
 
 A fix pass never changes dependencies: a dependency finding is a decision
 item.
@@ -708,7 +778,7 @@ request) · `agent-hub-paused` · the kill switch.
 | Review and fix-check agents | Read the repository; run tests in the sandbox | Edit anything |
 | Install step (no agent) | Install dependencies from the lockfile (frozen), registries-only network, in the hub's sandbox | Change manifests or lockfiles; read the home folder; see any credential |
 | Verify step (no agent) | Commit the agent's changes; run the repository's checks on a clean copy of that commit, in the hub's sandbox, localhost-only network | Push; read the home folder; see any credential; change which checks run (they come from the base commit) |
-| Dependency step (no agent) | Resolve and install a dependency change the approved plan describes, updating the lockfile; registries-only network | Run unless the gate confirmed the change matches the plan |
+| Dependency step (no agent, before the agent) | Apply exactly the plan's dependency changes (npm): write their ranges, resolve the lockfile without install scripts and with a minimum release age, then check signatures and provenance; registries-only network (and Sigstore's trust metadata for the signature check), in the hub's sandbox | Apply anything the plan doesn't list; run install scripts while resolving; read the home folder; see any credential |
 | Apply step (no agent) | Commit, push to `agent-hub/*`, open and update the pull request, write the state block, update the ticket | Merge, approve, push to other branches (branch protection) |
 | Relay, CI-result and PR-sync workflows (no agent) | Read metadata, acknowledge idempotently, wake the per-ticket run | Write the state block; check out, run or download pull request code or artifacts; evaluate pull-request-supplied text in a shell |
 | People | Approve, review, `/apply`, `/skip`, pause, merge; admins: the kill switch | — |
@@ -791,6 +861,7 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | `agent-hub-stage.yml` with `code-stage: true` | The shared stage workflow, as for every stage, plus the full history and the machine user's token for the fetch and apply steps only; the install and dependency steps join it as steps that only code stages run, without the token |
 | `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template); later `fix.md`, `fix-check.md`, `ci-fix.md` |
 | `lib/toolchain.sh` | The Node version a repository declares, for the workflow's setup-node step and the fetch step's check |
+| `stages/build/dependencies.sh` | The dependency step: the folders installed, the plan's dependency changes applied and checked, the result for the gates and the report |
 | `lib/sandbox/` | The hub's sandbox for the install and verify steps: `sandbox.sh` (policies, time limit, a clean environment) and the lockfile `srt` is installed from (per job, from npm's download cache in the runner's tool cache, checked against the lockfile every time; Dependabot keeps it current) |
 | `stages/pr-review/` | The review's `prompt.md`, `schema.json` (findings: area, severity, kind, file and line, evidence), `policy.json` (kind × severity → fix pass, `R` or `D`), `settings.sh` |
 | `lib/github.sh` | The GitHub interface; one `gh_request` function every call goes through (mocked in tests) |
@@ -982,7 +1053,7 @@ where stated and only with the owner's OK.
      per job from npm's download cache (checked against the lockfile on
      every install), instead of trusting a copy another job on the runner
      could have changed.
-   - *3d-2*: the dependency step, resolved **before** the agent (changed in
+   - *3d-2* (done in 2.7.0): the dependency step, resolved **before** the agent (changed in
      2.6.3 from resolving after it, which left the agent writing code against
      a package it couldn't install or test). The plan names each change
      exactly — manifest folder, package, version range, runtime or dev, add,
@@ -994,14 +1065,22 @@ where stated and only with the owner's OK.
      lockfile to be byte-for-byte what the hub produced. Also: a minimum
      release age (3 days by default) for every resolved version, refusing —
      a decision item — where the package manager can't enforce it; registry
-     signatures and provenance checked (`npm audit signatures`); each new
-     package's licence and known vulnerabilities in the pull request, a
-     missing, unknown or strong-copyleft licence a decision item; a lockfile
-     format change a decision item, and the lockfile's added, changed and
-     removed packages counted in the pull request. npm, pnpm and Yarn, one
-     manifest per change (workspaces stay decision items); a plan with the
-     dependency flag but no exact list stays a decision item. The plan
-     stage's new field needs a plan eval run.
+     signatures checked, and provenance where a package publishes it; the
+     release age, the registry source and the licence (an allowlist) checked
+     for every new version, transitive ones too; vulnerabilities compared
+     advisory by advisory (a new high or critical one blocks); the install
+     proven not to change the resolved lockfile; a lockfile format change a
+     decision item, and the lockfile's added, changed and removed packages
+     counted in the pull request (the policy, and what an external review
+     changed: [Dependencies](#dependencies-planned-changes-only)). A plan with the
+     dependency flag but no exact list stays a decision item. **Built for
+     npm only** (planned for npm, pnpm and Yarn): pnpm's and Yarn's release
+     age settings exist only in their newest versions and the signature
+     check is npm's, so — rather than resolve without the guards — a pnpm or
+     Yarn project's changes stop the build before Claude ([Dependencies](#dependencies-planned-changes-only)).
+     With it, the install covers subfolder projects (the dependency
+     changes' folders, and `build/checks.json`'s `install` list), which
+     3c's install step didn't.
    - *Moved to PR 4:* reconciliation of an existing pull request. Until the
      review, fixes and the CI gate, nothing happens to a hub pull request
      after it opens except a person closing it, which the build already

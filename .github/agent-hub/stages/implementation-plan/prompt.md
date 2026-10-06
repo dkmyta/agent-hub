@@ -131,7 +131,18 @@ tooling) and follow them. Then return `status: "ready"` with `plan`:
   them, and name each dependency in `dependencies`); `scope_patterns`
   (directories or patterns beyond Changes by File where changes are expected,
   e.g. `tests/orders/**`); `must_not_touch` (areas the change must leave
-  alone); `manual_changes` (each `path` and `change` a person has to make).
+  alone); `manual_changes` (each `path` and `change` a person has to make);
+  `dependency_changes` (each npm package the plan adds, updates or removes:
+  the `folder` holding its package.json, `.` for the root; the `package`;
+  the `action`; the `version_range` to save, from the npm registry, empty for
+  a removal; and `kind`, runtime or dev). The build applies exactly these
+  before its agent starts — it can't add a package you didn't list — so list
+  every one the work needs, with a range that existing releases satisfy; and
+  never edit package.json's dependencies or the lockfile in `changes`. Only
+  npm projects (a folder with a package.json and package-lock.json, no
+  workspaces) go in `dependency_changes`; a dependency change anywhere else
+  (pnpm, Yarn, another ecosystem) is a `manual_changes` item — the manifest's
+  path and the command to run — for a person.
 - `steps` — the implementation in order, each with a `title`, concrete
   `details`, the `files` it touches, and the `criteria` it contributes to
   (quoted from the acceptance criteria).

@@ -63,6 +63,9 @@ real_srt() {
   assert_equal "$(jq -r '.filesystem.allowRead | length' <<< "$output")" 4
   run with_sandbox "sandbox_settings check '$WORK'"
   assert_equal "$(jq -c '.network' <<< "$output")" '{"allowedDomains":[],"deniedDomains":[],"allowLocalBinding":true}'
+  # npm's signature check: the registries and Sigstore's trust metadata.
+  run with_sandbox "sandbox_settings verify '$WORK'"
+  assert_equal "$(jq -c '.network.allowedDomains' <<< "$output")" '["registry.npmjs.org","registry.yarnpkg.com","repo.yarnpkg.com","tuf-repo-cdn.sigstore.dev"]'
 }
 
 @test "sandbox_run: only the variables the commands need; the output in the log; the command's exit code" {

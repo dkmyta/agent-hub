@@ -10,14 +10,19 @@
 # → {files: [{path, status, class, reason, added, deleted}], refused: [...], decisions: [...],
 #    totals: {files, lines}} — added and deleted are line counts (null for a
 #    binary file) — where class is one of:
-#   expected     a file the plan's Changes by File names
+#   expected     a file the plan's Changes by File names, or a manifest or
+#                lockfile exactly as the dependency step produced it from the
+#                plan's Dependency changes (dependencies.sh; not counted in
+#                the size limits)
 #   incidental   tests or docs, or a path the plan's scope patterns allow
 #   refused      never pushed: hub-managed paths (.github/, .claude/,
 #                CODEOWNERS), links, submodules, binaries, LFS pointers
 #   decision     a person decides (a decision item): outside the plan's
 #                scope, in a must-not-touch area, a sensitive kind of change
-#                the plan didn't declare (or, for dependencies, one the hub
-#                can't resolve yet), generated, vendored or minified files, a
+#                the plan didn't declare (or, for dependencies, one the
+#                plan doesn't list exactly, one changed after the dependency
+#                step, or a licence or lockfile format the dependency step
+#                flagged), generated, vendored or minified files, a
 #                single file over the line limit
 # The whole change over the size limits adds a decision for the pull request.
 
@@ -40,7 +45,7 @@ BUILD_MAX_FILE_LINES=${BUILD_MAX_FILE_LINES:-1000}
 source "$(dirname "${BASH_SOURCE[0]}")/../../lib/paths.sh"
 
 build_gates() {
-  local base=$1 contract=$2 path status mode added deleted line class reason total_files=0 total_lines=0 declared work limit
+  local base=$1 contract=$2 path status mode added deleted line class reason total_files=0 total_lines=0 declared work limit hub_blob flagged
   local -a scope=() forbidden=() expected=()
   # It runs as a condition (`build_gates … || stage_fail …`), where errexit is
   # off, so every failure is handled here explicitly: the gates either produce
@@ -75,8 +80,19 @@ build_gates() {
       class=refused reason="a Git LFS pointer"
     elif [ ${#forbidden[@]} -gt 0 ] && matches_any "$path" "${forbidden[@]}"; then class=decision reason="in an area the plan says must not be touched"
     elif [[ "$path" =~ $BUILD_SENSITIVE_DEPENDENCIES ]]; then
-      if [[ "$declared" == *" dependencies "* ]]; then
-        class=decision reason="a planned dependency change, which the hub can't resolve yet (the dependency step comes in a later version)"
+      # The dependency step's own output passes only byte for byte (its blob
+      # id), with any decision it flagged for the file.
+      hub_blob=$(jq -r --arg p "$path" '.dependency_step.files[$p] // empty' "$contract")
+      if [ -n "$hub_blob" ]; then
+        if [ "$status" != D ] && [ "$(git rev-parse -q --verify "HEAD:$path" 2> /dev/null)" = "$hub_blob" ]; then
+          flagged=$(jq -r --arg p "$path" '[.dependency_step.decisions[]? | select(.path == $p) | .reason] | join("; ")' "$contract")
+          if [ -n "$flagged" ]; then class=decision reason=$flagged
+          else class=expected reason="the plan's dependency change, applied by the hub"; fi
+          # Machine-written and checked here: not counted in the size limits.
+          [ "$added" = - ] || total_lines=$((total_lines - added - deleted))
+        else class=decision reason="changed after the hub applied the plan's dependency changes"; fi
+      elif [[ "$declared" == *" dependencies "* ]]; then
+        class=decision reason="a dependency change the plan doesn't list exactly (its Dependency changes)"
       else class=decision reason="a dependency change the plan didn't declare"; fi
     elif [[ "$path" =~ $BUILD_SENSITIVE_SCHEMA ]] && [[ "$declared" != *" schema_or_migration "* ]]; then
       class=decision reason="a schema or migration change the plan didn't declare"

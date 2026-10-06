@@ -652,3 +652,172 @@ break_main() {
   assert_output --partial "expect: Prints Hello, Ada. "
   refute_output --partial "Ada.."
 }
+
+# --- Dependency changes (dependencies.sh) ------------------------------------
+
+# deps_plan [sed expression]: the plan with a dependency change (left-pad
+# ^1.3.0, runtime, at the root), edited by the expression.
+# Each in a file of its own.
+deps_plan() {
+  local plan
+  plan=$(mktemp "$BATS_TEST_TMPDIR/plan-deps.XXXXXX") && sed "${1:-}" "$FIXTURES/plan-dependencies.md" > "$plan" && echo "$plan"
+}
+
+# deps_run [VAR=value...]: the ready scenario with that plan (DEPS_PLAN, or
+# deps_plan's), the stand-in npm and the plan's change (greet.sh).
+deps_run() { PATH="$NPM_STUB:$PATH" run_scenario ready ATTACHMENT_CONTENT_FIXTURE="${DEPS_PLAN:-$(deps_plan)}" CLAUDE_EDITS=edits/greet.sh "$@"; }
+
+failure() { cat "$RUNNER_TEMP/failure-reason"; }
+
+@test "dependency changes: applied before the agent (exact range, minimum release age, no install scripts), checked, installed, pushed byte for byte, on the pull request and ticket" {
+  stub_npm
+  npm_project
+  touch "$NPM_STUB/attested"
+  # The agent starts with the change applied and installed.
+  printf 'jq -e %q package.json > /dev/null && [ -d node_modules/left-pad ] && touch %q\nbash -e %q\n' \
+    '.dependencies["left-pad"] == "^1.3.0"' "$BATS_TEST_TMPDIR/agent-saw-it" "$FIXTURES/edits/greet.sh" > "$BATS_TEST_TMPDIR/edits.sh"
+  deps_run CLAUDE_EDITS="$BATS_TEST_TMPDIR/edits.sh"
+  run trace
+  assert_line "Install dependencies: success"
+  assert_line "Verify: success"
+  assert_line "Apply: success"
+  [ -f "$BATS_TEST_TMPDIR/agent-saw-it" ] || fail "the agent didn't start with the dependency change installed"
+  # Resolved without install scripts, only from versions on or before the
+  # cut-off (now − 3 × 24 h); each new version's time read from the registry.
+  run grep -- "--package-lock-only" "$NPM_STUB/calls"
+  assert_output --partial "--ignore-scripts"
+  assert_output --partial "--before=$(perl -MPOSIX -e 'print strftime("%Y-%m-%d", gmtime(time - 86400 * 3))')T"
+  run grep -c " view left-pad time --json" "$NPM_STUB/calls"
+  assert_output 1
+  run grep -c "audit signatures" "$NPM_STUB/calls"
+  assert_output 1
+  # Pushed exactly as the hub produced it; the gates pass both files.
+  assert_equal "$(remote_file agent-hub/PROJ-99 package.json | jq -r '.dependencies["left-pad"]')" "^1.3.0"
+  assert_equal "$(remote_file agent-hub/PROJ-99 package-lock.json | jq -r '.packages["node_modules/left-pad"].version')" "1.3.0"
+  assert_equal "$(jq -c '[.files[] | select(.path | test("package")) | .class] , (.decisions | length)' "$RUNNER_TEMP/gates.json" | paste -sd ' ' -)" '["expected","expected"] 0'
+  # On the pull request and the ticket.
+  run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
+  assert_output --partial "## Dependency changes"
+  assert_output --partial "only versions published at least 3 days ago"
+  assert_output --partial '- `.`: add `left-pad@^1.3.0` (runtime) → 1.3.0, licence MIT'
+  assert_output --partial "1 package added, 0 changed, 0 removed; every new version published on or before"
+  assert_output --partial "registry signatures verified for 1 package (1 with provenance); known advisories: 0 before, 0 after, none new; every new package’s licence on the allowed list"
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | tostring' "$CALLS"
+  assert_output --partial "Dependency changes — applied by the hub before the agent ran"
+  assert_valid_adf "$CALLS"
+}
+
+@test "dependency changes in a subfolder: applied and installed there only, for the build and its checks" {
+  stub_npm
+  npm_project web
+  DEPS_PLAN=$(deps_plan 's/`\.`: add/`web`: add/') deps_run
+  run trace
+  assert_line "Apply: success"
+  # Installed in web/ for the agent, the rehearsal's copy and the verify copy.
+  assert_equal "$(grep -cE '^web (.* )?ci( |$)' "$NPM_STUB/calls")" 3
+  assert_equal "$(remote_file agent-hub/PROJ-99 web/package.json | jq -r '.dependencies["left-pad"]')" "^1.3.0"
+  [ "$(remote_file agent-hub/PROJ-99 package.json | jq -r '.dependencies["left-pad"] // "none"')" = none ]
+}
+
+@test "dependency changes: no minimum release age means no cut-off; licences outside the allowed list (direct or transitive), new moderate advisories and a lockfile format change are decision items" {
+  stub_npm
+  npm_project
+  echo GPL-3.0-only > "$NPM_STUB/license-left-pad"
+  touch "$NPM_STUB/extra-tiny-dep" && echo "(MIT AND SSPL-1.0)" > "$NPM_STUB/license-tiny-dep"
+  echo moderate > "$NPM_STUB/advisory-left-pad"
+  touch "$NPM_STUB/lockfile-v2"
+  deps_run 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS": "0"}'
+  run trace
+  assert_line "Apply: success"
+  run grep -c -e "--before" -e " view " "$NPM_STUB/calls"
+  assert_output 0
+  run jq -r '.decisions[] | "\(.path): \(.reason)"' "$RUNNER_TEMP/gates.json"
+  assert_line "package.json: the plan adds left-pad (licence GPL-3.0-only), outside the allowed licences — a person decides"
+  assert_line "package-lock.json: the plan’s dependency changes bring in 1 package whose licence is outside the allowed list (tiny-dep@1.3.0: (MIT AND SSPL-1.0)) — a person decides; the plan’s dependency changes add 1 known vulnerability rated moderate or lower (left-pad: moderate) — a person decides; npm changed the lockfile format (version 3 to 2), rewriting every entry — a person decides"
+  run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
+  assert_output --partial "(no minimum release age)"
+}
+
+@test "dependency changes: the repository's allowed licences replace the default; an expression passes if it allows one; an invalid list is refused" {
+  stub_npm
+  npm_project
+  echo "(GPL-3.0-only OR MIT)" > "$NPM_STUB/license-left-pad"
+  touch "$NPM_STUB/extra-tiny-dep" && echo "GPL-3.0-only" > "$NPM_STUB/license-tiny-dep"
+  deps_run 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_ALLOWED_LICENSES": "MIT,GPL-3.0-only"}'
+  run jq '.decisions | length' "$RUNNER_TEMP/gates.json"
+  assert_output 0
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_ALLOWED_LICENSES": "MIT;GPL-3.0"}'
+  run failure
+  assert_output --partial "AGENT_HUB_BUILD_ALLOWED_LICENSES must be SPDX licence ids separated by commas"
+}
+
+# stops <flag file> <flag content> <expected reason part> [ticket detail] [VAR=value...]:
+# a fresh repository and stand-in npm with that flag, a build that stops at
+# the install step, before the agent.
+stops() {
+  fresh_repo && npm_project && stub_npm
+  [ -z "$1" ] || printf '%s' "$2" > "$NPM_STUB/$1"
+  deps_run "${@:5}"
+  run trace
+  assert_line "Install dependencies: failure"
+  assert_line "Agent: skipped"
+  run failure
+  assert_output --partial "$3"
+  [ -z "${4:-}" ] || assert_output --partial "$4"
+}
+
+@test "dependency changes that can't be applied, or shown safe, stop the build before Claude" {
+  # No version old enough: npm's message on the ticket only.
+  stops etarget "" "npm couldn't resolve the plan's dependency changes in . (exit 1)" "npm said: npm error code ETARGET"
+  assert_output --partial "(3 days ago, AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS)"
+  run grep -c ETARGET "$RUNNER_TEMP/log.txt"
+  assert_output 0
+  # A version the registry says is newer than the cut-off, whatever npm
+  # chose: checked independently of npm, for every new version.
+  stops too-new-left-pad "" "would bring in package versions published after" "left-pad@1.3.0"
+  stops too-new-tiny-dep "" "tiny-dep@1.3.0" "" && true
+  # A package from git: its age and signature can't be checked.
+  stops git-left-pad "" "aren't from the npm registry (left-pad@1.3.0)"
+  # The install changing the lockfile it was given.
+  stops ci-rewrites-lock "" "Installing the dependencies changed .'s package.json or package-lock.json after the plan's dependency changes were resolved"
+  # A signature that doesn't verify.
+  stops signatures-fail "" "signatures or provenance didn't verify, or couldn't be checked"
+  # A new high or critical advisory.
+  stops advisory-left-pad critical "add known vulnerabilities rated high or critical (left-pad: critical)" "Problem in left-pad"
+  # An audit that gives no answer: it can't be shown not to get worse.
+  stops audit-fails "" "npm couldn't check the known vulnerabilities in . before the plan's dependency changes"
+  # An update to a package that isn't there: the plan is out of date.
+  stops "" "" "update left-pad in ., but it isn't one of its dependencies" "" ATTACHMENT_CONTENT_FIXTURE="$(deps_plan 's/`\.`: add/`.`: update/')"
+  # Not an npm project with a lockfile: checked before npm runs at all.
+  fresh_repo && stub_npm
+  deps_run
+  run failure
+  assert_output --partial "isn't an npm project with a package.json and package-lock.json"
+  [ ! -s "$NPM_STUB/calls" ] || fail "npm ran before every change was checked"
+  # An invalid minimum release age.
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS": "soon"}'
+  run failure
+  assert_output --partial "AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS must be a whole number of days"
+}
+
+@test "dependency changes: removing the last dependency (no signatures left to verify) builds" {
+  stub_npm
+  jq '.dependencies = {"left-pad": "^1.3.0"}' "$STEP_CWD/package.json" > "$BATS_TEST_TMPDIR/p.json" && cp "$BATS_TEST_TMPDIR/p.json" "$STEP_CWD/package.json"
+  npm_project
+  (cd "$STEP_CWD" && PATH="$NPM_STUB:$PATH" npm install --package-lock-only > /dev/null) && change_main "left-pad"
+  DEPS_PLAN=$(deps_plan 's/`\.`: add `left-pad@^1.3.0`/`.`: remove `left-pad`/') deps_run
+  run trace
+  assert_line "Apply: success"
+  run grep -c "audit signatures" "$NPM_STUB/calls"
+  assert_output 0
+  [ "$(remote_file agent-hub/PROJ-99 package.json | jq -r '.dependencies["left-pad"] // "gone"')" = gone ]
+}
+
+@test "dependency changes: the agent changing what the hub applied is a decision item, never pushed as the plan's" {
+  stub_npm
+  npm_project
+  printf 'bash -e %q\njq %q package.json > p && mv p package.json\n' "$FIXTURES/edits/greet.sh" '.dependencies["is-odd"] = "^3.0.0"' > "$BATS_TEST_TMPDIR/edits.sh"
+  deps_run CLAUDE_EDITS="$BATS_TEST_TMPDIR/edits.sh"
+  run jq -r '.decisions[] | "\(.path): \(.reason)"' "$RUNNER_TEMP/gates.json"
+  assert_line "package.json: changed after the hub applied the plan's dependency changes"
+}

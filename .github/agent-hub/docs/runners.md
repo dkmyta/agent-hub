@@ -144,7 +144,9 @@ without an agent — installing its dependencies, and re-running its checks
 on the build's commit — use the same sandbox runtime (`srt`, which the hub
 installs for each job from a lockfile; npm's download cache stays in the
 runner's tool cache and is checked against the lockfile every time), with the
-package registries as the only network for the install
+package registries as the only network for the install (and, for npm's
+signature check on the plan's dependency changes, Sigstore's trust metadata
+at `tuf-repo-cdn.sigstore.dev`)
 ([build.md](workflows/build.md#install)). The document stages don't run
 commands, so they don't need it.
 
