@@ -1147,6 +1147,7 @@ settings, and that session files are removed after each run.
 | An expanded eval suite | Beyond the single build case |
 | More than one pull request per ticket | Nothing in v1 assumes one |
 | GitHub Projects as the tracker for the build | Follows the Jira version |
+| Other AI providers (a second agent runner: OpenAI's Codex CLI, Google's Gemini CLI, …) | **A dedicated task after PR 4**, once every workflow is in place: the agent runner interface (`lib/runners/`) already lets one be added; the plan will list what's Claude-specific today (restricted mode, the agent's sandbox, plugins, prompts, budgets, evals), set the guarantees any runner must give as a written, tested contract, and assess each provider's CLI against it. Until then the pre-PR 4 review only flags anything that would make it harder |
 
 **Not planned:** deploys · migrations against real environments · hub-managed
 preview environments · automatic reverts · risk-based autonomy (auto-merge) ·

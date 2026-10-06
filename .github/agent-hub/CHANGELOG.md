@@ -5,6 +5,43 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.7.1 — 2026-10-07
+
+Both ways of reaching Claude — a self-hosted runner logged in to a Claude
+account, or a Claude API key — built out, recorded on every run, and
+checkable on any runner. The API setup is built and tested without a real
+key; the steps to verify it with one are in docs/runners.md.
+
+- **Every run says how it reached Claude:** "Claude access: a logged-in
+  Claude account (pro)", "an API key", or another provider (Bedrock,
+  Vertex), in the run log, the run summary's new *Claude access* column, and
+  the build's pull request and ticket. It comes from `claude auth status`
+  (no Claude usage); the account's email and organisation, which that also
+  gives, are never recorded. A runner with both a key and a login gets a
+  warning (which one Claude Code uses then isn't verified yet), as does one
+  with neither.
+- **The build's cost line says what the cost means:** API-equivalent and
+  counted against the plan's usage limits, or billed to the API key.
+- **Agent hub: Sandbox check** (a new manual workflow, `use-claude` to run):
+  the sandbox check on the runner `AGENT_HUB_RUNS_ON` names, with its access
+  to Claude — the only way to check a GitHub-hosted runner. Kill switch,
+  the evals' reviewer environment, and the key only in the step that uses it.
+- **The sandbox check reports the agent's commands' temp folder**, and checks
+  it's outside the repository and the home folder. A run on 2.7.1 showed it's
+  Claude Code's per-user folder (`/tmp/claude-<uid>`), shared by the jobs run
+  as that user, whatever the hub sets — documented in runners.md, with srt's
+  `/tmp/claude`, as a reason for runners that start fresh for each job. (The
+  hub's own sandbox uses the job's temp folder: 2.7.0.)
+- **The sandbox check's skills item** accepts Claude's answer when it adds a
+  note to the planted word (it failed on an exact match while the skill had
+  loaded).
+- **Docs:** runners.md describes both setups side by side, how to switch,
+  what each run records, and what's not yet verified for the API — and no
+  longer says a login takes precedence over a key, which wasn't verified.
+
+**Updating:** nothing to do. To check a runner's sandbox, or a GitHub-hosted
+runner with the API: Actions → Agent hub: Sandbox check.
+
 ## 2.7.0 — 2026-10-06
 
 The dependency step: a plan can add, update or remove npm packages, and the

@@ -13,6 +13,19 @@
 # For the build, $CLAUDE_EDITS (a script, run in the checkout) stands in for
 # the agent's changes to the repository.
 if [ "$1" = --version ]; then echo "9.9.9 (Claude Code)"; exit 0; fi
+# `auth status --json`: $CLAUDE_AUTH — account (default), api-key, both,
+# bedrock or none — with an email and organisation that must never be logged.
+if [ "$1" = auth ] && [ "$2" = status ]; then
+  case "${CLAUDE_AUTH:-account}" in
+    account) login=true key=null provider=firstParty ;;
+    api-key) login=false key='"ANTHROPIC_API_KEY"' provider=firstParty ;;
+    both) login=true key='"ANTHROPIC_API_KEY"' provider=firstParty ;;
+    bedrock) login=false key=null provider=bedrock ;;
+    none) login=false key=null provider=firstParty ;;
+  esac
+  printf '{"loggedIn": %s, "authMethod": "claude.ai", "apiProvider": "%s", "subscriptionType": "pro", "apiKeySource": %s, "email": "private-person@example.com", "orgName": "Private Org"}\n' "$login" "$provider" "$key"
+  exit 0
+fi
 # `--help` lists restricted mode unless CLAUDE_NO_RESTRICTED=1 (an older version).
 if [ "$1" = --help ]; then [ "${CLAUDE_NO_RESTRICTED:-}" = 1 ] || echo "  --restricted  Restricted mode"; exit 0; fi
 

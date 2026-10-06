@@ -542,3 +542,28 @@ $RUNNER_TEMP/plugins/repository"
   assert_failure
   grep -q "Unknown agent profile: everything" "$RUNNER_TEMP/log.txt"
 }
+
+@test "Claude access: the run log and summary say how Claude Code reaches Claude — never the account's email or organisation" {
+  local auth expected
+  for auth in "account:a logged-in Claude account (pro)" "api-key:an API key" \
+      "both:an API key and a logged-in Claude account (pro)" "bedrock:Amazon Bedrock" "none:unknown (Claude Code reported no access)"; do
+    export CLAUDE_AUTH=${auth%%:*} expected=${auth#*:}
+    : > "$RUNNER_TEMP/log.txt" && : > "$RUNNER_TEMP/summary.md"
+    claude_step ready.json
+    assert_success
+    assert_equal "$(jq -r .label "$RUNNER_TEMP/agent-access.json")" "$expected"
+    run grep -c "^Claude access: $expected\.$" "$RUNNER_TEMP/log.txt"
+    assert_output 1
+    run grep -c -F "| $expected |" "$RUNNER_TEMP/summary.md"
+    assert_output 1
+    ! grep -q -e private-person@example.com -e "Private Org" "$RUNNER_TEMP/log.txt" "$RUNNER_TEMP/summary.md" "$RUNNER_TEMP/agent-access.json" \
+      || fail "the account's email or organisation reached the log, summary or record"
+  done
+  # Both, or none: a warning saying what to do.
+  export CLAUDE_AUTH=both && : > "$RUNNER_TEMP/log.txt" && claude_step ready.json
+  run grep -c "::warning::This runner has an API key" "$RUNNER_TEMP/log.txt"
+  assert_output 1
+  export CLAUDE_AUTH=none && : > "$RUNNER_TEMP/log.txt" && claude_step ready.json
+  run grep -c "::warning::Claude Code reports no access" "$RUNNER_TEMP/log.txt"
+  assert_output 1
+}

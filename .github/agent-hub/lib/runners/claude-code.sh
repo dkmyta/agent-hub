@@ -250,6 +250,9 @@ _claude() {
     # call the rules don't allow is refused, as in dontAsk.
     mode=default
     temp=$(agent_sandbox_dir)
+    # (Claude Code gives sandboxed commands its own per-user temp folder as
+    # their TMPDIR — /tmp/claude-<uid> — whatever this sets; the sandbox
+    # check reports which: docs/runners.md, "Checking the sandbox".)
     env=(CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 "TMPDIR=$temp" "XDG_CACHE_HOME=$temp/cache"
       "npm_config_cache=$temp/npm" "YARN_CACHE_FOLDER=$temp/yarn" "PIP_CACHE_DIR=$temp/pip")
   fi
@@ -304,6 +307,34 @@ agent_revision_schema() {
     | .required = ((.required + ["revision_responses"]) | unique)' "$1"
 }
 
+# agent_access: how Claude Code will reach Claude on this runner, from
+# `claude auth status` (no Claude usage): a logged-in Claude account (a
+# subscription plan), an API key, both, or another provider (Bedrock, Vertex).
+# Writes agent-access.json ({method, label}) for the run's summary and
+# reports, and logs the label — never the account's email or organisation,
+# which the status also gives (the log can be public). A key and a login
+# both present get a warning: which one Claude Code uses there isn't
+# verified yet (docs/runners.md). Never stops the run: Claude Code's own
+# error is clearer if there's no access at all.
+agent_access() {
+  local status
+  status=$(claude auth status --json 2> /dev/null) || status=""
+  jq -n --argjson s "$(jq -c . <<< "${status:-null}" 2> /dev/null || echo null)" '
+    ($s // {}) as $s
+    | (if ($s.apiProvider // "firstParty") != "firstParty" then
+         {method: "provider", label: ({bedrock: "Amazon Bedrock", vertex: "Google Vertex AI", foundry: "Microsoft Foundry"}[$s.apiProvider] // $s.apiProvider)}
+       elif $s.apiKeySource != null and $s.loggedIn == true then
+         {method: "both", label: "an API key and a logged-in Claude account (\($s.subscriptionType // $s.authMethod // "plan unknown"))"}
+       elif $s.apiKeySource != null then {method: "api-key", label: "an API key"}
+       elif $s.loggedIn == true then {method: "account", label: "a logged-in Claude account (\($s.subscriptionType // $s.authMethod // "plan unknown"))"}
+       else {method: "unknown", label: "unknown (Claude Code reported no access)"} end)' > "$RUNNER_TEMP/agent-access.json"
+  echo "Claude access: $(jq -r .label "$RUNNER_TEMP/agent-access.json")."
+  case "$(jq -r .method "$RUNNER_TEMP/agent-access.json")" in
+    both) echo "::warning::This runner has an API key (AGENT_HUB_ANTHROPIC_API_KEY) and a logged-in Claude account. Which one Claude Code uses here isn't verified yet: keep only one (docs/runners.md, \"How the hub reaches Claude\")." ;;
+    unknown) echo "::warning::Claude Code reports no access on this runner (no login, no API key). Log in on the runner, or set AGENT_HUB_ANTHROPIC_API_KEY (docs/runners.md)." ;;
+  esac
+}
+
 # agent_run <instruction> <payload field>: the draft. Never fails itself —
 # agent_check decides whether the result is usable.
 agent_run() {
@@ -312,6 +343,7 @@ agent_run() {
   # Claude Code can update itself on the runner; record which version ran.
   CLAUDE_VERSION=$(claude --version 2>/dev/null | head -n 1 | cut -d ' ' -f 1) || CLAUDE_VERSION=""
   _require_restricted
+  agent_access
   if agent_revising; then
     # shellcheck source=/dev/null
     source "$STAGE_DIR/revise.sh"
@@ -487,20 +519,21 @@ agent_cleanup() {
 # agent_summary <title>: sets the step's `status` output and writes the run
 # summary — result, the models that did the work (5%+ of the cost; Claude Code
 # also uses a small model internally), whether the review changed the outcome
-# ("none" for a stage with no review pass), Claude Code version, duration,
-# turns and API-equivalent cost.
+# ("none" for a stage with no review pass), Claude Code version, how it
+# reached Claude (agent_access), duration, turns and API-equivalent cost.
 agent_summary() {
   jq -r '"status=\(.structured_output.status)"' "$AGENT_OUTPUT" >> "$GITHUB_OUTPUT"
   jq -r --arg title "$1" --arg model "$CLAUDE_MODEL" --arg version "${CLAUDE_VERSION:-unknown}" \
+      --arg access "$(jq -r '.label // "unknown"' "$RUNNER_TEMP/agent-access.json" 2> /dev/null || echo unknown)" \
       --slurpfile review <(cat "$AGENT_REVIEW" 2> /dev/null || true) '
     (.total_cost_usd // 0) as $total
     | ([.modelUsage // {} | to_entries[] | select(.value.costUSD >= $total * 0.05) | .key]
        | join(", ") | if . == "" then $model else . end) as $models
     | ($review[0] // {}) as $r
     | "### \($title): \(env.TICKET_KEY)\n",
-      "| Result | Review | Length | Models | Claude Code | Duration | Turns (draft + review) | Cost (API-equivalent) |",
-      "|---|---|---|---|---|---|---|---|",
-      "| \(.structured_output.status) | \(if $review == [] then "none" elif $r.skipped then "skipped (sent back)" elif $r.outcome_changed then "outcome changed (was \(.draft_status))" else "\($r.changes // [] | length) change(s)" end) | \(if (.draft_chars // 0) > 0 then "\(.final_chars) chars (\(((.final_chars - .draft_chars) * 100 / .draft_chars) | round)% vs draft)" else "-" end) | \($models) | \($version) | \(.duration_ms / 1000 | floor)s | \(.draft_turns // .num_turns) + \(.review_turns // 0) | $\($total * 100 | round / 100) (draft $\((.draft_cost // $total) * 100 | round / 100), review $\((.review_cost // 0) * 100 | round / 100)) |",
+      "| Result | Review | Length | Models | Claude Code | Claude access | Duration | Turns (draft + review) | Cost (API-equivalent) |",
+      "|---|---|---|---|---|---|---|---|---|",
+      "| \(.structured_output.status) | \(if $review == [] then "none" elif $r.skipped then "skipped (sent back)" elif $r.outcome_changed then "outcome changed (was \(.draft_status))" else "\($r.changes // [] | length) change(s)" end) | \(if (.draft_chars // 0) > 0 then "\(.final_chars) chars (\(((.final_chars - .draft_chars) * 100 / .draft_chars) | round)% vs draft)" else "-" end) | \($models) | \($version) | \($access) | \(.duration_ms / 1000 | floor)s | \(.draft_turns // .num_turns) + \(.review_turns // 0) | $\($total * 100 | round / 100) (draft $\((.draft_cost // $total) * 100 | round / 100), review $\((.review_cost // 0) * 100 | round / 100)) |",
       ""' \
     "$AGENT_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
   _fallback_warning "$CLAUDE_MODEL" "$CLAUDE_FALLBACK_MODEL" "$RUNNER_TEMP/agent-draft.json" draft

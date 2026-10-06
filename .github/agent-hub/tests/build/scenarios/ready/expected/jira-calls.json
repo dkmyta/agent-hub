@@ -470,7 +470,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "Claude: 2.41 USD (API-equivalent), 612s. ",
+                "text": "Claude, via a logged-in Claude account (pro): 2.41 USD API-equivalent, counted against the plan’s usage limits, 612s. ",
                 "marks": [
                   {
                     "type": "em"

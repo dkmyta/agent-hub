@@ -616,6 +616,8 @@ step_apply() {
   # The dependency step's result (an empty one when the plan had no
   # dependency changes), for the pull request and the report.
   [ -s "$RUNNER_TEMP/dependencies.json" ] || echo '{}' > "$RUNNER_TEMP/dependencies.json"
+  # How the agent reached Claude (agent_access), for the cost line.
+  [ -s "$RUNNER_TEMP/agent-access.json" ] || echo '{}' > "$RUNNER_TEMP/agent-access.json"
   # Only the commit the checks passed on is pushed.
   [ "$(git rev-parse HEAD)" = "$(jq -r '.head' "$RUNNER_TEMP/verify.json" 2> /dev/null)" ] \
     || stage_fail "The build's commit isn't the one the checks passed on, so nothing was pushed."
@@ -665,7 +667,7 @@ step_apply() {
   jq -nr -f "$STAGE_DIR/pr-body.jq" --slurpfile out "$BUILD_OUTPUT" --slurpfile context "$BUILD_CONTEXT" \
       --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile contract "$RUNNER_TEMP/contract.json" \
       --slurpfile state "$RUNNER_TEMP/state.json" --slurpfile verify "$RUNNER_TEMP/verify.json" \
-      --slurpfile deps "$RUNNER_TEMP/dependencies.json" \
+      --slurpfile deps "$RUNNER_TEMP/dependencies.json" --slurpfile access "$RUNNER_TEMP/agent-access.json" \
       --arg ticket "$TICKET_KEY" --arg url "$url" --arg run "$RUN_URL" \
     | state_render "$(cat "$RUNNER_TEMP/state.json")" > "$RUNNER_TEMP/pr-body.md"
   title=$(_pr_title "$publish")
@@ -747,9 +749,16 @@ _ticket_report() {
   jq -n -L "$HUB_DIR/lib" --arg number "$1" --arg url "$2" --arg run "$RUN_URL" \
       --slurpfile out "$BUILD_OUTPUT" --slurpfile gates "$RUNNER_TEMP/gates.json" \
       --slurpfile contract "$RUNNER_TEMP/contract.json" --slurpfile verify "$RUNNER_TEMP/verify.json" \
-      --slurpfile deps "$RUNNER_TEMP/dependencies.json" 'include "adf";
+      --slurpfile deps "$RUNNER_TEMP/dependencies.json" --slurpfile access "$RUNNER_TEMP/agent-access.json" 'include "adf";
     $out[0] as $o | $o.structured_output.build as $b | $gates[0] as $g | $contract[0] as $p | $deps[0] as $d
     | def heading($t): para([strong($t)]);
+    # The run’s Claude usage, as the access it used (agent-access.json) makes
+    # it: usage on a plan counts against its limits; usage on an API key is billed.
+    def claude_cost($access; $usd):
+      ($usd // 0 | . * 100 | round / 100) as $c
+      | "Claude, via \($access.label // "unknown access"): \($c) USD"
+        + ({"api-key": ", billed to the API key", account: " API-equivalent, counted against the plan’s usage limits"}[$access.method // ""]
+           // " (API-equivalent)");
     # What the dependency step found in one folder (dependencies.sh), as one
     # line: the changes to the lockfile, publication times, signatures,
     # advisories and licences — the same on the pull request (pr-body.jq).
@@ -793,7 +802,7 @@ _ticket_report() {
            bullets([($g.decisions[] | [text("Decision: "), code(if .path == "" then "the whole change" else .path end), text(" — \(.reason)")]),
                     ($p.governance.manual_changes[] | [text("Manual change: "), code(.path), text(" — \(.change)")])])]
          else [] end)
-      + [para([em("Claude: \($o.total_cost_usd // 0 | . * 100 | round / 100) USD (API-equivalent), \(($o.duration_ms // 0) / 1000 | floor)s. "),
+      + [para([em("\(claude_cost($access[0]; $o.total_cost_usd)), \(($o.duration_ms // 0) / 1000 | floor)s. "),
                link("Run summary"; $run)])])' \
     | tracker_comment > /dev/null
 }

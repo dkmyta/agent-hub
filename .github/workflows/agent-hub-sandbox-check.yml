@@ -1,0 +1,70 @@
+name: "Agent hub: Sandbox check"
+
+# Checks the agents' limits with the real Claude Code, on the runner the
+# pipeline uses (AGENT_HUB_RUNS_ON) and with its access to Claude — a
+# logged-in account on a self-hosted runner, or the AGENT_HUB_ANTHROPIC_API_KEY
+# secret — so a GitHub-hosted runner, which no one can log in to, can be
+# checked too: .github/agent-hub/scripts/check-sandbox.sh, the same check
+# that's run by hand on a self-hosted one (.github/agent-hub/docs/runners.md,
+# "Checking the sandbox"). Uses Claude (two short sessions, about $0.20,
+# capped under $1), so it only runs when started by hand, with `use-claude`
+# typed into the confirmation box, and — once the agent-hub-evals environment
+# has required reviewers — only after a reviewer approves. Never triggered by
+# pull requests: the job can run on a self-hosted runner, and code from forks
+# must never run there.
+
+on:
+  workflow_dispatch:
+    inputs:
+      # Deliberate friction: a mistaken click doesn't run anything.
+      confirm:
+        description: This uses Claude (about $0.20). Type use-claude to run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-hub-sandbox-check
+
+jobs:
+  check:
+    # Without the confirmation the job is skipped: it never reaches a runner.
+    # Also skipped while the hub is switched off (AGENT_HUB_ENABLED=false).
+    if: inputs.confirm == 'use-claude' && vars.AGENT_HUB_ENABLED != 'false'
+    # The evals' environment: its required reviewers cover this check too.
+    environment: agent-hub-evals
+    # The pipeline's runner and Claude access (see .github/agent-hub/docs/runners.md).
+    runs-on: ${{ fromJSON(vars.AGENT_HUB_RUNS_ON || '["self-hosted", "claude"]') }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # As the build does on these runners (agent-hub-stage.yml).
+      - name: Install sandbox tools
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 2> /dev/null || true
+
+      - name: Install Claude Code
+        if: runner.environment == 'github-hosted'
+        timeout-minutes: 3
+        env:
+          CLAUDE_CODE_VERSION: ${{ vars.AGENT_HUB_CLAUDE_CODE_VERSION || 'latest' }}
+        run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+
+      # The only step that uses Claude, and the only one with the API key. The
+      # result (each check ok or FAIL, and which access it used) is in the
+      # log; any FAIL fails the job.
+      - name: Sandbox check
+        timeout-minutes: 10
+        env:
+          SANDBOX_CHECK_CONFIRM: use-claude
+          ANTHROPIC_API_KEY: ${{ secrets.AGENT_HUB_ANTHROPIC_API_KEY }}
+        run: .github/agent-hub/scripts/check-sandbox.sh

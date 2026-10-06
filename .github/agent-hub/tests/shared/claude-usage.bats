@@ -180,22 +180,29 @@ setup() {
   assert [ ! -e "$BATS_TEST_TMPDIR/calls" ]
 }
 
-@test "the evals workflow is manual only and skipped unless use-claude is typed" {
-  run node --input-type=module -e '
-    import { readFileSync } from "node:fs";
-    import { parse } from "yaml";
-    const wf = parse(readFileSync(process.argv[1], "utf8"));
-    const confirm = wf.on.workflow_dispatch.inputs.confirm;
-    console.log(Object.keys(wf.on).join(","));
-    console.log(`${confirm.required} ${confirm.type} ${confirm.default ?? "no-default"}`);
-    console.log(wf.jobs.evals.if);
-    console.log(wf.jobs.evals.environment);' \
-    "$REPO_DIR/.github/workflows/agent-hub-evals.yml"
-  assert_success
-  assert_line --index 0 "workflow_dispatch"
-  assert_line --index 1 "true string no-default"
-  assert_line --index 2 "inputs.confirm == 'use-claude' && vars.AGENT_HUB_ENABLED != 'false'"
-  assert_line --index 3 "agent-hub-evals"
+@test "the evals and sandbox-check workflows are manual only and skipped unless use-claude is typed" {
+  local workflow
+  for workflow in agent-hub-evals agent-hub-sandbox-check; do
+    run node --input-type=module -e '
+      import { readFileSync } from "node:fs";
+      import { parse } from "yaml";
+      const wf = parse(readFileSync(process.argv[1], "utf8"));
+      const confirm = wf.on.workflow_dispatch.inputs.confirm;
+      const [job] = Object.values(wf.jobs);
+      console.log(Object.keys(wf.on).join(","));
+      console.log(`${confirm.required} ${confirm.type} ${confirm.default ?? "no-default"}`);
+      console.log(job.if);
+      console.log(job.environment);
+      // Only the step that uses Claude gets the API key.
+      console.log(job.steps.filter((s) => JSON.stringify(s.env ?? {}).includes("ANTHROPIC_API_KEY")).length);' \
+      "$REPO_DIR/.github/workflows/$workflow.yml"
+    assert_success
+    assert_line --index 0 "workflow_dispatch"
+    assert_line --index 1 "true string no-default"
+    assert_line --index 2 "inputs.confirm == 'use-claude' && vars.AGENT_HUB_ENABLED != 'false'"
+    assert_line --index 3 "agent-hub-evals"
+    assert_line --index 4 "1"
+  done
 }
 
 # The sandbox check uses Claude, so it runs only when confirmed — and its

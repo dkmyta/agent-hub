@@ -25,10 +25,11 @@ changes() {
     ":(exclude)$EXT/build/checks.json"
 
   # Claude settings — model, fallback, budget, fetch domains, allowed tools —
-  # in the settings files and the agent-hub workflows.
+  # in the settings files and the agent-hub workflows (not the sandbox
+  # check's, which changes no agent's decisions).
   local file
   for file in $(git diff --name-only "$base"...HEAD -- "$HUB/lib/settings.sh" "$HUB/stages/*/settings.sh" \
-      '.github/workflows/agent-hub-*.yml'); do
+      '.github/workflows/agent-hub-*.yml' ':(exclude).github/workflows/agent-hub-sandbox-check.yml'); do
     git diff --unified=0 "$base"...HEAD -- "$file" \
       | grep -E '^[+-][^+-].*(CLAUDE_[A-Z_]+|_MAX_BUDGET_USD|--allowedTools|TOOLS=)' \
       | sed -E "s|^([+-])[[:space:]]*|$file: setting \\1 |" || true
