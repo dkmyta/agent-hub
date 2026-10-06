@@ -55,11 +55,11 @@ PLUGIN_ARGS=()
 # it's all allowed. A link anywhere — the folder itself included — could
 # point outside the repository, so links are refused.
 agent_extension_problems() {
-  local checks=./checks.json
+  local checks=()
   if [ -L "$1" ] || [ -L "$(dirname "$1")" ]; then echo "(a link to another folder)"; return; fi
-  [ "$(basename "$1")" = build ] || checks=""
+  [ "$(basename "$1")" != build ] || checks=(! -path ./checks.json)
   (cd "$1" && find . -mindepth 1 \( -type l -o \( \
-      ! -path ./guidance.md ! -path ./review.md ! -path ./README.md ! -path "${checks:-./}" \
+      ! -path ./guidance.md ! -path ./review.md ! -path ./README.md "${checks[@]}" \
       ! -path ./agents ! -path './agents/*.md' ! -path ./skills ! -path './skills/?*/*' ! -path './skills/?*' \
       \) \) -print) | sed 's|^\./||' | sort \
     | awk 'last != "" && index($0, last "/") == 1 { next } { print; last = $0 }'

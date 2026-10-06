@@ -37,7 +37,10 @@ fresh_repo() {
 
 # change_main <message>: commit the checkout's changes to main, on the
 # remote too (the build starts only from the target branch's head).
-change_main() { git -C "$STEP_CWD" add -A && git -C "$STEP_CWD" commit -qm "$1" && git -C "$STEP_CWD" push -q origin main; }
+change_main() {
+  git -C "$STEP_CWD" add -A && git -C "$STEP_CWD" -c user.name=dev -c user.email=dev@example.com commit -qm "$1" \
+    && git -C "$STEP_CWD" push -q origin main
+}
 
 # remote_file <branch> <path>: a file as pushed to the remote.
 remote_file() { git --git-dir="$REMOTE" show "$1:$2"; }
