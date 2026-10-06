@@ -353,6 +353,12 @@ step_install() {
   _checks "$(context .base)" > /dev/null || stage_fail "$(_checks_invalid "nothing was built")"
   sandbox_install > /dev/null 2> "$RUNNER_TEMP/sandbox-install.log" \
     || stage_fail "The sandbox runtime the checks run in couldn't be installed ($(tail -n 1 "$RUNNER_TEMP/sandbox-install.log")), so nothing was built."
+  # And it runs a command, as the checks will: the toolchain starting in the
+  # sandbox (Node, when there is one) — the install above may have run none.
+  rc=0
+  sandbox_run check "$RUNNER_TEMP/verify" 1 "$RUNNER_TEMP/sandbox-check.log" "if command -v node > /dev/null; then node --version; fi" || rc=$?
+  [ "$rc" = 0 ] || stage_fail "The sandbox the checks run in can't run commands on this runner (exit $rc), so nothing was built. Run .github/agent-hub/scripts/check-sandbox.sh on the runner, and see docs/runners.md." \
+    "Its output ended: $(grep -v '^[[:space:]]*$' "$RUNNER_TEMP/sandbox-check.log" | tail -n 3 | cut -c1-300 | paste -sd ' ' - || true)"
 }
 
 # _verify_copy <commit> <folder>: a clean copy of the commit from the

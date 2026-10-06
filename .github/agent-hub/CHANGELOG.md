@@ -5,6 +5,30 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.6.2 — 2026-10-06
+
+The re-test on 2.6.1 got through the verify copy, then the check failed in
+a second: Node aborted on startup inside the sandbox, after Claude had run.
+
+- **Fixed: commands in the hub's sandbox on self-hosted runners.** A
+  self-hosted runner's temp folder is in the home folder
+  (`~/actions-runner/_work/_temp`), which the sandbox denies. The commands'
+  output went straight to a log file there, and Node aborts when its output
+  is a file it can't read. The output now reaches the log through a pipe, so
+  the command never holds the file. This affected every check and install
+  that runs Node on a self-hosted runner with the default layout.
+- **The rehearsal before Claude now runs a command in the sandbox**: Node
+  starting, as the checks will. A sandbox that can't run the toolchain stops
+  the build before any Claude usage, with the end of its output on the
+  ticket. 2.6.1's rehearsal ran no sandboxed command when there was nothing to
+  install, which is why this got past it.
+- **Tests:** a real-sandbox probe laid out as on a self-hosted runner (the
+  job's folders inside the denied home folder, running Node); fails on 2.6.1
+  with the same abort. A scenario where the toolchain can't start in the
+  sandbox stops the build before the agent.
+
+**Updating:** nothing to do. Re-approve a ticket whose checks failed this way.
+
 ## 2.6.1 — 2026-10-06
 
 The first real build on 2.6.0 ran the agent, then failed before its checks:

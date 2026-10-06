@@ -82,8 +82,10 @@ sandbox_temp() {
 # sandbox_run <install|check> <folder> <minutes> <log file> <command>: run
 # <command> (a shell command string) in <folder>, sandboxed, with a time
 # limit; its output goes to <log file> (never to the run log, which can be
-# public). Returns the command's exit code — 124 if it ran out of time, 125
-# if the sandbox couldn't start.
+# public) through a pipe: the command never gets the file itself, which on a
+# self-hosted runner is in the home folder the sandbox denies — Node aborts
+# on startup when its output is a file it can't read. Returns the command's
+# exit code — 124 if it ran out of time, 125 if the sandbox couldn't start.
 sandbox_run() {
   local policy=$1 folder=$2 minutes=$3 log=$4 command=$5 srt settings temp
   srt=$(sandbox_install 2> "$log") || return 125
@@ -104,5 +106,6 @@ sandbox_run() {
         $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 5; kill "KILL", -$pid; exit 124 };
         alarm $seconds; waitpid($pid, 0); exit($? >> 8)' \
       "$minutes" "$srt" --settings "$settings" -c "$command"
-  ) > "$log" 2>&1
+  ) 2>&1 | cat > "$log"
+  return "${PIPESTATUS[0]}"
 }
