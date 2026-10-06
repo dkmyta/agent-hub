@@ -64,15 +64,26 @@ sandbox_toolchain() {
   (cd "$(dirname "$node")/.." && pwd -P)
 }
 
+# sandbox_helpers: srt's own helpers that run inside the sandbox — on Linux,
+# the seccomp program that wraps every command — as a folder to make
+# readable (srt is installed in the job's temp folder, which on most runners
+# is in the home folder the sandbox denies), or nothing if there are none.
+sandbox_helpers() {
+  local dir
+  dir="$(sandbox_dir)/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp"
+  [ ! -d "$dir" ] || (cd "$dir" && pwd -P)
+}
+
 # sandbox_settings <install|check> <folder> > settings.json
 sandbox_settings() {
-  local toolchain
-  toolchain=$(sandbox_toolchain)
+  local toolchain helpers
+  toolchain=$(sandbox_toolchain) helpers=$(sandbox_helpers)
   jq -n --arg policy "$1" --arg work "$(cd "$2" && pwd -P)" --arg temp "$(sandbox_temp)" \
-      --arg home "$HOME" --arg toolchain "$toolchain" --argjson registries "$SANDBOX_REGISTRIES" '{
+      --arg home "$HOME" --arg toolchain "$toolchain" --arg helpers "$helpers" --argjson registries "$SANDBOX_REGISTRIES" '{
     network: {allowedDomains: (if $policy == "install" then $registries else [] end), deniedDomains: [],
       allowLocalBinding: ($policy == "check")},
-    filesystem: {denyRead: [$home], allowRead: ([$work, $temp] + (if $toolchain != "" then [$toolchain] else [] end)),
+    filesystem: {denyRead: [$home],
+      allowRead: ([$work, $temp] + ([$toolchain, $helpers] | map(select(. != "")))),
       allowWrite: [$work, $temp], denyWrite: []}}'
 }
 

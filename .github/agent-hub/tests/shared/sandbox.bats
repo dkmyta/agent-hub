@@ -54,6 +54,13 @@ real_srt() {
   assert_equal "$(jq -r '.filesystem.allowWrite | join(" ")' <<< "$output")" "$(cd "$WORK" && pwd -P) $(cd "$RUNNER_TEMP/sandbox" && pwd -P)"
   # The Node the commands run with is readable, wherever it's installed.
   assert_equal "$(jq -r '.filesystem.allowRead[2]' <<< "$output")" "$(cd "$(dirname "$(command -v node)")/.." && pwd -P)"
+  # So are srt's helpers that run inside the sandbox (Linux's seccomp
+  # program), from the job's temp folder — and nothing else of srt's.
+  mkdir -p "$RUNNER_TEMP/agent-hub-srt/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp"
+  run with_sandbox "sandbox_settings check '$WORK'"
+  assert_equal "$(jq -r '.filesystem.allowRead[3]' <<< "$output")" \
+    "$(cd "$RUNNER_TEMP/agent-hub-srt/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp" && pwd -P)"
+  assert_equal "$(jq -r '.filesystem.allowRead | length' <<< "$output")" 4
   run with_sandbox "sandbox_settings check '$WORK'"
   assert_equal "$(jq -c '.network' <<< "$output")" '{"allowedDomains":[],"deniedDomains":[],"allowLocalBinding":true}'
 }
@@ -132,9 +139,10 @@ JS
 
 @test "real sandbox, as on a self-hosted runner: the job's folders inside the denied home folder; Node runs, its output in the log" {
   real_srt
-  # The runner's temp folder (and so the log and the project copy) is in
-  # the home folder. Node aborts on startup when its output is a file it
-  # can't read, so the output reaches the log through a pipe.
+  # The runner's temp folder (and so the log, the project copy and srt
+  # itself) is in the home folder. Node aborts on startup when its output is
+  # a file it can't read, so the output reaches the log through a pipe; on
+  # Linux, srt's seccomp helper runs inside the sandbox, so it's readable.
   export RUNNER_TEMP="$HOME/actions-runner/_work/_temp"
   mkdir -p "$RUNNER_TEMP/verify"
   run with_sandbox "sandbox_run check '$RUNNER_TEMP/verify' 1 '$RUNNER_TEMP/check.log' 'node -e \"console.log(\\\"node: ok\\\")\"; exit 3'"

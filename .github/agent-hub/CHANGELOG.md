@@ -28,6 +28,13 @@ jobs (docs/workflows/build.md, "Building it").
   downloaded again). gitleaks' release archive is now kept in the tool
   cache, rather than downloaded every job, and checked against its pinned
   checksum every time before it's unpacked.
+- **Fixed: the sandbox on Linux runners.** On Linux, srt runs its own
+  seccomp helper inside the sandbox, so the helper must be readable there.
+  srt now lives in the job's temp folder, which on GitHub-hosted runners
+  and most self-hosted ones is in the home folder the sandbox denies, so the
+  helper folder (and nothing else of srt's) is made readable. Self-hosted
+  Linux runners were already affected in 2.6.2, whose tool cache is in the
+  home folder too; macOS needs no helper.
 - **Wording:** an expected result that ends in a full stop doesn't get a
   second one; the pull request says "1 file" and "2 files" (not "file(s)"),
   and "verified manually" or "verified by a new test"; the build's summary,
