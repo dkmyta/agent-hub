@@ -22,9 +22,10 @@ src/greet.js: greet takes an optional name and returns "Hello, &lt;name>!", or "
 
 - `node --test` — **passed**: 2 tests passed.
 
-## Manual testing
+## How to review
 
-- [x] Run node -e 'import("./src/greet.js").then(m => console.log(m.greet("Ada")))' — checked by the agent: Printed Hello, Ada!
+- [ ] node -e 'import("./src/greet.js").then(m => console.log(m.greet("Ada")))' — expect: Prints Hello, Ada! (the build saw this)
+- [ ] Open the greeter in the browser demo and enter Ada — expect: The page shows Hello, Ada! (not checked by the build: Needs a browser, which the sandbox doesn't have.)
 
 ## Decision log
 

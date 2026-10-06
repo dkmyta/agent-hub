@@ -384,10 +384,12 @@ files in src/"). Its description covers:
 - summary and ticket link
 - each acceptance criterion: how it's met, how it's verified
 - the decision log
-- verification: commands run and results (sandbox, then CI); the manual
-  testing instructions as a reviewer checklist, each step marked "checked by
-  the agent: how and result" or "needs a person"; preview links where the
-  repository has them (*provisional*)
+- verification: commands run and results (sandbox, then CI); **how to
+  review**: the reviewer's steps in order, each a command to run (or what to
+  open) and what they should see, covering every acceptance criterion a
+  person can observe, and marked when the build ran it exactly as written and
+  saw that result ("the build saw this") or why it couldn't ("not checked by
+  the build: …"); preview links where the repository has them (*provisional*)
 - findings fixed in review (with the fix check's result); open review and
   decision items; manual companion changes
 - scope check results; risk level and governance flags from the plan
@@ -410,8 +412,13 @@ number ("Criterion 1 (on the ticket) — verified by a new test", "Check 1 —
 failed (details on the ticket)"). **The ticket always gets everything** — it's
 private: a "🔨 Draft pull request opened" comment with the build's whole
 report (what changed, how each criterion is verified, the checks and their
-results, the manual steps, its decisions, what's left for a person), and the
-work order's **Pull Request** and **Testing Instructions** sections filled in.
+results, how to review and what the build saw, its decisions, what's left for
+a person), and the work order's Delivery sections filled in: **Pull Request**
+(the link, what changed, each file with its line counts) and **Testing
+Instructions** (check out the branch, then the reviewer's steps as an open
+checklist with what to expect, then the checks the build ran). The comment
+also says the ticket stays in Implementation Plan Approved until the
+hand-off: a person reviews the draft, then moves it on.
 
 ### Change set and state block
 
@@ -822,10 +829,16 @@ where stated and only with the owner's OK.
      move to Ready for Review is the hand-off's. A ticket that already has a
      hub pull request isn't built again. Gated
      behind `AGENT_HUB_BUILD_PREVIEW=true` (development only).
-   - *3c*: the install step (frozen, registries-only network, in the sandbox
-     runtime, without the GitHub token) with its probes — including that a
-     package's lifecycle scripts and their child processes get the same limits
-     as the package manager; the dependency step (a planned dependency
+   - *3c*: **the repository's declared toolchain** for the build's commands
+     (from `.nvmrc`, `.node-version`, `engines` or the CI workflow), where the
+     sandbox can read it — today a toolchain installed in the home folder is
+     invisible to sandboxed commands (the first real build ran Node 16 from
+     `/usr/local/bin` instead of the runner's Node 22 under nvm), and a
+     mismatch with what the repository declares fails the run; the install
+     step (frozen, registries-only network, in the sandbox runtime, without
+     the GitHub token) with its probes — including that a package's lifecycle
+     scripts and their child processes get the same limits as the package
+     manager; the dependency step (a planned dependency
      change resolved by the hub — today a decision item); the deterministic
      verify step (the repository's checks re-run by the hub, not reported by
      the agent); reconciliation of an existing pull request; gitleaks cached
@@ -877,6 +890,7 @@ settings, and that session files are removed after each run.
 | Browser and end-to-end automation | Where the repository has Playwright or Cypress: run the app on localhost, run the relevant specs, screenshots of changed UI, console errors; with a fresh browser profile per run, headless, downloads in temp, artifacts under the publication policy, and browser processes added to the sandbox probes |
 | Hub-provided browser tooling | For repositories without an end-to-end framework |
 | Merge-queue support | v1 detects a merge queue and says it's unsupported; people merge |
+| Resuming a run that reached its budget cap | Today a retry starts the pass again (sessions aren't saved, by design). Keeping a capped build's work-in-progress — privately, for the next run to continue from — would save the spend already made; it needs the same isolation as sessions |
 | HMAC-signed state | If lower-trust writers ever appear |
 | A durable per-ticket run history beyond the pull request and ticket | Run logs expire after about 90 days |
 | Richer repository capability detection | Beyond commands, required checks and visibility |

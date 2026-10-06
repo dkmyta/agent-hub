@@ -449,7 +449,7 @@ _pr_title() {
 
 # _ticket_report <number> <url>: the "🔨 Draft pull request opened" comment
 # with the build's whole report — what changed, how each criterion is
-# verified, the checks it ran and their results, the manual steps, its
+# verified, the checks it ran and their results, how to review it, its
 # decisions and what's left for a person. The ticket is private, so it gets
 # all of it, whatever the repository's visibility.
 _ticket_report() {
@@ -460,15 +460,16 @@ _ticket_report() {
     $out[0] as $o | $o.structured_output.build as $b | $gates[0] as $g | $contract[0] as $p
     | def heading($t): para([strong($t)]);
     doc([para([strong("🔨 Draft pull request opened"), text(" — "), link("#\($number)"; $url),
-          text(". It’s a draft: automated review and the CI gate come in a later version, so review it on GitHub. The build’s report:")]),
+          text(". It’s a draft: automated review and the CI gate come in a later version, so a person reviews it — the steps are in the description, under Testing Instructions. The ticket stays in Implementation Plan Approved until then: once you’ve reviewed it, move it on yourself (the hand-off will do this later). The build’s report:")]),
         heading("What changed"), para($b.summary),
         heading("Acceptance criteria — how each is verified"),
         bullets([$b.verification[] | [strong(.criterion), text(" — \(.method): \(.detail)")]]),
         heading("Checks run in the sandbox"),
         bullets([$b.tests_run[] | [code(.command), text(" — "), strong(.result), text(": \(.summary)")]]),
-        heading("Manual testing"),
-        bullets([$b.manual_checks[] | if .checked then [text("✓ \(.step) — checked by the build: \(.result)")]
-                 else [text("☐ \(.step) — needs a person: \(.result)")] end]),
+        heading("How to review — and what the build saw"),
+        bullets([$b.review_steps[] | [code(.step), text(" — expect: \(.expected). ")]
+                 + (if .checked then [strong("Seen by the build"), text(": \(.result)")]
+                    else [strong("Not checked by the build"), text(": \(.result)")] end)]),
         heading("Decisions the build made"),
         bullets([$b.decision_log[] | [strong(.decision), text(" — \(.why)"
           + (if (.alternatives // []) != [] then " Alternatives: \(.alternatives | join("; "))." else "" end))]])]
@@ -483,8 +484,9 @@ _ticket_report() {
 }
 
 # _ticket_delivery <number> <url> <branch>: the work order's Delivery
-# sections — Pull Request (the link) and Testing Instructions (the manual
-# steps, and the checks the build ran) — in the description as it is now,
+# sections — Pull Request (the link, what changed and the files) and Testing
+# Instructions (the reviewer's steps with their expected results, and the
+# checks the build ran) — in the description as it is now,
 # with needs-human, in one update. A description without those sections, or
 # one that would grow past the tracker's limit, keeps its text: only the
 # label is added, and the report comment has it all. Never fails the run —
@@ -493,18 +495,23 @@ _ticket_delivery() {
   local updated size
   # shellcheck disable=SC1112 # curly apostrophe intended
   updated=$(tracker_issue description | jq -c -L "$HUB_DIR/lib" --arg number "$1" --arg url "$2" --arg branch "$3" \
-      --slurpfile out "$BUILD_OUTPUT" 'include "adf";
+      --slurpfile out "$BUILD_OUTPUT" --slurpfile gates "$RUNNER_TEMP/gates.json" 'include "adf";
     $out[0].structured_output.build as $b
     | .fields.description
-    | replace_section("Pull Request"; [para([link("#\($number)"; $url), text(" — a draft on "), code($branch),
-        text(", opened by the build from the approved plan. See the 🔨 comment for the build’s report.")])])
+    | replace_section("Pull Request";
+        [para([link("#\($number)"; $url), text(" — a draft on "), code($branch),
+          text(", opened by the build from the approved plan. The 🔨 comment has the build’s full report.")]),
+         para($b.summary),
+         bullets([$gates[0].files[] | [code(.path), text(" — \({A: "added", M: "modified", D: "deleted"}[.status] // .status)"
+           + (if .added == null then ", binary" else ", +\(.added) −\(.deleted)" end))]])])
     | replace_section("Testing Instructions";
-        (if ($b.manual_checks | length) > 0 then
-          [para("To check by hand:"),
-           {type: "taskList", attrs: {localId: "testing"}, content: [$b.manual_checks | to_entries[] | {type: "taskItem",
-             attrs: {localId: "testing-\(.key)", state: (if .value.checked then "DONE" else "TODO" end)},
-             content: [text(.value.step + (if .value.checked then " (checked by the build: \(.value.result))" else "" end))]}]}]
-         else [] end)
+        [para([text("Check out "), code($branch), text(" (or read the pull request’s Files changed), then:")])]
+        + (if ($b.review_steps | length) > 0 then
+            [{type: "taskList", attrs: {localId: "testing"}, content: [$b.review_steps | to_entries[] | {type: "taskItem",
+              attrs: {localId: "testing-\(.key)", state: "TODO"},
+              content: [text("\(.value.step) — expect: \(.value.expected)"
+                + (if .value.checked then " (the build saw this)" else " (not checked by the build: \(.value.result))" end))]}]}]
+           else [para("The build gave no steps: follow the plan’s Testing section.")] end)
         + [para("Checks the build ran:"), bullets([$b.tests_run[] | [code(.command), text(" — \(.result)")]])])' 2> /dev/null) \
     || { echo "::warning::The description has no Pull Request or Testing Instructions section, so only the report comment has them."; tracker_labels "+$NEEDS_HUMAN_LABEL"; return 0; }
   size=$(jq -r -L "$HUB_DIR/lib" 'include "adf"; to_markdown | length' <<< "$updated")

@@ -5,22 +5,57 @@
   "duration_ms": 612000,
   "num_turns": 31,
   "total_cost_usd": 2.41,
-  "modelUsage": {"claude-opus-5-5": {"costUSD": 2.41}},
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "costUSD": 2.41
+    }
+  },
   "structured_output": {
     "status": "ready",
     "build": {
       "summary": "src/greet.js: greet takes an optional name and returns \"Hello, <name>!\", or \"Hello!\" without one. test/greet.test.js covers both.",
       "commit_message": "feat: greet people by name",
       "verification": [
-        {"criterion": "greet(\"Ada\") returns \"Hello, Ada!\"", "method": "updated test", "detail": "test/greet.test.js: \"greets by name\""},
-        {"criterion": "greet() with no name still returns \"Hello!\"", "method": "existing test", "detail": "test/greet.test.js: \"greets\""}
+        {
+          "criterion": "greet(\"Ada\") returns \"Hello, Ada!\"",
+          "method": "updated test",
+          "detail": "test/greet.test.js: \"greets by name\""
+        },
+        {
+          "criterion": "greet() with no name still returns \"Hello!\"",
+          "method": "existing test",
+          "detail": "test/greet.test.js: \"greets\""
+        }
       ],
-      "tests_run": [{"command": "node --test", "result": "passed", "summary": "2 tests passed."}],
-      "manual_checks": [
-        {"step": "Run node -e 'import(\"./src/greet.js\").then(m => console.log(m.greet(\"Ada\")))'", "checked": true, "result": "Printed Hello, Ada!"}
+      "tests_run": [
+        {
+          "command": "node --test",
+          "result": "passed",
+          "summary": "2 tests passed."
+        }
+      ],
+      "review_steps": [
+        {
+          "step": "node -e 'import(\"./src/greet.js\").then(m => console.log(m.greet(\"Ada\")))'",
+          "expected": "Prints Hello, Ada!",
+          "checked": true,
+          "result": "Printed Hello, Ada!"
+        },
+        {
+          "step": "Open the greeter in the browser demo and enter Ada",
+          "expected": "The page shows Hello, Ada!",
+          "checked": false,
+          "result": "Needs a browser, which the sandbox doesn't have."
+        }
       ],
       "decision_log": [
-        {"decision": "An empty name greets without one", "why": "greet(\"\") reading \"Hello, !\" looks broken.", "alternatives": ["Return \"Hello, !\""]}
+        {
+          "decision": "An empty name greets without one",
+          "why": "greet(\"\") reading \"Hello, !\" looks broken.",
+          "alternatives": [
+            "Return \"Hello, !\""
+          ]
+        }
       ]
     }
   }

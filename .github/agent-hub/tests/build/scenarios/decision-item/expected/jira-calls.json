@@ -134,7 +134,7 @@
               },
               {
                 "type": "text",
-                "text": ". It’s a draft: automated review and the CI gate come in a later version, so review it on GitHub. The build’s report:"
+                "text": ". It’s a draft: automated review and the CI gate come in a later version, so a person reviews it — the steps are in the description, under Testing Instructions. The ticket stays in Implementation Plan Approved until then: once you’ve reviewed it, move it on yourself (the hand-off will do this later). The build’s report:"
               }
             ]
           },
@@ -286,7 +286,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "Manual testing",
+                "text": "How to review — and what the build saw",
                 "marks": [
                   {
                     "type": "strong"
@@ -306,7 +306,65 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "✓ Run node -e 'import(\"./src/greet.js\").then(m => console.log(m.greet(\"Ada\")))' — checked by the build: Printed Hello, Ada!"
+                        "text": "node -e 'import(\"./src/greet.js\").then(m => console.log(m.greet(\"Ada\")))'",
+                        "marks": [
+                          {
+                            "type": "code"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": " — expect: Prints Hello, Ada!. "
+                      },
+                      {
+                        "type": "text",
+                        "text": "Seen by the build",
+                        "marks": [
+                          {
+                            "type": "strong"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": ": Printed Hello, Ada!"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Open the greeter in the browser demo and enter Ada",
+                        "marks": [
+                          {
+                            "type": "code"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": " — expect: The page shows Hello, Ada!. "
+                      },
+                      {
+                        "type": "text",
+                        "text": "Not checked by the build",
+                        "marks": [
+                          {
+                            "type": "strong"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": ": Needs a browser, which the sandbox doesn't have."
                       }
                     ]
                   }
@@ -563,7 +621,20 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "To check by hand:"
+                  "text": "Check out "
+                },
+                {
+                  "type": "text",
+                  "text": "agent-hub/PROJ-99",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " (or read the pull request’s Files changed), then:"
                 }
               ]
             },
@@ -577,12 +648,25 @@
                   "type": "taskItem",
                   "attrs": {
                     "localId": "testing-0",
-                    "state": "DONE"
+                    "state": "TODO"
                   },
                   "content": [
                     {
                       "type": "text",
-                      "text": "Run node -e 'import(\"./src/greet.js\").then(m => console.log(m.greet(\"Ada\")))' (checked by the build: Printed Hello, Ada!)"
+                      "text": "node -e 'import(\"./src/greet.js\").then(m => console.log(m.greet(\"Ada\")))' — expect: Prints Hello, Ada! (the build saw this)"
+                    }
+                  ]
+                },
+                {
+                  "type": "taskItem",
+                  "attrs": {
+                    "localId": "testing-1",
+                    "state": "TODO"
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Open the greeter in the browser demo and enter Ada — expect: The page shows Hello, Ada! (not checked by the build: Needs a browser, which the sandbox doesn't have.)"
                     }
                   ]
                 }
@@ -667,7 +751,90 @@
                 },
                 {
                   "type": "text",
-                  "text": ", opened by the build from the approved plan. See the 🔨 comment for the build’s report."
+                  "text": ", opened by the build from the approved plan. The 🔨 comment has the build’s full report."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "src/greet.js: greet takes an optional name and returns \"Hello, <name>!\", or \"Hello!\" without one. test/greet.test.js covers both."
+                }
+              ]
+            },
+            {
+              "type": "bulletList",
+              "content": [
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "README.md",
+                          "marks": [
+                            {
+                              "type": "code"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": " — modified, +2 −0"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "src/greet.js",
+                          "marks": [
+                            {
+                              "type": "code"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": " — modified, +2 −2"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "test/greet.test.js",
+                          "marks": [
+                            {
+                              "type": "code"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "text": " — modified, +4 −0"
+                        }
+                      ]
+                    }
+                  ]
                 }
               ]
             }

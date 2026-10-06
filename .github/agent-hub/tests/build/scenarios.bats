@@ -36,10 +36,24 @@ main"
   assert_output --partial 'greet("Ada") returns "Hello, Ada!" — updated test'
   assert_output --partial "node --test — passed: 2 tests passed."
   assert_output --partial "An empty name greets without one"
+  assert_output --partial "Not checked by the build: Needs a browser"
+  assert_output --partial "stays in Implementation Plan Approved until then"
   run jq -c 'select(.method == "PUT" and (.path | startswith("?notifyUsers"))) | .body' "$CALLS"
   assert_equal "$(jq -r '.update.labels | tostring' <<< "$output")" '[{"add":"needs-human"}]'
   assert_equal "$(jq -r -L "$HUB_LIB" 'include "adf"; .fields.description | section_blocks("Pull Request") | tostring | test("pull/101")' <<< "$output")" true
-  assert_equal "$(jq -r -L "$HUB_LIB" 'include "adf"; [.fields.description | section_blocks("Testing Instructions")[] | .. | objects | select(.type == "taskItem") | .attrs.state] | join(" ")' <<< "$output")" DONE
+  # Testing Instructions: the reviewer's own checklist (every box open), each
+  # step with what to expect, and which ones the build already saw pass.
+  run jq -r -L "$HUB_LIB" 'include "adf"; .fields.description | section_blocks("Testing Instructions")[]
+    | select(.type == "taskList") | .content[] | "\(.attrs.state) \(plain_text)"' <<< "$output"
+  assert_line --index 0 --partial "TODO node -e 'import(\"./src/greet.js\")"
+  assert_line --index 0 --partial "— expect: Prints Hello, Ada! (the build saw this)"
+  assert_line --index 1 "TODO Open the greeter in the browser demo and enter Ada — expect: The page shows Hello, Ada! (not checked by the build: Needs a browser, which the sandbox doesn't have.)"
+  run jq -r 'select(.method == "PUT" and (.path | startswith("?notifyUsers"))) | .body' "$CALLS"
+  # Pull Request: the link, what changed and each file.
+  assert_equal "$(jq -r -L "$HUB_LIB" 'include "adf"; [.fields.description | section_blocks("Pull Request")[] | plain_text] | join("\n")' <<< "$output")" \
+    "#101 — a draft on agent-hub/PROJ-99, opened by the build from the approved plan. The 🔨 comment has the build’s full report.
+$(jq -r '.structured_output.build.summary' "$FIXTURES/claude/ready.json")
+src/greet.js — modified, +2 −2test/greet.test.js — modified, +4 −0"
 }
 
 @test "a description without the Delivery sections: the report comment has it all, and only the label is added" {
