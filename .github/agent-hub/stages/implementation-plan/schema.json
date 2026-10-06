@@ -213,7 +213,8 @@
             "includes",
             "scope_patterns",
             "must_not_touch",
-            "manual_changes"
+            "manual_changes",
+            "dependency_changes"
           ],
           "properties": {
             "risk": {
@@ -256,7 +257,7 @@
               "properties": {
                 "dependencies": {
                   "type": "boolean",
-                  "description": "Adds, removes or changes a dependency (name each in Dependencies & Configuration)"
+                  "description": "Adds, removes or changes a dependency (list each package change exactly in dependency_changes)"
                 },
                 "schema_or_migration": {
                   "type": "boolean",
@@ -306,7 +307,7 @@
             },
             "manual_changes": {
               "type": "array",
-              "description": "Changes the hub can't make (.github/**, .claude/**, CODEOWNERS) that the work needs: a person makes them. Empty if none.",
+              "description": "Changes the hub can't make that the work needs: files in .github/**, .claude/** or CODEOWNERS, and dependency changes outside an npm project with a package-lock.json (pnpm, Yarn, other ecosystems). A person makes them. Empty if none.",
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -322,6 +323,57 @@
                   "change": {
                     "type": "string",
                     "minLength": 1
+                  }
+                }
+              }
+            },
+            "dependency_changes": {
+              "type": "array",
+              "description": "Each npm package the plan adds, updates or removes, exactly: the build applies these itself, before its agent starts, and nothing else. Empty if none (then includes.dependencies is false, unless the only dependency changes are of a kind the build can't apply, e.g. another ecosystem).",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "folder",
+                  "package",
+                  "action",
+                  "version_range",
+                  "kind"
+                ],
+                "properties": {
+                  "folder": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^(\\.|[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*)$",
+                    "description": "The folder with the package.json (and package-lock.json), relative to the repository root: . for the root, e.g. playground."
+                  },
+                  "package": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 214,
+                    "pattern": "^(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*$",
+                    "description": "The npm package name, e.g. date-fns or @scope/name."
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "add",
+                      "update",
+                      "remove"
+                    ]
+                  },
+                  "version_range": {
+                    "type": "string",
+                    "pattern": "^([0-9A-Za-z.^~<>=| *+-]*)$",
+                    "description": "The semver range to save, as package.json would hold it (e.g. ^4.1.0), from the npm registry only — no URLs, git or file references. Empty for remove."
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "runtime",
+                      "dev"
+                    ],
+                    "description": "runtime: dependencies; dev: devDependencies."
                   }
                 }
               }

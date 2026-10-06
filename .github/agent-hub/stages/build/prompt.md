@@ -14,7 +14,12 @@ in it, and run shell commands in a sandbox: commands can read and write only
 the repository and a temp folder, reach only localhost, and see no secrets.
 There's no internet and no package registry — you can't install or add
 packages. The repository's dependencies are already installed from its
-lockfile, and the Node version it declares is the one on PATH. When you're
+lockfile, and the Node version it declares is the one on PATH. The plan's
+Dependency changes (in Scope & Governance) are already applied and installed
+too: package.json and the lockfile hold exactly them, so don't edit either —
+a change to them is never pushed without a person. If the work needs a
+package the plan doesn't list, it can't be built as approved: say so (below).
+When you're
 done, the workflow commits your changes and runs the repository's checks
 (its test, lint, typecheck and build scripts, or its own list) on that commit
 itself: if one fails there, nothing is pushed — so run them yourself first. You can't change `.github/`, `.claude/` or `CODEOWNERS`. You don't

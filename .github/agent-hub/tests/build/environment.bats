@@ -137,3 +137,21 @@ node-version="
     assert_failure
   done
 }
+
+@test "install folders: the root, checks.json's install list (as at the base), the plan's dependency folders; an invalid list fails" {
+  mkdir -p .github/agent-hub-extensions/build
+  echo '{"checks": [{"name": "web", "command": "npm --prefix web test"}], "install": ["web", "tools/lint"]}' > .github/agent-hub-extensions/build/checks.json
+  commit
+  echo '{"governance": {"dependency_changes": [{"folder": "api"}, {"folder": "web"}]}}' > "$RUNNER_TEMP/contract.json"
+  run in_stage 'build_install_folders HEAD'
+  assert_success
+  assert_output ".
+web
+tools/lint
+api"
+  for invalid in '"web"' '["../outside"]' '["/abs"]' '[3]'; do
+    echo "{\"checks\": [], \"install\": $invalid}" > .github/agent-hub-extensions/build/checks.json && commit
+    run in_stage '_checks HEAD'
+    assert_failure
+  done
+}

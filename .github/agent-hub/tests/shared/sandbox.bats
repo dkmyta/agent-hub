@@ -63,6 +63,9 @@ real_srt() {
   assert_equal "$(jq -r '.filesystem.allowRead | length' <<< "$output")" 4
   run with_sandbox "sandbox_settings check '$WORK'"
   assert_equal "$(jq -c '.network' <<< "$output")" '{"allowedDomains":[],"deniedDomains":[],"allowLocalBinding":true}'
+  # npm's signature check: the registries and Sigstore's trust metadata.
+  run with_sandbox "sandbox_settings verify '$WORK'"
+  assert_equal "$(jq -c '.network.allowedDomains' <<< "$output")" '["registry.npmjs.org","registry.yarnpkg.com","repo.yarnpkg.com","tuf-repo-cdn.sigstore.dev"]'
 }
 
 @test "sandbox_run: only the variables the commands need; the output in the log; the command's exit code" {
@@ -155,6 +158,9 @@ JS
 @test "real sandbox runtime: installed per job from a download cache that's checked — a changed cache isn't used" {
   real_srt
   local cached
+  # A copy of the file's shared cache, so the other probes (which may run at
+  # the same time) keep an intact one.
+  cp -R "$RUNNER_TOOL_CACHE" "$BATS_TEST_TMPDIR/toolcache-copy" && export RUNNER_TOOL_CACHE="$BATS_TEST_TMPDIR/toolcache-copy"
   # Every cached package replaced, as another job on the runner could.
   cached=$(find "$RUNNER_TOOL_CACHE/agent-hub/npm-cache/_cacache/content-v2" -type f | wc -l | tr -d ' ')
   [ "$cached" -gt 0 ] || fail "nothing in the download cache"
@@ -167,4 +173,13 @@ JS
   assert_failure
   assert_equal "$(jq -r .version "$RUNNER_TEMP/agent-hub-srt/node_modules/@anthropic-ai/sandbox-runtime/package.json")" \
     "$(jq -r '.packages["node_modules/@anthropic-ai/sandbox-runtime"].version' "$HUB_DIR/lib/sandbox/package-lock.json")"
+}
+
+@test "real sandbox: the command's temp folder is the job's, and it exists (srt would otherwise use a shared /tmp/claude)" {
+  real_srt
+  run with_sandbox "sandbox_run check '$WORK' 1 '$BATS_TEST_TMPDIR/log' 'echo \"tmpdir: \$TMPDIR\"; node -e \"console.log(\\\"resolves: \\\" + require(\\\"fs\\\").realpathSync(require(\\\"os\\\").tmpdir()))\"'"
+  assert_success
+  run cat "$BATS_TEST_TMPDIR/log"
+  assert_line "tmpdir: $(cd "$RUNNER_TEMP/sandbox/tmp" && pwd -P)"
+  assert_line "resolves: $(cd "$RUNNER_TEMP/sandbox/tmp" && pwd -P)"
 }

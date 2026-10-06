@@ -79,6 +79,10 @@ Nothing beyond Changes by File.
 
 None.
 
+**Dependency changes**
+
+No dependency changes.
+
 ## Implementation Steps
 
 1. **Update the shared pipeline intro and diagram in README.md**

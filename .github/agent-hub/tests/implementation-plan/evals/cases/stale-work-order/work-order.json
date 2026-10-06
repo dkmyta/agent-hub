@@ -1,27 +1,27 @@
 {
   "overview": {
     "summary": [
-      "The team wants the build workflow's pull requests to be opened as drafts with a clearer title format, so reviewers can tell automated PRs apart.",
-      "Requested by the team lead; internal documentation work, no customer involvement."
+      "The team wants the deploy workflow to post release notes to the ticket when a deploy finishes, so people can see what went out without opening the CI logs.",
+      "Requested by the team lead; internal tooling work, no customer involvement."
     ],
     "clarifications": [],
     "important_details": []
   },
   "scope": {
     "acceptance_criteria": [
-      "The build workflow (.github/workflows/agent-build.yml) opens its pull request as a draft.",
-      "The pull request title uses the format [TICKET-KEY] <summary>.",
-      "Existing tests for the build workflow are updated to cover the new title format."
+      "The deploy workflow (.github/workflows/agent-hub-deploy.yml) posts a release-notes comment on the ticket when a deploy to production succeeds.",
+      "The comment lists the commits deployed since the previous deploy.",
+      "Existing tests for the deploy workflow are updated to cover the new comment."
     ],
     "out_of_scope": [
-      "Changes to the work order or implementation plan workflows."
+      "Changes to the work order, implementation plan or build workflows."
     ]
   },
   "developer_notes": {
     "codebase": [
       {
-        "path": ".github/workflows/agent-build.yml",
-        "relevance": "The build workflow that opens pull requests."
+        "path": ".github/workflows/agent-hub-deploy.yml",
+        "relevance": "The deploy workflow that runs after a merge."
       }
     ],
     "resources": [],

@@ -5,7 +5,15 @@
 #   jq -Rs -L "$HUB_DIR/lib" -f contract.jq plan.md
 #
 # → {base_commit, changes: [{path, action}], governance: {risk, includes,
-#    scope_patterns, must_not_touch, manual_changes}, dependencies, problems}
+#    scope_patterns, must_not_touch, manual_changes, dependency_changes},
+#    dependencies, problems}
+#
+# dependency_changes ([{folder, package, action, version_range, kind}]) is
+# null for a plan written before the list existed (2.7.0): such a plan's
+# dependency changes stay decision items, as before. Each change is checked
+# as strictly as the plan stage's schema: a registry package name, a semver
+# range (no URL, git or file reference) and a folder inside the repository —
+# the build runs the package manager with them.
 #
 # Every problem is listed — a missing or repeated section or label, a list
 # item it can't read — and the build stops on any, rather than guess what was
@@ -30,6 +38,24 @@ def CHANGE_TEXT: "`(?<path>[^`]+)` \\((?<action>add|modify|delete)\\)";
 def CHANGE: CHANGE_TEXT + "( — .*)?$";
 def PATTERN: "`(?<p>[^`]+)`$";
 def MANUAL: "`(?<path>[^`]+)` — (?<change>.+)$";
+def DEPENDENCY: "`(?<folder>[^`]+)`: (?<action>add|update|remove) `(?<spec>[^`]+)` \\((?<kind>runtime|dev)\\)$";
+def NO_DEPENDENCIES: "No dependency changes.";
+def FOLDER: "^(\\.|[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*)$";
+def PACKAGE: "^(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*$";
+def RANGE: "^[0-9A-Za-z.^~<>=| *+-]+$";
+# A dependency change as the schema has it: the spec split at its last "@"
+# (a scoped name starts with one), or null if it isn't one the build can run.
+def dependency:
+  (if .action == "remove" then {package: .spec, version_range: ""}
+   # (A spec with no range doesn't match: null, never nothing — so it's a
+   # problem, not silently dropped.)
+   else ([.spec | capture("^(?<package>@?[^@]+)@(?<version_range>.+)$")] | first) end) as $s
+  | if $s == null then null
+    else {folder, package: $s.package, action, version_range: $s.version_range, kind}
+      # (A folder's segments can't start with a dot, so no "..".)
+      | if (.folder | test(FOLDER)) and (.package | test(PACKAGE)) and (.package | length) <= 214
+           and (.action == "remove" or (.version_range | test(RANGE)))
+        then . else null end end;
 # Each list's label, item pattern, and the line that says it's empty
 # (stages/implementation-plan/render.jq writes them).
 def LISTS: [["Also in scope", PATTERN, "Nothing beyond Changes by File."], ["Must not touch", PATTERN, "Nothing named."],
@@ -106,7 +132,9 @@ gsub("\r\n"; "\n") as $md
       includes: $includes,
       scope_patterns: [($g | after_label("Also in scope") // []) | parsed(PATTERN; true)[] | select(. != null) | .p],
       must_not_touch: [($g | after_label("Must not touch") // []) | parsed(PATTERN; true)[] | select(. != null) | .p],
-      manual_changes: [($g | after_label("Manual changes") // []) | parsed(MANUAL; true)[] | select(. != null) | {path, change}]
+      manual_changes: [($g | after_label("Manual changes") // []) | parsed(MANUAL; true)[] | select(. != null) | {path, change}],
+      dependency_changes: (($g | after_label("Dependency changes")) as $d
+        | if $d == null then null else [$d | parsed(DEPENDENCY; true)[] | select(. != null) | dependency | select(. != null)] end)
     } end),
     dependencies: (($deps // []) | join("\n")),
     problems: ($structural + (if $gov == null then [] else
@@ -118,5 +146,17 @@ gsub("\r\n"; "\n") as $md
          | ([$g[] | select(. == "**\($label)**")] | length) as $count
          | if $count == 0 then "no \"\($label)\" list"
            elif $count > 1 then "more than one \"\($label)\" list"
-           else ($g | after_label($label) | list_problems($re; $label; true; $none)) end)] end))
+           else ($g | after_label($label) | list_problems($re; $label; true; $none)) end),
+       # Dependency changes: optional (older plans), otherwise read like the
+       # lists above, every change one the build can run, and only in a plan
+       # that declares dependencies.
+       (([$g[] | select(. == "**Dependency changes**")] | length) as $count
+        | if $count > 1 then "more than one \"Dependency changes\" list"
+          elif $count == 0 then empty
+          else ($g | after_label("Dependency changes")) as $d
+            | ($d | list_problems(DEPENDENCY; "Dependency changes"; true; NO_DEPENDENCIES)),
+              ($d | parsed(DEPENDENCY; true) | to_entries[] | select(.value != null and (.value | dependency) == null)
+                | "Dependency changes: item \(.key + 1) isn't a registry package, range and folder the build can apply"),
+              (if ($d | items(true) | length) > 0 and $includes.dependencies != true
+               then "Dependency changes are listed, but Dependencies is \"no\"" else empty end) end)] end))
   }

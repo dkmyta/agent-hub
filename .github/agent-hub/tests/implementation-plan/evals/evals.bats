@@ -36,7 +36,7 @@ setup() {
 }
 
 run_eval() { # <case>
-  local dir="$SUITE_DIR/evals/cases/$1" result path
+  local dir="$SUITE_DIR/evals/cases/$1" result path folder package action kind
   EXPECT_CHANGES=""
   # shellcheck source=/dev/null
   source "$dir/case.env"
@@ -86,6 +86,20 @@ run_eval() { # <case>
       jq -e --arg p "$path" '[.changes[].path, .governance.manual_changes[].path] | index($p)' "$RUNNER_TEMP/plan.json" > /dev/null \
         || fail "plan doesn't cover $path: $(jq -c '[.changes[].path, .governance.manual_changes[].path]' "$RUNNER_TEMP/plan.json")"
     done
+    # Dependency changes: exactly the expected one (folder, package, action,
+    # kind — any range), or none at all.
+    if [ -n "${EXPECT_DEPENDENCY:-}" ]; then
+      read -r folder package action kind <<< "$EXPECT_DEPENDENCY"
+      jq -e --arg f "$folder" --arg p "$package" --arg a "$action" --arg k "$kind" \
+        '.governance.includes.dependencies and (.governance.dependency_changes | length == 1)
+         and (.governance.dependency_changes[0] | .folder == $f and .package == $p and .action == $a and .kind == $k
+              and (.version_range | length > 0))
+         and ([.changes[].path] | all(. != "\($f)/package.json" and . != "\($f)/package-lock.json"))' "$RUNNER_TEMP/plan.json" > /dev/null \
+        || fail "dependency changes aren't exactly $EXPECT_DEPENDENCY: $(jq -c '{d: .governance.dependency_changes, includes: .governance.includes.dependencies, changes: [.changes[].path]}' "$RUNNER_TEMP/plan.json")"
+    else
+      jq -e '.governance.dependency_changes == []' "$RUNNER_TEMP/plan.json" > /dev/null \
+        || fail "dependency changes listed for a work order that needs none: $(jq -c '.governance.dependency_changes' "$RUNNER_TEMP/plan.json")"
+    fi
     jq -L "$HUB_LIB" -f "$HUB_DIR/stages/implementation-plan/render.jq" --arg mode summary \
       --arg file EVAL-1-implementation-plan.md --argjson level 5 "$RUNNER_TEMP/plan.json" \
       | jq -c '{method: "PUT", path: "(render)", body: {fields: {description: {type: "doc", version: 1, content: .}}}}' > "$RUNNER_TEMP/render.jsonl"
@@ -101,6 +115,10 @@ run_eval() { # <case>
 
 @test "readme-quick-start: clear, current work order → a plan" {
   run_eval readme-quick-start
+}
+
+@test "npm-dependency: a work order that needs an npm package → the plan lists exactly that dependency change" {
+  run_eval npm-dependency
 }
 
 @test "open-product-decision: who and which channel is undecided → asks" {

@@ -1,0 +1,53 @@
+{
+  "overview": {
+    "summary": [
+      "The playground's command line prints raw millisecond counts, which are hard to read: it should be able to print them as short durations like \"2m\" or \"1.5h\".",
+      "Requested by the team lead; a small internal change to the playground, no customer data."
+    ],
+    "clarifications": [],
+    "important_details": [
+      "The playground has a package-lock.json and no dependencies yet: ms becomes its first."
+    ]
+  },
+  "scope": {
+    "acceptance_criteria": [
+      "playground/src/text.js exports a formatDuration(ms) helper that returns the duration in the short form the ms npm package produces, e.g. formatDuration(120000) returns \"2m\".",
+      "The playground uses the ms npm package for this (added as a runtime dependency of playground/), not its own formatting code.",
+      "playground/test/text.test.js has a test for formatDuration, and npm test in playground/ passes."
+    ],
+    "out_of_scope": [
+      "Changes to the command line (playground/src/cli.js) or anything outside playground/."
+    ]
+  },
+  "developer_notes": {
+    "codebase": [
+      {
+        "path": "playground/src/text.js",
+        "relevance": "Where the helper goes, next to slugify and wordCount."
+      },
+      {
+        "path": "playground/package.json",
+        "relevance": "The playground's npm project: it has a package-lock.json and no dependencies yet."
+      },
+      {
+        "path": "playground/test/text.test.js",
+        "relevance": "Where the test goes."
+      }
+    ],
+    "getting_started": [
+      "Read playground/src/text.js and its tests first."
+    ],
+    "resources": []
+  },
+  "risk": {
+    "confidence": {
+      "level": "High",
+      "reason": "A small helper around a well-known, stable package."
+    },
+    "customer_data": {
+      "contains": "N",
+      "reason": "Internal request."
+    },
+    "open_questions": []
+  }
+}

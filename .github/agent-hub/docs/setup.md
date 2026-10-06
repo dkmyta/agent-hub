@@ -106,6 +106,8 @@ builds), plus:
 | `MAX_FILE_LINES` | `1000` | A single file changing more lines than this is a decision item |
 | `INSTALL_MINUTES` | `10` | Time limit for installing the dependencies (each install: in the checkout, and in the verify step's copy); over it, nothing is built |
 | `CHECK_MINUTES` | `10` | Time limit for each of the repository's checks in the verify step; over it, the check counts as failed and nothing is pushed |
+| `MIN_RELEASE_AGE_DAYS` | `3` | The dependency step's minimum release age: every package version it adds or changes, direct and transitive, must have been published on or before now − N × 24 hours, by the registry's own times (`0` for none); otherwise nothing is built, before Claude ([build.md](workflows/build.md#dependencies-planned-changes-only)) |
+| `ALLOWED_LICENSES` | permissive licences (MIT, ISC, BSD, Apache-2.0, …) | SPDX ids, comma-separated: a package the dependency step adds (direct or transitive) with any other licence, or none, is a decision item for a person — this list replaces the default |
 | `BASELINE` | `stop` | The repository's checks on the base commit before the agent: `stop` builds nothing (and uses no Claude) when one already fails there; `warn` builds anyway, for a plan that fixes a failing check; `off` skips them ([build.md](workflows/build.md#baseline)) |
 
 The workflow's steps have their own limits, which these settings can't

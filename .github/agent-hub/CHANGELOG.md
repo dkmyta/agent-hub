@@ -5,6 +5,88 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.7.0 — 2026-10-06
+
+The dependency step: a plan can add, update or remove npm packages, and the
+hub applies exactly those itself, before the agent starts, with the
+supply-chain checks dependency bots use. The second part of 3d.
+
+- **Plans list their dependency changes exactly.** The implementation plan's
+  Scope & Governance section has a new **Dependency changes** list: for each
+  npm package, its folder, the version range, runtime or dev, and add,
+  update or remove. The build reads it back strictly; anything it couldn't
+  apply exactly (a URL, git or file reference, a path out of the repository)
+  is a problem, and nothing is built.
+- **Applied before the agent**, so it writes code and runs tests with them
+  installed, and never reaches a registry: package.json gets exactly the
+  plan's ranges (npm on its own would rewrite `7.x` as `^7.0.0`), npm
+  resolves the lockfile without install scripts, then the sandboxed install
+  installs them (new packages' install scripts get its limits).
+- **Supply-chain policy**, check by check ([build.md](docs/workflows/build.md#dependencies-planned-changes-only)):
+  - **release age:** every version the lockfile adds or changes, direct and
+    transitive, published on or before now − 3 × 24 hours by the registry's
+    own times (`AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS`, `0` for none) — npm
+    chooses within it, and the hub checks every new version itself;
+  - **source:** every new version from the npm registry (not git or a URL);
+  - **determinism:** the manifest and lockfile are recorded once resolved;
+    the install must leave them unchanged, and the gates pass only those;
+  - **signatures:** every installed package's must verify, and provenance
+    wherever a package publishes it; a package without provenance is
+    allowed and counted (most publish none);
+  - **vulnerabilities:** compared advisory by advisory, before and after: a
+    new high or critical one blocks, a new lower one is a decision item; an
+    audit that can't run blocks;
+  - **licences:** every new version's must be on an allowed list
+    (`AGENT_HUB_BUILD_ALLOWED_LICENSES`, permissive licences by default),
+    otherwise a decision item; so is a changed lockfile format.
+  Each was checked against npm's real behaviour and the code after an
+  external review, which this version follows; build.md records what changed
+  and what didn't, and why.
+- **The gates pass the manifest and lockfile only byte for byte** as the hub
+  produced them (not counted in the size limits); the agent changing them
+  is a decision item.
+- **On the pull request and the ticket:** each change with the version it
+  resolved to and its licence, and the lockfile's added, changed and removed
+  packages and vulnerabilities before and after.
+- **Stops before Claude** when a change can't be applied, or shown safe,
+  exactly — every change checked before any is applied.
+- **npm only:** a pnpm or Yarn project's dependency changes stop the build,
+  saying so (their release-age settings are too new to rely on); a plan
+  from before this version keeps its dependency changes as decision items.
+- **Subfolder projects are installed:** the install now covers the plan's
+  dependency folders and the folders `build/checks.json` lists under its new
+  `install` key, not only the repository root.
+- **Fixed:** a hub sandbox policy for npm's signature check (`verify`): the
+  registries and Sigstore's trust metadata (`tuf-repo-cdn.sigstore.dev`),
+  found by the new real-registry probes.
+- **Fixed: the hub's sandboxed commands' temp folder.** srt replaces the
+  command's `TMPDIR` with its own, a shared `/tmp/claude`, unless
+  `CLAUDE_CODE_TMPDIR` is set: the commands wrote temp files there rather
+  than in the job's temp folder, and on a runner without that folder (CI's
+  Linux) npm's signature check failed. Both now point at the job's temp
+  folder. (srt itself keeps `/tmp/claude` writable; see runners.md.)
+- **This repository:** the playground has a `package-lock.json` (so plans can
+  add packages to it), and `build/checks.json` installs it for its checks.
+- **Evals:** a plan case, `npm-dependency`, checks the plan lists exactly the
+  package a work order needs; every other case checks it lists none. The
+  `stale-work-order` case now describes a deploy workflow: the build
+  workflow it described stopped being missing when the build stage arrived
+  (2.5.0), so the model rightly planned against the real one.
+- **Tests:** the contract's new list, the gates, every dependency path with
+  a stand-in npm, and probes against the real npm registry in the real
+  sandbox (`tests/build/dependencies.bats`).
+
+**Updating:**
+
+1. The implementation-plan stage's prompt and schema changed: CI posts the
+   **Agent behaviour changed** notice. Run the plan evals before relying on
+   it (Actions → Agent hub: Evals, stage `implementation-plan`; it uses
+   Claude).
+2. A self-hosted runner that limits outgoing traffic needs
+   `tuf-repo-cdn.sigstore.dev` as well as the npm registry.
+3. A repository with a subfolder project whose checks need its
+   dependencies: add `"install": ["<folder>"]` to `build/checks.json`.
+
 ## 2.6.3 — 2026-10-06
 
 Less Claude spend on builds that can't succeed, the runner's caches checked

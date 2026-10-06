@@ -1,5 +1,6 @@
 {
   "checks": [
     { "name": "playground tests", "command": "npm --prefix playground test" }
-  ]
+  ],
+  "install": ["playground"]
 }

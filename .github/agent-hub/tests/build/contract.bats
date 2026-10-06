@@ -25,7 +25,11 @@ contract() { jq -Rs -L "$HUB_LIB" -f "$CONTRACT" "$1"; }
   for variant in '.' \
     '.governance.includes = (.governance.includes | map_values(true)) | .governance.risk = {level: "high", reason: "Touches billing — a mistake charges customers."}' \
     '.governance.scope_patterns = ["tests/orders/**", "docs/orders/**"] | .governance.must_not_touch = []' \
-    '.governance.manual_changes = [{path: ".github/workflows/ci.yml", change: "Run the new tests in CI — add a job."}] | .changes = []'; do
+    '.governance.manual_changes = [{path: ".github/workflows/ci.yml", change: "Run the new tests in CI — add a job."}] | .changes = []' \
+    '.governance.includes.dependencies = true | .governance.dependency_changes = [
+       {folder: ".", package: "date-fns", action: "add", version_range: "^4.1.0", kind: "runtime"},
+       {folder: "web/app", package: "@types/node", action: "update", version_range: ">=20 <23", kind: "dev"},
+       {folder: "web/app", package: "left-pad", action: "remove", version_range: "", kind: "runtime"}]'; do
     jq "$variant" "$BATS_TEST_TMPDIR/plan.json" > "$BATS_TEST_TMPDIR/variant.json"
     plan_md "$BATS_TEST_TMPDIR/variant.json" > "$BATS_TEST_TMPDIR/plan.md"
     run contract "$BATS_TEST_TMPDIR/plan.md"
@@ -134,4 +138,35 @@ contract() { jq -Rs -L "$HUB_LIB" -f "$CONTRACT" "$1"; }
   sed 's/^Nothing named\.$/Nothing in legacy\/** may be changed./' "$BATS_TEST_TMPDIR/plan.md" > "$BATS_TEST_TMPDIR/prose.md"
   run contract "$BATS_TEST_TMPDIR/prose.md"
   assert_equal "$(jq -c '.problems' <<< "$output")" '["Must not touch: text that isn'"'"'t a list item"]'
+}
+
+@test "dependency changes: optional for older plans; each one a registry package, range and folder; only with Dependencies declared" {
+  # A plan from before the list: no problem, and null (its dependency
+  # changes stay decision items).
+  plan_md "$BATS_TEST_TMPDIR/plan.json" | grep -v -e '^\*\*Dependency changes\*\*$' -e '^No dependency changes\.$' > "$BATS_TEST_TMPDIR/plan.md"
+  run contract "$BATS_TEST_TMPDIR/plan.md"
+  assert_equal "$(jq -c '[.problems, .governance.dependency_changes]' <<< "$output")" '[[],null]'
+  # Anything the package manager would treat as other than a registry
+  # package and range — a URL, git or file reference, a path out of the
+  # repository — is a problem, named by position only.
+  local bad
+  for bad in '`.`: add `left-pad@git+https://example.com/x.git` (runtime)' '`.`: add `left-pad@file:../x` (runtime)' \
+      '`../other`: add `left-pad@^1.3.0` (runtime)' '`/etc`: add `left-pad@^1.3.0` (runtime)' '`.`: add `Left Pad@^1` (runtime)' \
+      '`.`: add `left-pad` (runtime)' '`.`: add `left-pad@^1; rm -rf /` (runtime)'; do
+    jq '.governance.includes.dependencies = true' "$BATS_TEST_TMPDIR/plan.json" > "$BATS_TEST_TMPDIR/deps.json"
+    plan_md "$BATS_TEST_TMPDIR/deps.json" | awk -v item="- $bad" '{ if ($0 == "No dependency changes.") print item; else print }' > "$BATS_TEST_TMPDIR/plan.md"
+    run contract "$BATS_TEST_TMPDIR/plan.md"
+    assert_equal "$(jq -r '.problems | join("; ")' <<< "$output")" "Dependency changes: item 1 isn't a registry package, range and folder the build can apply"
+    assert_equal "$(jq -c '.governance.dependency_changes' <<< "$output")" '[]'
+  done
+  # Listed, but the plan says it changes no dependencies.
+  jq '.governance.dependency_changes = [{folder: ".", package: "left-pad", action: "add", version_range: "^1.3.0", kind: "runtime"}]' \
+    "$BATS_TEST_TMPDIR/plan.json" > "$BATS_TEST_TMPDIR/deps.json"
+  plan_md "$BATS_TEST_TMPDIR/deps.json" > "$BATS_TEST_TMPDIR/plan.md"
+  run contract "$BATS_TEST_TMPDIR/plan.md"
+  assert_equal "$(jq -r '.problems | join("; ")' <<< "$output")" 'Dependency changes are listed, but Dependencies is "no"'
+  # Prose instead of a change is a problem too.
+  plan_md "$BATS_TEST_TMPDIR/plan.json" | sed 's/^No dependency changes\.$/Add left-pad, any version./' > "$BATS_TEST_TMPDIR/plan.md"
+  run contract "$BATS_TEST_TMPDIR/plan.md"
+  assert_equal "$(jq -r '.problems | join("; ")' <<< "$output")" "Dependency changes: text that isn't a list item"
 }

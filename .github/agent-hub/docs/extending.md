@@ -151,10 +151,15 @@ a project in a subfolder, or a repository that isn't a Node project:
   "checks": [
     { "name": "unit tests", "command": "npm --prefix web test" },
     { "name": "types", "command": "npm --prefix web run typecheck" }
-  ]
+  ],
+  "install": ["web"]
 }
 ```
 
+- **`install`** (optional): folders, besides the root, whose dependencies the
+  build installs from their lockfiles — for checks in a subfolder project
+  with its own dependencies, e.g. `"install": ["web"]`. (The folders of a
+  plan's dependency changes are installed anyway.)
 - **Each check** has a `name` (shown on the pull request and the ticket) and
   a `command`, run with `bash` from the repository root; a non-zero exit is
   a failure. Neither may contain a tab or a line break.
