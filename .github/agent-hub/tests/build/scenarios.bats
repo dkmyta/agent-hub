@@ -403,11 +403,14 @@ srt_calls() { cat "$RUNNER_TEMP/sandbox/srt-calls.jsonl" 2> /dev/null || true; }
   run trace
   assert_line "Verify: success"
   assert_line "Apply: success"
-  # One check (the fixture's test script), sandboxed: no network but
-  # localhost, the home folder unreadable, writes only to its copy and temp.
+  # The rehearsal's run before the agent (the toolchain starting in the
+  # sandbox), then one check (the fixture's test script), sandboxed: no
+  # network but localhost, the home folder unreadable, writes only to its
+  # copy and temp.
   run srt_calls
-  assert_equal "$(jq -s 'length' <<< "$output")" 1
-  assert_equal "$(jq -r '.command' <<< "$output")" "npm run test"
+  assert_equal "$(jq -sr 'map(.command) | join(" | ")' <<< "$output")" \
+    "if command -v node > /dev/null; then node --version; fi | npm run test"
+  output=$(jq -c 'select(.command == "npm run test")' <<< "$output")
   assert_equal "$(jq -c '.settings.network' <<< "$output")" '{"allowedDomains":[],"deniedDomains":[],"allowLocalBinding":true}'
   assert_equal "$(jq -r '.settings.filesystem.denyRead[0]' <<< "$output")" "$HOME"
   assert_equal "$(jq -r '.cwd' <<< "$output")" "$(cd "$RUNNER_TEMP/verify" && pwd -P)"
@@ -540,4 +543,26 @@ ci --no-audit --no-fund"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "The sandbox runtime the checks run in couldn't be installed"
   assert_output --partial "nothing was built"
+}
+
+@test "the verify step rehearsed before Claude: a toolchain the sandbox can't start stops the build before the agent" {
+  # Node aborting in the sandbox, as on a runner where it couldn't read its
+  # own output file (2.6.1): the rehearsal runs it once before the agent.
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat > "$BATS_TEST_TMPDIR/bin/node" <<SH
+#!/usr/bin/env bash
+[ "\$1" != --version ] || { echo "Process killed by signal: SIGABRT" >&2; exit 134; }
+exec "$(command -v node)" "\$@"
+SH
+  chmod +x "$BATS_TEST_TMPDIR/bin/node"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  run trace
+  assert_line "Install dependencies: failure"
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "The sandbox the checks run in can't run commands on this runner (exit 134)"
+  assert_output --partial "SIGABRT"
+  # The output reaches the ticket only, never the run log.
+  run grep -c "SIGABRT" "$RUNNER_TEMP/log.txt"
+  assert_output 0
 }

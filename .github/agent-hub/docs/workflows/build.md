@@ -193,8 +193,9 @@ doesn't cover): `git status` must be clean afterwards. A repository with no
 the runner, never in the run log.
 
 **Then it rehearses the verify step, before Claude runs (and is paid
-for):** the clean copy of the base commit, its install, the list of checks
-and the sandbox runtime. Anything in the environment that would stop the
+for):** the clean copy of the base commit, its install, the list of checks,
+the sandbox runtime, and one command run in the sandbox as the checks will be
+(Node starting, when the repository has it). Anything in the environment that would stop the
 verify step stops the build here instead, so after the agent only the checks
 themselves can fail. (Since 2.6.1: the first real build in 2.6.0 spent its
 Claude budget, then couldn't make the verify copy.)

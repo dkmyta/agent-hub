@@ -129,3 +129,17 @@ JS
   assert_line "localhost: ok"
   assert_line "registry: blocked"
 }
+
+@test "real sandbox, as on a self-hosted runner: the job's folders inside the denied home folder; Node runs, its output in the log" {
+  real_srt
+  # The runner's temp folder (and so the log and the project copy) is in
+  # the home folder. Node aborts on startup when its output is a file it
+  # can't read, so the output reaches the log through a pipe.
+  export RUNNER_TEMP="$HOME/actions-runner/_work/_temp"
+  mkdir -p "$RUNNER_TEMP/verify"
+  run with_sandbox "sandbox_run check '$RUNNER_TEMP/verify' 1 '$RUNNER_TEMP/check.log' 'node -e \"console.log(\\\"node: ok\\\")\"; exit 3'"
+  assert_failure 3
+  run cat "$RUNNER_TEMP/check.log"
+  assert_line "node: ok"
+  refute_output --partial SIGABRT
+}
