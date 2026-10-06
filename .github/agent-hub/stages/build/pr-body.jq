@@ -5,6 +5,7 @@
 #   jq -nr -f pr-body.jq --slurpfile out agent-output.json --slurpfile context build-context.json \
 #     --slurpfile gates gates.json --slurpfile contract contract.json --slurpfile state state.json \
 #     --slurpfile verify verify.json --slurpfile deps dependencies.json \
+#     --slurpfile access agent-access.json \
 #     --arg ticket KEY --arg url "<ticket URL, or empty>" --arg run "<run URL>"
 #
 # The publication policy ("Publication policy"): unless ticket content may be
@@ -28,6 +29,13 @@ def dependency_summary($before):
   + "; known advisories: \(.advisories.before) before, \(.advisories.after) after"
   + (if (.advisories.new | length) > 0 then ", new: \(.advisories.new | map("\(.package) (\(.severity))") | join(", "))" else ", none new" end)
   + (if (.licenses_outside | length) > 0 then "; licences outside the allowed list: \(.licenses_outside | map("\(.name)@\(.version) (\(.license // "not stated"))") | .[:5] | join(", "))" else "; every new package’s licence on the allowed list" end);
+# The run's Claude usage, as the access it used (agent-access.json) makes
+# it: a plan's usage counts against its limits; an API key's is billed.
+def claude_cost($access; $usd):
+  ($usd // 0 | . * 100 | round / 100) as $c
+  | "Claude, via \($access.label // "unknown access"): \($c) USD"
+    + ({"api-key": ", billed to the API key", account: " API-equivalent, counted against the plan’s usage limits"}[$access.method // ""]
+       // " (API-equivalent)");
 def plural($n; $word): "\($n) \($word)" + (if $n == 1 then "" else "s" end);
 # How a criterion is verified, as a phrase: "verified manually", "verified
 # by a new test".
@@ -107,4 +115,4 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
     "- Declared in the plan: " + ([$p.governance.includes | to_entries[] | select(.value) | .key | gsub("_"; " ")] | if length > 0 then join(", ") else "none of the sensitive kinds" end),
     "- Plan: attachment \($c.plan.attachment) on the ticket (sha256 \($c.plan.sha256[0:12]))"]),
 
-  section("Run"; ["Claude: \($o.total_cost_usd // 0 | . * 100 | round / 100) USD (API-equivalent), \($o.duration_ms // 0 | duration) · hub \($s.hub_version) · [run summary](\($run))"])
+  section("Run"; ["\(claude_cost($access[0]; $o.total_cost_usd)), \($o.duration_ms // 0 | duration) · hub \($s.hub_version) · [run summary](\($run))"])

@@ -1,8 +1,10 @@
 # Runners and Claude access
 
-The agent hub pipeline needs somewhere Claude Code can run and a Claude account to
-run it with. Two setups are supported; switching between them is a matter of
-secrets and variables, not workflow edits.
+The agent hub pipeline needs somewhere Claude Code can run and a way for it to
+reach Claude. **How the hub reaches Claude** is one of two setups — a
+self-hosted runner logged in to a Claude account (a subscription plan), or a
+Claude API key (on GitHub-hosted or self-hosted runners) — and switching
+between them is a matter of secrets and variables, not workflow edits.
 
 | | **Self-hosted runner + Claude subscription** (default) | **Claude API** |
 |---|---|---|
@@ -12,10 +14,19 @@ secrets and variables, not workflow edits.
 | Runs in parallel | One per runner | As many as runners allow |
 | Maintenance | Keep the machine on, tools installed, login fresh | None with GitHub-hosted runners |
 | Configure with | Nothing (the default) | `AGENT_HUB_ANTHROPIC_API_KEY` secret + `AGENT_HUB_RUNS_ON` variable |
+| Check the setup with | `check-sandbox.sh` on the machine, or **Agent hub: Sandbox check** | **Agent hub: Sandbox check** (Actions) |
+| Proven so far | End to end, on a macOS self-hosted runner (2.5–2.7) | Built and tested without a real key; **not yet run with one** ([Not yet verified](#not-yet-verified-the-claude-api)) |
 
-Every run's summary shows the models used, the Claude Code version, and the
-**API-equivalent cost** — what the run would cost on the API, whichever setup
-is used.
+Every run says **how it reached Claude** — "Claude access: a logged-in Claude
+account (pro)", "an API key", or another provider — in the run log, the run
+summary's *Claude access* column, and the build's pull request and ticket
+(read from `claude auth status`, which uses no Claude; the account's email
+and organisation, which that also gives, are never recorded). A runner with
+both a key and a login gets a warning. Every summary also shows the models
+used, the Claude Code version and the **API-equivalent cost** — what the run
+would cost on the API. With a subscription that's a measure of how much of
+the plan's usage it took; with an API key, it's what's billed (the build's
+pull request and ticket say which).
 
 ## Self-hosted runner with a Claude subscription
 
@@ -65,12 +76,45 @@ Things to know:
      `["ubuntu-latest"]`. The workflows install Claude Code on the runner
      (`AGENT_HUB_CLAUDE_CODE_VERSION`, default `latest` — pin it for repeatability;
      the build requires an exact version).
-   - **A self-hosted runner**: keep the default, but make sure Claude Code on
-     that machine is **not logged in** — a login takes precedence over the API
-     key.
+   - **A self-hosted runner**: keep the default, and make sure Claude Code on
+     that machine is **not logged in** (`claude auth logout` as the runner's
+     user). With both a key and a login, which one Claude Code uses in a
+     run isn't verified yet — the run warns; keep only one.
 3. **Review the stages' budget caps** (`AGENT_HUB_<STAGE>_*_BUDGET_USD`) — they're now real money per run.
-4. **Check it works**: run one real ticket through, or the evals (Actions →
-   Agent hub: Evals, stage **all**) if the cost is acceptable.
+4. **Check it works**: run **Actions → Agent hub: Sandbox check** (type
+   `use-claude`; about $0.20) — every line should be `ok`, and the log's
+   "Claude access:" line should say "an API key". Then one real ticket, or
+   the evals (Actions → Agent hub: Evals) if the cost is acceptable.
+
+### Switching between them
+
+- **To the API:** add the `AGENT_HUB_ANTHROPIC_API_KEY` secret; for
+  GitHub-hosted runners, set `AGENT_HUB_RUNS_ON` to `["ubuntu-latest"]`
+  (and `AGENT_HUB_CLAUDE_CODE_VERSION` to an exact version); then the sandbox
+  check above.
+- **Back to the subscription:** delete `AGENT_HUB_RUNS_ON` (or set it to your
+  runner's labels) and the `AGENT_HUB_ANTHROPIC_API_KEY` secret — an empty
+  secret means no key — and check the "Claude access:" line of the next run.
+- Nothing else changes: the stages, budgets, extensions and Jira rules are
+  the same either way.
+
+### Not yet verified: the Claude API
+
+Everything the API setup needs is built and tested without a real key — the
+workflows pass the key only to the agent step and the sandbox check,
+install the pinned Claude Code and the sandbox tools on GitHub-hosted runners,
+and the hub's own sandbox is tested on Linux in CI — but no run has used a
+real key yet. Before relying on it:
+
+1. **The sandbox check on a GitHub-hosted runner, with a key**: set up as
+   above, run Agent hub: Sandbox check, and confirm every line is `ok` —
+   above all the build profile's (Claude Code's sandbox on Linux has only
+   been checked with stand-ins) — and "Claude access: an API key".
+2. **One playground build** on that runner, end to end; the pull request's
+   Run line should say "billed to the API key".
+3. **Which access wins when a runner has both** (a key and a login): until
+   checked, keep only one. A run warns when it sees both.
+4. Then switch back, if the subscription runner is the one you use.
 
 Amazon Bedrock or Google Vertex AI work the same way with their Claude Code
 environment variables instead of `ANTHROPIC_API_KEY` (add them as secrets and
@@ -159,7 +203,10 @@ commands, so they don't need it.
 The hub's sandboxed commands get the job's temp folder as `TMPDIR` (srt
 would otherwise hand them a shared `/tmp/claude`). srt itself keeps
 `/tmp/claude` writable for every sandboxed command, whatever the settings: a
-folder on the runner that commands from different jobs can write to. On a
+folder on the runner that commands from different jobs can write to. The
+agent's own commands (Claude Code's sandbox) likewise get Claude Code's
+per-user temp folder, `/tmp/claude-<uid>`, shared by every job run as that
+user (the sandbox check prints it). On a
 runner that builds untrusted code, prefer one that starts fresh for each job
 (GitHub-hosted, or ephemeral self-hosted runners).
 
@@ -197,6 +244,11 @@ upgrade**, and **before turning the build stage on**:
 .github/agent-hub/scripts/check-sandbox.sh   # from the repository root, on the runner
 ```
 
+Or run **Actions → Agent hub: Sandbox check** (type `use-claude`): the same
+check, on the runner `AGENT_HUB_RUNS_ON` names and with its access to Claude —
+the only way to check a GitHub-hosted runner. Its log says which access it
+used ("Claude access: …").
+
 It asks you to type `use-claude` (it uses Claude: two short sessions, about
 $0.20, capped under $1), works in a throwaway copy of the repository under
 your home folder, and removes it afterwards. It checks, with the hub's own
@@ -212,7 +264,10 @@ runner code:
 - **Build profile** (the build stage): commands can't read the home folder or
   a planted secret file, write outside the repository, reach the internet,
   see a planted environment secret, or edit `.github/`; they can write the
-  repository and a temp folder, and use localhost.
+  repository and a temp folder (outside both the repository and the home
+  folder; the check shows which), and use localhost.
+- It also says which access to Claude it used ("Claude access: …"), so a
+  check proves the setup it ran with.
 
 Each result is checked on disk and in Claude's output, not just from its
 report. It prints a line per check and fails if any does. **If a check fails,

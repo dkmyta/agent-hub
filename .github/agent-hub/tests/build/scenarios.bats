@@ -821,3 +821,14 @@ stops() {
   run jq -r '.decisions[] | "\(.path): \(.reason)"' "$RUNNER_TEMP/gates.json"
   assert_line "package.json: changed after the hub applied the plan's dependency changes"
 }
+
+@test "the cost line says how Claude was reached: a plan's usage counts against its limits, an API key's is billed" {
+  run_scenario ready CLAUDE_AUTH=api-key CLAUDE_EDITS=edits/greet.sh
+  run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
+  assert_output --partial "Claude, via an API key: 2.41 USD, billed to the API key"
+  fresh_repo
+  run_scenario ready CLAUDE_AUTH=account CLAUDE_EDITS=edits/greet.sh
+  run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
+  assert_output --partial "Claude, via a logged-in Claude account (pro): 2.41 USD API-equivalent, counted against the plan’s usage limits"
+  refute_output --partial "private-person@example.com"
+}

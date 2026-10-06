@@ -44,7 +44,7 @@ The repository's own checks, run by the hub on exactly this commit, in the sandb
 
 ## Run
 
-Claude: 2.41 USD (API-equivalent), 10 min 12s · hub <version> · [run summary](https://github.com/example/repo/actions/runs/1000)
+Claude, via a logged-in Claude account (pro): 2.41 USD API-equivalent, counted against the plan’s usage limits, 10 min 12s · hub <version> · [run summary](https://github.com/example/repo/actions/runs/1000)
 
 <!-- agent-hub:state
 {"schema":1,"ticket":"PROJ-99","generation":1,"hub_version":"<version>","plan":{"attachment":"10001","uploaded":"2026-10-01T09:00:00.000+0000","sha256":"c364989bb8233a6b514312fa1fb8c28e0f92bddd1ab01f433daef3148c12df5b","approved_at":"2026-10-01T10:00:00.000+0000"},"target":"main","base":"<commit>","plan_base":"<commit>","heads":[{"generation":1,"head":"<commit>","hub_version":"<version>"}],"risk":"low","flags":[],"items":[],"totals":{"files":2,"lines":8}}

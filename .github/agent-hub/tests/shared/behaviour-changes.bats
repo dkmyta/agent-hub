@@ -87,6 +87,12 @@ change() { # <file> <content>, committed on top of base
   assert_output "all"
 }
 
+@test "the sandbox-check workflow's settings aren't agent behaviour (it changes no decision)" {
+  change .github/workflows/agent-hub-sandbox-check.yml $'env:\n  CLAUDE_CODE_VERSION: 2.2.0'
+  run "$SCRIPT" main~1
+  assert_output ""
+}
+
 @test "--stages prints nothing when no change needs evals" {
   change docs/README.md "# Updated docs"
   run "$SCRIPT" --stages main~1

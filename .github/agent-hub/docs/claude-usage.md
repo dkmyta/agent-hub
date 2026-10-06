@@ -32,7 +32,7 @@ and how the evals fit in.
 | A `/revise` comment on a ticket in Intake, Work Order, Work Order Approved or Implementation Plan (Revision Requested rule) | **Yes** — one run per comment. A revision is scoped to the requested changes, so it's usually well under a new run's cost; a retry or resubmission costs a normal run |
 | **Run workflow** on an agent workflow in the Actions tab | **Yes** |
 | Running the evals — **Agent hub: Evals** in the Actions tab, or `npm run evals --prefix .github/agent-hub/tests -- <stage>`, confirmed by typing `use-claude` | **Yes**, deliberately |
-| Checking the sandbox (`.github/agent-hub/scripts/check-sandbox.sh`, on a new runner and after Claude Code upgrades; confirmed by typing `use-claude`) | **Yes**, deliberately — two short sessions |
+| Checking the sandbox (`.github/agent-hub/scripts/check-sandbox.sh` on the runner, or Actions → **Agent hub: Sandbox check**; on a new runner and after Claude Code upgrades; confirmed by typing `use-claude`) | **Yes**, deliberately — two short sessions |
 | Committing (the pre-commit lint hooks) | No |
 | Opening or updating a pull request, or pushing to `main` (CI) | No |
 | Running the tests (`npm test --prefix .github/agent-hub/tests`) | No |
