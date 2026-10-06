@@ -26,6 +26,7 @@ unless they start with `.github/`.
       settings.sh                 shared settings: repository variables and defaults
       load.sh                     what each workflow step sources (from the hub's copy in RUNNER_TEMP)
       github.sh, state.sh         GitHub and the pull request's state block (code stages)
+      http.sh                     time limits and retries for every tracker and GitHub API call
       secret-scan.sh              the pinned secret scan before every push
       toolchain.sh                the Node version a repository declares (code stages)
       sandbox/                    the sandbox runtime (srt) for steps that run the repository's code without an agent: sandbox.sh and its lockfile
@@ -78,7 +79,8 @@ scripts could read it). The workflows' own `GITHUB_TOKEN` is limited to
 `contents: read`. The token reaches curl through
 a file only the runner's user can read, and git through an askpass helper
 that reads another, never a command line. Every API call goes through one
-function (`gh_request`), which the tests replace.
+function (`gh_request`), which the tests replace, with the same time limits
+and retries as the tracker's calls ([Known gaps](#known-gaps-every-stage)).
 
 | Function | Does |
 |---|---|
@@ -588,8 +590,16 @@ replace them or show up on other work.
   checks the ticket's status before writing, but two stages' runs aren't
   kept apart, and a ticket moved away and back during a run looks
   unchanged.
-- **No automatic retries** for transient tracker or Claude errors — comment
-  `/revise` to retry.
+- **Retries for Jira and GitHub calls, but not for every failure**
+  (`lib/http.sh`, since 2.7.3). Every call has a connection and an overall
+  time limit. A call the server never got or turned away (rate limits) is
+  tried again, up to three times; one that failed after it was sent only if
+  sending it twice can't do anything twice (reads, updates, deletes, adding
+  a label). Moving the ticket and opening the pull request check what
+  happened before trying once more. A comment or attachment that may have
+  been posted isn't sent again — a second copy can't be told apart reliably
+  — so that failure, like a Claude error, fails the run; retry it as the
+  failure comment says.
 - **More than 1,000 comments** on a ticket stops a run, with a clear error,
   rather than reading only some.
 - **Anyone who can comment can start a run** with `/revise` — restrict it in

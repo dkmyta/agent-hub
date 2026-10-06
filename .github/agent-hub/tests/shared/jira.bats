@@ -47,6 +47,29 @@ with_jira() {
   assert_output $'5001\n{"update":{"labels":[{"add":"needs-details"},{"remove":"needs-human"}]}}\n{"transition":{"id":"11"}}\n{"body":{"type":"doc"}}'
 }
 
+# A transition is a POST, so a failed one is never simply sent again: the
+# ticket's status says whether it happened.
+@test "a transition whose reply was lost: the ticket already moved, so it isn't sent again" {
+  TRANSITIONS_FIXTURE="$TESTS_DIR/work-order/fixtures/transitions.json" MOCK_LOST=1 \
+    run with_jira PROJ-1 'tracker_transition 21 "In Progress" > /dev/null && echo moved'
+  assert_success
+  assert_line --index 0 "::notice::Jira's reply to moving PROJ-1 was lost, but it's in In Progress."
+  assert_line --index 1 moved
+  assert_equal "$(grep -c '"method":"POST","path":"/transitions"' "$CALLS")" 1
+  assert_equal "$(grep -c '"method":"GET","path":"?fields=status"' "$CALLS")" 1
+}
+
+@test "a transition that failed and didn't happen is tried once more; failing again, it fails" {
+  TRANSITIONS_FIXTURE="$TESTS_DIR/work-order/fixtures/transitions.json" MOCK_FAIL="POST /transitions" MOCK_FAIL_FROM=1 \
+    run with_jira PROJ-1 'tracker_transition 21 "In Progress" > /dev/null || echo failed; grep -c "POST" "$CALLS"'
+  assert_line failed
+  assert_line 2
+  TRANSITIONS_FIXTURE="$TESTS_DIR/work-order/fixtures/transitions.json" MOCK_FAIL="POST /transitions" MOCK_FAIL_FROM=2 \
+    run with_jira PROJ-1 ': > "$CALLS"; tracker_transition 21 "In Progress" > /dev/null && echo moved; grep -c "POST" "$CALLS"'
+  assert_line moved
+  assert_line 1
+}
+
 # One update for the description and its labels, so Jira automation sees one
 # "work item updated" event rather than several.
 @test "the description and label changes go in one request" {

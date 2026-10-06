@@ -79,6 +79,28 @@ git_remote() {
   assert_line --index 3 0
 }
 
+# Opening a pull request is a POST, so a failed one is never simply sent
+# again: GitHub's pull requests say whether it happened.
+@test "opening a pull request whose reply was lost: it's found, not opened twice" {
+  MOCK_GH_LOST=1 run with_github 'printf "Body" | gh_pr_open_draft agent-hub/PROJ-1 main "PROJ-1: a title"'
+  assert_success
+  assert_line "::notice::GitHub's reply to opening the pull request was lost, but it's open."
+  assert_line --index 1 101
+  assert_equal "$(jq -r '.method + " " + .path' "$GH_CALLS" | grep -c 'POST /repos/example/repo/pulls$')" 1
+}
+
+@test "opening a pull request that failed and wasn't opened is tried once more; failing again, it fails" {
+  MOCK_GH_FAIL="POST /repos/example/repo/pulls" run with_github 'printf "Body" | gh_pr_open_draft agent-hub/PROJ-1 main "PROJ-1: a title" || echo failed'
+  assert_line failed
+  refute_line --regexp '^[0-9]+$'
+  assert_equal "$(jq -r '.method + " " + .path' "$GH_CALLS" | grep -c 'POST /repos/example/repo/pulls$')" 2
+  # An open pull request from the same branch into another base isn't it.
+  : > "$GH_CALLS"
+  MOCK_GH_FAIL="POST /repos/example/repo/pulls" run with_github 'mock_gh_pr agent-hub/PROJ-1 old; jq "map(.base.ref = \"release\")" "$RUNNER_TEMP/mock-github/prs.json" > x && mv x "$RUNNER_TEMP/mock-github/prs.json"
+    printf "Body" | gh_pr_open_draft agent-hub/PROJ-1 main t || echo failed'
+  assert_line failed
+}
+
 @test "visibility: public, or private (internal counts as private)" {
   MOCK_GH_VISIBILITY=public run with_github 'gh_repo_visibility'
   assert_output public

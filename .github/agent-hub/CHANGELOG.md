@@ -5,6 +5,37 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.7.3 — 2026-10-07
+
+Jira and GitHub calls survive brief outages and rate limits, and the two
+requests that can't safely be sent twice check what happened before trying
+again — so a lost reply after Claude has done the work no longer means a
+failed run or a pushed branch with no pull request.
+
+- **Every Jira and GitHub API call** has a connection time limit (10s) and an
+  overall one (120s), through one shared function (`lib/http.sh`).
+- **Retries, only where they're safe:** a call the server never got (no
+  connection) or turned away (429, GitHub's rate limits) is tried again
+  whatever it is; one that failed after it was sent (500, 502, 503, 504, a
+  timeout, a broken connection) only if repeating it can't do anything twice
+  — reads, updates, deletes, adding a label, GitHub's GraphQL queries.
+  Three attempts at most, waiting as the server asks (Retry-After or the
+  rate-limit reset) or 2s then 4s; a server asking for more than 60s ends
+  the retries. Each retry is a warning in the log, naming only the service,
+  method and status.
+- **Opening the pull request and moving the ticket check before trying
+  again:** after a failure, the build looks for an open pull request from
+  its branch into the target (GitHub never opens two for the same branches),
+  and a move checks the ticket's status (Jira refuses a move that's no
+  longer available). Found done, the run carries on; not done, it tries
+  once more.
+- **Not repeated:** a comment or attachment that may have been posted, since
+  a second copy can't be reliably told apart; that failure still fails the
+  run (architecture.md, "Known gaps").
+- The secret scanner's download has time limits and retries too.
+
+**Updating:** nothing to do.
+
 ## 2.7.2 — 2026-10-07
 
 Fixes from the full review before PR 4 (the lower-risk group; retries and

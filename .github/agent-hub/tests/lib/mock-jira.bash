@@ -26,6 +26,8 @@
 #                        transition the run makes changes it, as in Jira
 #   MOCK_FAIL            "METHOD path" of a call that should fail
 #   MOCK_FAIL_FROM       fail it from this occurrence on (default: the first)
+#   MOCK_LOST            a transition works, but the first reply is lost (a
+#                        failure, as when a connection breaks after Jira acted)
 #
 # Any request not listed here fails, so a test can't pass on a call it never
 # meant to make. The automation account's id is agent-hub-bot.
@@ -68,6 +70,11 @@ jira_request() {
       if [ -n "${TRANSITIONS_FIXTURE:-}" ]; then
         jq -r --argjson body "$body" '.transitions[] | select(.id == $body.transition.id) | .to.name' \
           "$TRANSITIONS_FIXTURE" > "$RUNNER_TEMP/mock-status"
+      fi
+      if [ -n "${MOCK_LOST:-}" ] && [ ! -e "$RUNNER_TEMP/mock-lost" ]; then
+        touch "$RUNNER_TEMP/mock-lost"
+        echo '{"errorMessages":["Mock lost reply"]}'
+        return 22
       fi ;;
     "GET ?fields=description"|"GET ?fields=description,labels")
       jq -c '{fields: {description: .fields.description, labels: (.fields.labels // [])}}' "${TICKET_LATER_FIXTURE:-$TICKET_FIXTURE}" ;;

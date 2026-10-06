@@ -141,7 +141,7 @@ stage_clear_progress() {
 # stage_move <transition id> <status>: move the ticket, and remember where to
 # (moved-to), so a failure later in the run is reported accurately.
 stage_move() {
-  tracker_transition "$1"
+  tracker_transition "$1" "$2"
   echo "$2" > "$RUNNER_TEMP/moved-to"
 }
 
