@@ -158,6 +158,9 @@ JS
 @test "real sandbox runtime: installed per job from a download cache that's checked — a changed cache isn't used" {
   real_srt
   local cached
+  # A copy of the file's shared cache, so the other probes (which may run at
+  # the same time) keep an intact one.
+  cp -R "$RUNNER_TOOL_CACHE" "$BATS_TEST_TMPDIR/toolcache-copy" && export RUNNER_TOOL_CACHE="$BATS_TEST_TMPDIR/toolcache-copy"
   # Every cached package replaced, as another job on the runner could.
   cached=$(find "$RUNNER_TOOL_CACHE/agent-hub/npm-cache/_cacache/content-v2" -type f | wc -l | tr -d ' ')
   [ "$cached" -gt 0 ] || fail "nothing in the download cache"

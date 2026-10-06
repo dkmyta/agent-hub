@@ -29,6 +29,19 @@ setup() {
 
 in_stage() { bash -c "source '$HUB_DIR/lib/load.sh' sandbox; $1"; }
 
+# explain: on a failure, what npm said — the failure reason (with its
+# ticket-only detail), the step's logs and npm's own debug logs — so a CI
+# failure says why.
+explain() {
+  [ "$status" != 0 ] || return 0
+  echo "--- failure reason"; cat "$RUNNER_TEMP/failure-reason" 2> /dev/null
+  local log
+  for log in "$RUNNER_TEMP"/dependencies/*.log "$RUNNER_TEMP"/sandbox/npm/_logs/*.log; do
+    [ -f "$log" ] && { echo "--- $log"; tail -n 30 "$log"; }
+  done
+  return 0
+}
+
 # real_npm: skip (locally) or fail (in CI) unless npm, the registry and the
 # sandbox are all there.
 real_npm() {
@@ -54,6 +67,7 @@ plan() {
   # 7.x: npm alone would save "^7.0.0"; the plan's range is kept as written.
   plan '{"folder": ".", "package": "is-number", "action": "add", "version_range": "7.x", "kind": "runtime"}'
   run in_stage 'build_dependency_step && _install_dependencies "$PWD" "$RUNNER_TEMP/install.log" > /dev/null && build_dependency_checks'
+  explain
   assert_success
   assert_equal "$(jq -r '.dependencies["is-number"]' package.json)" "7.x"
   assert_equal "$(jq -r '.packages[""].dependencies["is-number"]' package-lock.json)" "7.x"
@@ -80,7 +94,9 @@ plan() {
   assert_failure
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "npm couldn't resolve the plan's dependency changes in ."
-  assert_output --partial "ETARGET"
+  # npm's own words differ between versions (ETARGET, ENOVERSIONS, "No
+  # matching version"); that it said why is what matters.
+  assert_output --regexp "npm said: .*(ETARGET|ENOVERSIONS|No matching version|No versions available)"
   # Nothing resolved: the lockfile is as it was.
   run jq -e '.packages["node_modules/is-number"]' package-lock.json
   assert_failure
