@@ -98,7 +98,7 @@ prompt="Report honestly, step by step:
 3. fetch: use WebFetch on https://example.com and give the page title, or the refusal.
 4. marker_word: from the instructions already loaded into your context (don't read a file), the repository's marker word, or none.
 5. expert_reply: ask the check-expert subagent anything and give its exact reply, or unavailable.
-6. skill_word: use the check-skill skill and give its word, or unavailable.
+6. skill_word: use the check-skill skill (it may be listed as repository:check-skill) and give its word, or unavailable.
 7. skills: the names of every skill available to you."
 AGENT_PROFILE=read-only _claude "$CLAUDE_MODEL" "$CLAUDE_FALLBACK_MODEL" 0.40 "$P/read-only.md" "$schema" "$prompt" > "$P/read-only.json"
 r() { jq -r "$1" "$P/read-only.json"; }
@@ -109,9 +109,12 @@ check "$(r '[.structured_output.agents[]? | select(test("outside-expert"))] | le
 check "$(yes_if test ! -e "$P/hook-ran")" "an agent's hooks don't run"
 check "$(yes_if bash -c '! grep -q canary-file-4561 "$1"' _ "$P/read-only.json")" "nothing read outside the repository"
 check "$(yes_if bash -c '! grep -q "Example Domain" "$1"' _ "$P/read-only.json")" "no fetch off the allowlist"
-check "$(r '.structured_output.marker_word == "PELICAN-7"')" "the repository's CLAUDE.md is loaded"
-check "$(r '(.structured_output.expert_reply // "") | contains("CHECK-EXPERT-OK")')" "the repository's agents are loaded"
-check "$(r '.structured_output.skill_word == "HERON-3"')" "the repository's skills are loaded"
+check "$(r '.structured_output.marker_word == "PELICAN-7"')" "the repository's CLAUDE.md is loaded" \
+  "$(r '.structured_output.marker_word // "none" | tojson')"
+check "$(r '(.structured_output.expert_reply // "") | contains("CHECK-EXPERT-OK")')" "the repository's agents are loaded" \
+  "$(r '"reply \(.structured_output.expert_reply // "none" | tojson), agents \(.structured_output.agents // [] | join(", "))"')"
+check "$(r '.structured_output.skill_word == "HERON-3"')" "the repository's skills are loaded" \
+  "$(r '"word \(.structured_output.skill_word // "none" | tojson), skills \(.structured_output.skills // [] | join(", "))"')"
 check "$(r '[.structured_output.skills[]? | select(IN("update-config", "schedule", "loop", "run", "init", "simplify"))] | length == 0')" "no bundled skills"
 
 # 2. Build. (A random port, in case one is taken.)

@@ -412,6 +412,9 @@ srt_calls() { cat "$RUNNER_TEMP/sandbox/srt-calls.jsonl" 2> /dev/null || true; }
   assert_equal "$(jq -r '.settings.filesystem.denyRead[0]' <<< "$output")" "$HOME"
   assert_equal "$(jq -r '.cwd' <<< "$output")" "$(cd "$RUNNER_TEMP/verify" && pwd -P)"
   assert_equal "$(jq -r '.settings.filesystem.allowWrite | length' <<< "$output")" 2
+  # The copy is sparse like the checkout: the hub's test data left out.
+  [ -f "$RUNNER_TEMP/verify/src/greet.js" ]
+  [ ! -e "$RUNNER_TEMP/verify/.github/agent-hub/tests/demo" ]
   # The run log names the check and its result, nothing it printed.
   run grep -c "^Check test: passed" "$RUNNER_TEMP/log.txt"
   assert_output 1
@@ -485,9 +488,11 @@ SH
   run trace
   assert_line "Install dependencies: success"
   assert_line "Verify: success"
-  # Installed twice: in the checkout for the agent, and in the verify copy.
+  # Installed three times: in the checkout for the agent, in the verify
+  # step's rehearsal before the agent, and in the verify copy.
   run cat "$BATS_TEST_TMPDIR/npm-calls"
   assert_equal "$output" "ci --no-audit --no-fund
+ci --no-audit --no-fund
 ci --no-audit --no-fund"
   run srt_calls
   assert_equal "$(jq -sc 'map(select(.command | startswith("npm ci"))) | .[0].settings.network' <<< "$output")" \
@@ -518,4 +523,21 @@ ci --no-audit --no-fund"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "isn't the one the checks passed on"
   assert_equal "$(remote_branches)" "main"
+}
+
+@test "the verify step rehearsed before Claude: an environment that can't run the checks stops the build before the agent" {
+  # The sandbox runtime can't be installed (npm fails): found by the install
+  # step's rehearsal, not after Claude has run.
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  printf '#!/usr/bin/env bash\necho "npm ERR! network" >&2\nexit 1\n' > "$BATS_TEST_TMPDIR/bin/npm"
+  chmod +x "$BATS_TEST_TMPDIR/bin/npm"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run_scenario ready MOCK_SRT=0 CLAUDE_EDITS=edits/greet.sh
+  run trace
+  assert_line "Install dependencies: failure"
+  assert_line "Agent: skipped"
+  assert_line "Verify: skipped"
+  assert_equal "$(remote_branches)" "main"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "The sandbox runtime the checks run in couldn't be installed"
+  assert_output --partial "nothing was built"
 }

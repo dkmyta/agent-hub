@@ -5,6 +5,33 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.6.1 — 2026-10-06
+
+The first real build on 2.6.0 ran the agent, then failed before its checks:
+"Couldn't make a copy of the build's commit to check". Claude's spend was
+wasted on a problem that didn't depend on the agent.
+
+- **Fixed: the verify step's copy of the build's commit.** The workflow's
+  checkout is sparse and partial (the hub's own test data is left out, and
+  that data's content is never fetched), so a plain copy of it couldn't be
+  checked out. The copy now uses the checkout's sparse patterns, taken from
+  the git metadata copied before the agent ran. When a copy still fails,
+  git's message is on the ticket (not in the run log).
+- **The verify step is rehearsed before Claude runs.** The install step now
+  makes the same copy of the base commit, installs its dependencies, reads
+  the list of checks and installs the sandbox runtime. A problem with the
+  environment stops the build before any Claude usage; after the agent, only
+  the checks themselves can fail.
+- **Tests:** the scenario checkouts are now sparse and partial, made with the
+  stage workflow's own patterns (they'd have caught this); a rehearsal
+  failure stops the build before the agent.
+- **The sandbox check** names the planted skill as Claude Code lists it
+  (`repository:check-skill`), and its CLAUDE.md, agents and skills items show
+  what Claude reported when they fail.
+
+**Updating:** nothing to do. A ticket whose build failed this way: move it
+back to Implementation Plan and approve it again.
+
 ## 2.6.0 — 2026-10-05
 
 The build runs in a known environment, and checks its own work: the first

@@ -15,9 +15,13 @@ export VARS='{"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION"
 export MOCK_GITLEAKS=1 MOCK_SRT=1
 
 # fresh_repo [branch...]: a remote (a local bare repository) with the fixture
-# project on main, and a clean clone of it as the run's checkout (STEP_CWD).
-# Each branch given is pushed to the remote too (e.g. one an earlier build
-# left). Fixed dates, so the fixture's commits have the same ids every run.
+# project on main, and a clean clone of it as the run's checkout (STEP_CWD) —
+# made as the workflow's is: partial (no file content fetched beyond what's
+# checked out) and sparse, with the stage workflow's own patterns (the
+# fixture's .github/agent-hub/tests/demo/fixtures/ is left out, content and
+# all). Each branch given is pushed to the remote too (e.g. one an earlier
+# build left). Fixed dates, so the fixture's commits have the same ids every
+# run.
 fresh_repo() {
   local dir branch
   dir=$(mktemp -d "$BATS_TEST_TMPDIR/repo.XXXXXX")
@@ -31,8 +35,18 @@ fresh_repo() {
       && git push -q "$dir/remote.git" main
     for branch in "$@"; do git push -q "$dir/remote.git" "main:refs/heads/$branch"; done
   ) || return 1
-  git clone -q "$dir/remote.git" "$dir/checkout"
+  git -C "$dir/remote.git" config uploadpack.allowFilter true
+  git clone -q --filter=blob:none --no-checkout "file://$dir/remote.git" "$dir/checkout"
+  sparse_patterns > "$dir/patterns" || return 1
+  git -C "$dir/checkout" sparse-checkout set --no-cone --stdin < "$dir/patterns" 2> /dev/null
+  git -C "$dir/checkout" checkout -q main
   export STEP_CWD="$dir/checkout" REMOTE="$dir/remote.git"
+}
+
+# sparse_patterns: the stage workflow's sparse-checkout patterns, one per line.
+sparse_patterns() {
+  awk '/sparse-checkout: \|/ { on = 1; next } on && /^ *$/ { exit } on { sub(/^ +/, ""); print }' "$WORKFLOW" | grep . \
+    || { echo "no sparse-checkout patterns in $WORKFLOW" >&2; return 1; }
 }
 
 # change_main <message>: commit the checkout's changes to main, on the

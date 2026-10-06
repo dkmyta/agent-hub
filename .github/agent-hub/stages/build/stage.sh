@@ -339,7 +339,47 @@ step_install() {
   # agent starts from the repository exactly as it is.
   [ -z "$(git status --porcelain)" ] \
     || stage_fail "Installing the dependencies changed files in the repository (a lockfile rewritten, or installed files not ignored — e.g. node_modules/ missing from .gitignore), so nothing was built."
+
+  # A rehearsal of the verify step on the base commit, before Claude runs (and
+  # is paid for): the copy, its install, the list of checks and the sandbox
+  # runtime. Whatever would stop the verify step for the environment's sake
+  # stops the build here instead; after the agent only the checks can fail.
+  build_git
+  _verify_copy "$(context .base)" "$RUNNER_TEMP/verify" \
+    || stage_fail "Couldn't make a copy of the repository to run its checks in, so nothing was built." "Git said: $(_git_said)"
+  rc=0
+  _install_dependencies "$RUNNER_TEMP/verify" "$RUNNER_TEMP/verify-install.log" > /dev/null || rc=$?
+  [ "$rc" = 0 ] || stage_fail "Installing the dependencies in a copy of the repository for its checks failed (exit $rc), so nothing was built."
+  _checks "$(context .base)" > /dev/null || stage_fail "$(_checks_invalid "nothing was built")"
+  sandbox_install > /dev/null 2> "$RUNNER_TEMP/sandbox-install.log" \
+    || stage_fail "The sandbox runtime the checks run in couldn't be installed ($(tail -n 1 "$RUNNER_TEMP/sandbox-install.log")), so nothing was built."
 }
+
+# _verify_copy <commit> <folder>: a clean copy of the commit from the
+# metadata copied before the agent ran (build_git). The workflow's checkout
+# is sparse and partial — the hub's own test data left out, and with it
+# those files' content — so the copy takes the same sparse patterns, or its
+# checkout would need content that was never fetched. Git's messages go to
+# verify-clone.log (_git_said).
+_verify_copy() {
+  rm -rf "$2"
+  (
+    unset GIT_DIR GIT_WORK_TREE
+    git clone -q --no-hardlinks --no-checkout "$BUILD_GIT" "$2" || exit 1
+    if [ "$(git --git-dir="$BUILD_GIT" config --bool core.sparseCheckout)" = true ]; then
+      git -C "$2" config core.sparseCheckout true
+      cp "$BUILD_GIT/info/sparse-checkout" "$2/.git/info/sparse-checkout" || exit 1
+    fi
+    git -C "$2" checkout -q --detach "$1"
+  ) 2> "$RUNNER_TEMP/verify-clone.log"
+}
+
+# _git_said: the end of git's errors from _verify_copy, for the ticket only
+# (it can name files; the run log can be public).
+_git_said() { grep -E '^(fatal|error):' "$RUNNER_TEMP/verify-clone.log" | tail -n 3 | cut -c1-300 | paste -sd ' ' - || true; }
+
+# _checks_invalid <what happened>: the message for a checks.json that isn't valid.
+_checks_invalid() { echo "The repository's list of checks (build/checks.json in its extensions) isn't valid, so $1. It's {\"checks\": [{\"name\": …, \"command\": …}]} (docs/extending.md)."; }
 
 # _install_dependencies <folder> <log>: the frozen install its lockfile asks
 # for, in the sandbox (the registries only), or nothing for a repository
@@ -398,14 +438,15 @@ step_verify() {
   # The checks run on a clean copy of exactly that commit — not the checkout,
   # which something the agent left running could still change — with its
   # dependencies installed the same way.
+  # (The install step rehearsed all of this on the base commit, before the
+  # agent ran.)
   clone="$RUNNER_TEMP/verify"
-  rm -rf "$clone"
-  env -u GIT_DIR -u GIT_WORK_TREE git clone -q --no-hardlinks "$BUILD_GIT" "$clone" 2> /dev/null || stage_fail "Couldn't make a copy of the build's commit to check, so nothing was pushed."
+  _verify_copy "$(git rev-parse HEAD)" "$clone" || stage_fail "Couldn't make a copy of the build's commit to check, so nothing was pushed." "Git said: $(_git_said)"
   rc=0
   _install_dependencies "$clone" "$RUNNER_TEMP/verify-install.log" > /dev/null || rc=$?
   [ "$rc" = 0 ] || stage_fail "Installing the dependencies for the checks failed (exit $rc), so nothing was pushed."
   mkdir -p "$RUNNER_TEMP/checks"
-  _checks "$base" > "$RUNNER_TEMP/checks.tsv" || stage_fail "The repository's list of checks (build/checks.json in its extensions) isn't valid, so nothing was pushed. It's {\"checks\": [{\"name\": …, \"command\": …}]} (docs/extending.md)."
+  _checks "$base" > "$RUNNER_TEMP/checks.tsv" || stage_fail "$(_checks_invalid "nothing was pushed")"
   check=0
   while IFS=$'\t' read -r name command; do
     check=$((check + 1))
