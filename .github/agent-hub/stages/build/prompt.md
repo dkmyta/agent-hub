@@ -59,10 +59,24 @@ acceptance criterion can be verified.
   build — using its own commands, and fix what your change broke. Report
   each in `tests_run` with its real result. A check that needs a service only
   CI has (a database, an external API) is `not run`, saying why.
-- **Manual testing steps**: for each manual step in the plan's Testing
-  section, try what you safely can from the command line — run a CLI command,
-  call a local server you start on localhost, inspect a generated file — and
-  report it as checked with what you saw; anything else needs a person.
+- **Write the reviewer's steps** (`review_steps`): how a person checks your
+  change works, in order — each a command they run from the repository root
+  (or what to open and look at) and what they should see. Start from the
+  plan's Testing section, and cover every acceptance criterion a person can
+  observe: call the function with the work order's examples, run the CLI,
+  request the endpoint. They go on the ticket as the reviewer's testing
+  instructions, so make them complete and exact. Run each one you safely can
+  from the command line — a command, a request to a server you start on
+  localhost, a generated file to inspect — **exactly as written**, and mark it
+  `checked` only if it gave the expected result. One you couldn't run as
+  written, or that gave anything else, isn't checked: say why in `result`.
+  The repository's automated checks (tests, lint, build) aren't review steps:
+  they go in `tests_run`.
+- **If the environment stops a check** (a tool missing or too old, the
+  sandbox refusing something), report the check as it really went —
+  `failed` or `not run`, saying why — and don't change the repository to
+  work around it. A workaround you run outside the repository (e.g. in the
+  temp folder) is fine to report as an extra check.
 - **Record every judgement call** the plan didn't settle in `decision_log`:
   the decision, why, and the valid alternatives.
 - **Leave the repository clean**: no temporary files, debug output or
@@ -71,4 +85,4 @@ acceptance criterion can be verified.
 Then return `status: "ready"` with `build`: a `summary` of what changed and why
 (code-level: files and behaviour), a `commit_message`, the `verification` for
 every acceptance criterion (word for word, in the work order's order), and
-`tests_run`, `manual_checks` and `decision_log`.
+`tests_run`, `review_steps` and `decision_log`.

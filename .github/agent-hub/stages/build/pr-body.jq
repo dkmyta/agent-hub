@@ -10,7 +10,7 @@
 # published (a private repository, or the setting), it carries only the
 # ticket key and what the hub itself determined — files, the gates, each
 # check's result — never Claude's summary, the criteria, the decision log,
-# the manual steps or the commands it ran (Claude wrote them, so they could
+# the review steps or the commands it ran (Claude wrote them, so they could
 # carry ticket text).
 
 # Text from Claude or the ticket: no HTML (which could also forge a state
@@ -29,7 +29,7 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
 | (if $url != "" then "[\($ticket)](\($url))" else "**\($ticket)**" end) as $ref
 | "Built by the agent hub from the approved implementation plan for \($ref)."
     + (if $publish then ""
-       else " This repository is public, so the ticket's details — the request, the acceptance criteria and how each is verified, the commands the checks ran, the manual testing steps and the decision log — are on the ticket, not here." end),
+       else " This repository is public, so the ticket's details — the request, the acceptance criteria and how each is verified, the commands the checks ran, the steps to review it and the decision log — are on the ticket, not here." end),
   "",
   "> [!NOTE]",
   "> A draft: automated review and the CI gate come in a later version, so a person reviews this before it's marked ready.",
@@ -49,11 +49,11 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
     + [$b.tests_run | to_entries[] | if $publish then "- \(.value.command | code) — **\(.value.result)**: \(.value.summary | line)"
        else "- Check \(.key + 1) — **\(.value.result)**" + (if .value.result == "passed" then "" else " (details on the ticket)" end) end]),
 
-  section("Manual testing"; if $publish then [$b.manual_checks[]
-      | if .checked then "- [x] \(.step | line) — checked by the agent: \(.result | line)"
-        else "- [ ] \(.step | line) — needs a person" end]
-    elif ($b.manual_checks | length) > 0 then
-      ["\($b.manual_checks | length) manual step(s), \([$b.manual_checks[] | select(.checked)] | length) checked by the agent; the steps are on the ticket, under Testing Instructions."]
+  section("How to review"; if $publish then [$b.review_steps[]
+      | "- [ ] \(.step | line) — expect: \(.expected | line)"
+        + (if .checked then " (the build saw this)" else " (not checked by the build: \(.result | line))" end)]
+    elif ($b.review_steps | length) > 0 then
+      ["\($b.review_steps | length) step(s) with their expected results, \([$b.review_steps[] | select(.checked)] | length) already seen to pass by the build: they're on the ticket, under Testing Instructions."]
     else [] end),
 
   section("Decision log"; if $publish then [$b.decision_log[]

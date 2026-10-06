@@ -24,7 +24,7 @@
         "commit_message",
         "verification",
         "tests_run",
-        "manual_checks",
+        "review_steps",
         "decision_log"
       ],
       "properties": {
@@ -109,14 +109,15 @@
             }
           }
         },
-        "manual_checks": {
+        "review_steps": {
           "type": "array",
-          "description": "Each manual testing step from the plan's Testing section, for the reviewer's checklist.",
+          "description": "How a reviewer checks the change works, step by step, in order: what to run or look at, and what they should see. Start from the plan's Testing section and cover every acceptance criterion a person can observe (e.g. call the function, run the CLI, open the page). Not the repository's automated checks \u2014 those go in tests_run.",
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": [
               "step",
+              "expected",
               "checked",
               "result"
             ],
@@ -124,17 +125,24 @@
               "step": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 500
+                "maxLength": 500,
+                "description": "What the reviewer does, exactly as they'd do it: a command from the repository root, or what to open and look at."
+              },
+              "expected": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300,
+                "description": "What they should see if the change works."
               },
               "checked": {
                 "type": "boolean",
-                "description": "true only if you actually ran it here (a command, a localhost request, a generated file)."
+                "description": "true only if you ran this step exactly as written, here, and saw the expected result. A step you couldn't run as written, or that gave anything else, is false."
               },
               "result": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 300,
-                "description": "What you ran and saw, or why it needs a person."
+                "description": "If checked, what you saw. If not, why not (e.g. it needs a browser, or the sandbox lacks a tool) \u2014 a person runs it."
               }
             }
           }

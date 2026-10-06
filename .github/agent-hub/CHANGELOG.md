@@ -5,6 +5,40 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.5.3 — 2026-10-05
+
+From the second real build: the ticket had everything, but its testing
+instructions described what the build did rather than what a reviewer should
+do, and a step the build couldn't run was shown as checked.
+
+- **Reviewer's steps, with expected results.** The build now writes how a
+  person reviews the change (`review_steps`, replacing `manual_checks`): each
+  step a command to run (or what to open) and what they should see, covering
+  every acceptance criterion a person can observe. A step is marked as seen by
+  the build only if it ran exactly as written and gave that result; otherwise
+  it says why not. Automated checks stay with the checks run.
+- **The ticket's Delivery sections read on their own.** Testing Instructions:
+  check out the branch, then the steps as the reviewer's own checklist (every
+  box open, each with what to expect and whether the build saw it), then the
+  checks run. Pull Request: the link, what changed, and each file with its
+  line counts.
+- **The 🔨 comment says what happens next**: the ticket stays in
+  Implementation Plan Approved until the hand-off (a later version), so a
+  person reviews the draft and moves it on.
+- **When the environment stops a check**, the build reports it as it went
+  (failed or not run, and why) and doesn't change the repository to work
+  around it.
+- **Docs:** what happens when a pass reaches its budget cap, per stage (nothing
+  half-written is applied, nothing existing is lost, and how to retry); tools
+  installed in the home folder (nvm, pyenv, rbenv) aren't
+  visible to the build's sandboxed commands — the first real build ran an old
+  Node from `/usr/local/bin` — and the next version's install step provides
+  the repository's declared toolchain; the pull request's and ticket's
+  content.
+
+**Updating:** nothing to do. (Builds' recorded outputs use `review_steps`
+now; nothing else reads them.)
+
 ## 2.5.2 — 2026-10-05
 
 From the first real build: its pull request was hard to follow in a public

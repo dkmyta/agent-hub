@@ -151,6 +151,18 @@ need it.
 The build also needs **git 2.40 or later** on the runner (it reads
 `.gitattributes` from the commit it checks, not the working tree).
 
+**Tools installed in your home folder aren't visible to the build's
+commands.** The sandbox denies reading the home folder (where credentials
+live), so a toolchain installed there — Node through nvm, Python through pyenv
+or `~/.local`, Ruby through rbenv — can't run inside it: commands fall back to
+whatever is installed outside the home folder (e.g. `/usr/local/bin`), which
+may be older or missing. The build then reports the affected checks as
+failed or not run, saying why, and CI's result is the one to trust. The
+install step (next version) fixes this: it provides the repository's
+declared toolchain where the sandbox can read it. Until then, keep the tools
+a repository's checks need installed outside the home folder too, or rely on
+CI.
+
 ### Checking the sandbox
 
 The agents' limits are Claude Code's to enforce, so check them with the real

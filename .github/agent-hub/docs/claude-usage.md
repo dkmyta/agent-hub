@@ -49,6 +49,25 @@ These are API-equivalent caps per pass, not a billing ledger: nothing limits
 the total across repeated requests or re-runs of a ticket yet (per-ticket caps
 are planned for the build).
 
+**When a pass reaches its cap**, Claude Code stops it and the run fails with
+the reason on the ticket ("Claude reached its budget cap before finishing").
+Nothing from that run is applied — no work order, plan or build half-written
+— and nothing already on the ticket or in the repository is lost: the
+existing work order, the attached plan and the approval all stay as they
+were. The partial work isn't kept (sessions aren't saved, so no run can read
+another's), so a retry starts the pass again:
+
+| Stage | Retry | Starts from |
+|---|---|---|
+| Work order | Comment `/revise` (or re-run the workflow) | The ticket; a revision, if a work order is already there |
+| Implementation plan | Comment `/revise` (or re-run the workflow) | The work order; a revision of the attached plan, if one is there |
+| A revision (either) | Comment `/revise` again | The current work order or attached plan |
+| Build | Move the ticket back to Implementation Plan and approve it again, or re-run **Agent hub: Build** | The approved plan, from scratch (nothing was pushed) |
+
+If a stage keeps reaching its cap, raise that pass's variable (above) before
+retrying. The review pass has its own cap: if it's reached, the draft isn't
+applied either — nothing unreviewed reaches the ticket.
+
 **Typical usage** (API-equivalent; the single source for these figures — other
 docs link here):
 
