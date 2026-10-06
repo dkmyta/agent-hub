@@ -12,6 +12,8 @@
 
 set -o pipefail
 
+# shellcheck source=lib/http.sh
+source "$(dirname "${BASH_SOURCE[0]}")/http.sh"
 # shellcheck source=lib/secret-scan.sh
 source "$(dirname "${BASH_SOURCE[0]}")/secret-scan.sh"
 
@@ -33,10 +35,11 @@ printf 'header = "Authorization: Bearer %s"\n' "$(printf '%s' "${AGENT_HUB_GITHU
 printf '#!/bin/sh\ncase "$1" in Username*) echo x-access-token ;; *) cat "%s" ;; esac\n' "$GH_TOKEN_FILE" > "$GH_ASKPASS"
 chmod 700 "$GH_ASKPASS"
 
-# Every GitHub API call goes through gh_request (the tests replace just this).
+# Every GitHub API call goes through gh_request (the tests replace just this),
+# with time limits and retries (lib/http.sh).
 gh_request() {
   [ -n "${AGENT_HUB_GITHUB_TOKEN:-}" ] || { echo "::error::AGENT_HUB_GITHUB_TOKEN isn't set." >&2; return 1; }
-  curl -sS --fail-with-body --config "$GH_CURL_CONFIG" \
+  http_request GitHub --config "$GH_CURL_CONFIG" \
     -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
 }
 
@@ -46,12 +49,12 @@ gh_api() {
   else gh_request -X "$1" -H "Content-Type: application/json" "$GH_API$2" -d @-; fi
 }
 
-# gh_graphql <query> [variables JSON]: a GraphQL call; prints .data, fails on
-# any error.
+# gh_graphql <query> [variables JSON]: a GraphQL query (only reads, so safe to
+# repeat); prints .data, fails on any error.
 gh_graphql() {
   local response
   response=$(jq -nc --arg query "$1" --argjson variables "${2:-"{}"}" '{query: $query, variables: $variables}' \
-    | gh_request -X POST -H "Content-Type: application/json" "$GH_API/graphql" -d @-) || return 1
+    | HTTP_IDEMPOTENT=1 gh_request -X POST -H "Content-Type: application/json" "$GH_API/graphql" -d @-) || return 1
   if jq -e '(.errors // []) | length > 0' <<< "$response" > /dev/null; then
     echo "::error::GitHub GraphQL error: $(jq -c '[.errors[].type // .errors[].message]' <<< "$response")" >&2
     return 1
@@ -82,20 +85,40 @@ gh_pr_find() {
 }
 
 # gh_pr_open_draft <branch> <base> <title> < body: open a draft pull request;
-# prints its number.
+# prints its number. Not repeated blindly — a lost reply may hide a pull
+# request that was opened — so after a failure it looks for an open one from
+# <branch> into <base> first, and only if there's none tries once more
+# (GitHub refuses a second open pull request for the same branches, so it
+# can't open two).
 gh_pr_open_draft() {
-  jq -Rsc --arg head "$1" --arg base "$2" --arg title "$3" '{head: $head, base: $base, title: $title, body: ., draft: true}' \
-    | gh_api POST "/repos/$GITHUB_REPOSITORY/pulls" | jq -r '.number'
+  local request response pr
+  request=$(jq -Rsc --arg head "$1" --arg base "$2" --arg title "$3" '{head: $head, base: $base, title: $title, body: ., draft: true}')
+  for _ in 1 2; do
+    if response=$(gh_api POST "/repos/$GITHUB_REPOSITORY/pulls" <<< "$request") \
+        && jq -e '.number | numbers' <<< "$response" > /dev/null 2>&1; then
+      jq -r '.number' <<< "$response"
+      return 0
+    fi
+    pr=$(gh_pr_find "$1") || return 1
+    if [ -n "$pr" ] && jq -e --arg base "$2" '.state == "open" and .base.ref == $base' <<< "$pr" > /dev/null; then
+      echo "::notice::GitHub's reply to opening the pull request was lost, but it's open." >&2
+      jq -r '.number' <<< "$pr"
+      return 0
+    fi
+  done
+  return 1
 }
 
-# gh_pr_update_body <number> < body
+# gh_pr_update_body <number> < body: replaces the whole description, so
+# repeating it changes nothing more.
 gh_pr_update_body() {
-  jq -Rsc '{body: .}' | gh_api PATCH "/repos/$GITHUB_REPOSITORY/pulls/$1" > /dev/null
+  jq -Rsc '{body: .}' | HTTP_IDEMPOTENT=1 gh_api PATCH "/repos/$GITHUB_REPOSITORY/pulls/$1" > /dev/null
 }
 
-# gh_label <number> <label>: add a label to a pull request.
+# gh_label <number> <label>: add a label to a pull request (adding one it
+# already has changes nothing, so it's safe to repeat).
 gh_label() {
-  jq -nc --arg label "$2" '{labels: [$label]}' | gh_api POST "/repos/$GITHUB_REPOSITORY/issues/$1/labels" > /dev/null
+  jq -nc --arg label "$2" '{labels: [$label]}' | HTTP_IDEMPOTENT=1 gh_api POST "/repos/$GITHUB_REPOSITORY/issues/$1/labels" > /dev/null
 }
 
 # gh_pr_body_versions <number>: every version of the pull request's

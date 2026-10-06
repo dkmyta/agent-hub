@@ -10,6 +10,9 @@
 #   MOCK_GH_VISIBILITY   public or private (default: private)
 #   MOCK_GH_EDITS_PAGE   edits per page of edit history (default: 100)
 #   MOCK_GH_FAIL         "METHOD path" of a call that should fail
+#   MOCK_GH_LOST         opening a pull request works, but the first reply is
+#                        lost (a failure, as when a connection breaks after
+#                        GitHub acted)
 #   MOCK_GH_RACE_BEFORE  a description a person saves just before each of the
 #                        hub's description updates (the write race)
 #   MOCK_GH_RACE         one a person saves right after each of them
@@ -61,6 +64,11 @@ gh_request() {
         '. + [{number: $n, head: {ref: $req.head}, base: {ref: $req.base}, title: $req.title, body: $req.body,
                draft: $req.draft, state: "open", merged_at: null, labels: [],
                versions: [{editor: $login, body: $req.body}]}]' "$state" > "$state.new" && mv "$state.new" "$state"
+      if [ -n "${MOCK_GH_LOST:-}" ] && [ ! -e "$RUNNER_TEMP/mock-github/lost" ]; then
+        touch "$RUNNER_TEMP/mock-github/lost"
+        echo '{"message": "Mock lost reply"}'
+        return 22
+      fi
       jq -nc --argjson n "$number" '{number: $n}' ;;
     "PATCH $repo/pulls/"*)
       # MOCK_GH_RACE_BEFORE: a person's description, saved just before the

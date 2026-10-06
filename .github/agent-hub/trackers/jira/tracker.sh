@@ -7,6 +7,9 @@
 
 set -o pipefail
 
+# shellcheck source=lib/http.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../lib/http.sh"
+
 # How messages on the ticket and in the log name the tracker, and where its
 # setup is documented.
 # shellcheck disable=SC2034 # used by lib/stage.sh and the stages
@@ -35,9 +38,10 @@ printf 'user = "%s:%s"\n' \
   "$(printf '%s' "$JIRA_EMAIL" | sed 's/[\\"]/\\&/g')" \
   "$(printf '%s' "$JIRA_API_TOKEN" | sed 's/[\\"]/\\&/g')" > "$JIRA_CURL_CONFIG"
 
-# Every Jira call goes through jira_request (the tests replace just this).
+# Every Jira call goes through jira_request (the tests replace just this),
+# with time limits and retries (lib/http.sh).
 jira_request() {
-  curl -sS --fail-with-body --config "$JIRA_CURL_CONFIG" -H "Accept: application/json" "$@"
+  http_request Jira --config "$JIRA_CURL_CONFIG" -H "Accept: application/json" "$@"
 }
 
 # A JSON request: jira [-X METHOD] URL [-d BODY].
@@ -178,7 +182,20 @@ tracker_transition_id() {
     | jq -r --arg status "$1" '[.transitions[] | select(.to.name == $status)][0].id // empty'
 }
 
+# tracker_transition <transition id> [status]: move the ticket. A move isn't
+# repeated blindly — it's a POST, which a lost reply may hide — so given the
+# status it leads to, a failure is checked against the ticket: already there
+# is done; still not there, the move is tried once more (Jira refuses one
+# that's no longer available, so it can't happen twice).
 tracker_transition() {
-  jq -nc --arg id "$1" '{transition: {id: $id}}' \
-    | jira -X POST "$ISSUE_URL/transitions" -d @-
+  local _
+  for _ in 1 2; do
+    jq -nc --arg id "$1" '{transition: {id: $id}}' | jira -X POST "$ISSUE_URL/transitions" -d @- && return 0
+    [ -n "${2:-}" ] || return 1
+    if [ "$(tracker_status)" = "$2" ]; then
+      echo "::notice::Jira's reply to moving $TICKET_KEY was lost, but it's in $2." >&2
+      return 0
+    fi
+  done
+  return 1
 }

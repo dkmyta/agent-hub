@@ -31,7 +31,7 @@ _gitleaks_platform() {
 
 # _gitleaks_download <platform> <file>: fetch the release archive.
 _gitleaks_download() {
-  curl -sSfL -o "$2" \
+  curl -sSfL --connect-timeout 10 --max-time 120 --retry 2 -o "$2" \
     "https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION/gitleaks_${GITLEAKS_VERSION}_$1.tar.gz"
 }
 
