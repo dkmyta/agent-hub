@@ -1,8 +1,13 @@
 actions/checkout | id: - | if: - | env: -
 Copy the hub | id: - | if: - | env: -
+Find the toolchain | id: toolchain | if: inputs.code-stage | env: -
+Set up Node | id: - | if: inputs.code-stage | env: -
+Install sandbox tools | id: - | if: inputs.code-stage && runner.environment == 'github-hosted' && runner.os == 'Linux' | env: -
 Install Claude Code | id: - | if: runner.environment == 'github-hosted' | env: CLAUDE_CODE_VERSION
 Fetch ticket | id: start | if: - | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN,AGENT_HUB_GITHUB_TOKEN
+Install dependencies | id: install | if: inputs.code-stage && steps.start.outputs.proceed == 'true' | env: -
 Agent (draft and review) | id: agent | if: steps.start.outputs.proceed == 'true' | env: ANTHROPIC_API_KEY
+Verify | id: verify | if: inputs.code-stage && steps.agent.outputs.status == 'ready' | env: -
 Apply to ticket | id: apply | if: steps.agent.outputs.status == 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN,AGENT_HUB_GITHUB_TOKEN
 Send back | id: return | if: steps.agent.outputs.status != '' && steps.agent.outputs.status != 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
 Clear progress comment | id: - | if: success() || cancelled() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN

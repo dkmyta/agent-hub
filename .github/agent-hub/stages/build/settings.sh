@@ -14,10 +14,13 @@ CLAUDE_MODEL=$(stage_setting MODEL claude-opus-5-5)
 CLAUDE_FALLBACK_MODEL=$(stage_setting FALLBACK_MODEL claude-sonnet-5)
 CLAUDE_MAX_BUDGET_USD=$(stage_setting MAX_BUDGET_USD 10.00)
 
-# Until the install step exists (3c), a build could depend on whatever the
-# runner happens to have, so the stage runs only where a repository opts in
-# for development on a project without dependencies (playground/): the
-# repository variable AGENT_HUB_BUILD_PREVIEW=true. 3c removes this gate.
+# Not for real tickets yet: the stage runs only where a repository opts in,
+# for development (playground/), with the repository variable
+# AGENT_HUB_BUILD_PREVIEW=true. The build now runs in a known environment and
+# checks its own commit (3c), but a person is still its only reviewer and
+# nothing yet stops a later push from replacing what was reviewed; the gate
+# comes off with the agent review and CI (PR 4; docs/workflows/build.md,
+# "Status").
 BUILD_PREVIEW=$(stage_setting PREVIEW false)
 
 # The Claude Code version the build runs with: exact (e.g. 2.1.280), never
@@ -46,6 +49,11 @@ BUILD_BRANCH_PREFIX=agent-hub/
 BUILD_MAX_FILES=$(stage_setting MAX_FILES 50)
 BUILD_MAX_LINES=$(stage_setting MAX_LINES 2000)
 BUILD_MAX_FILE_LINES=$(stage_setting MAX_FILE_LINES 1000)
+
+# Time limits, in minutes, for installing the dependencies and for each of the
+# repository's checks the verify step runs (docs/workflows/build.md, "Verify").
+BUILD_INSTALL_MINUTES=$(stage_setting INSTALL_MINUTES 10)
+BUILD_CHECK_MINUTES=$(stage_setting CHECK_MINUTES 10)
 
 # Ticket text in a public repository's pull requests, commits and comments:
 # off unless set to true (docs/workflows/build.md, "Publication policy").

@@ -17,7 +17,13 @@ src/greet.js: greet takes an optional name and returns "Hello, &lt;name>!", or "
 1. greet("Ada") returns "Hello, Ada!" — **updated test**: test/greet.test.js: "greets by name"
 2. greet() with no name still returns "Hello!" — **existing test**: test/greet.test.js: "greets"
 
-## Checks run in the sandbox
+## Checks run by the hub
+
+The repository's own checks, run by the hub on exactly this commit, in the sandbox (no network) — the build pushes only a commit they pass on:
+
+- `npm run test` — **passed**
+
+## Checks the build agent reported
 
 - `node --test` — **passed**: 2 tests passed.
 

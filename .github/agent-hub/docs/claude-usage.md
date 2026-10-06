@@ -20,8 +20,9 @@ and how the evals fit in.
   Claude is used — it counts against the account's plan limits
   (subscription) or is billed (API), like any other Claude Code session.
 - **Everything else is plain scripts**: fetching the ticket, writing results
-  to the ticket, committing, pushing and opening the pull request, posting and
-  resolving comments. None of it uses Claude.
+  to the ticket, installing the repository's dependencies and re-running its
+  checks on the build's commit, committing, pushing and opening the pull
+  request, posting and resolving comments. None of it uses Claude.
 
 ## What triggers it
 

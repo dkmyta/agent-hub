@@ -231,7 +231,58 @@
             "content": [
               {
                 "type": "text",
-                "text": "Checks run in the sandbox",
+                "text": "Checks the hub ran on the pushed commit",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "npm run test",
+                        "marks": [
+                          {
+                            "type": "code"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": " — "
+                      },
+                      {
+                        "type": "text",
+                        "text": "passed",
+                        "marks": [
+                          {
+                            "type": "strong"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Checks the build agent ran",
                 "marks": [
                   {
                     "type": "strong"
@@ -677,7 +728,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "Checks the build ran:"
+                  "text": "Checks the hub ran on this commit (the pull request is only pushed if they pass):"
                 }
               ]
             },
@@ -692,7 +743,7 @@
                       "content": [
                         {
                           "type": "text",
-                          "text": "node --test",
+                          "text": "npm run test",
                           "marks": [
                             {
                               "type": "code"

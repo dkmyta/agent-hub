@@ -1,0 +1,8 @@
+{
+  "name": "agent-hub-sandbox",
+  "private": true,
+  "description": "The sandbox runtime (srt) the build's install and verify steps run the repository's commands in. Installed with npm ci from this lockfile; Dependabot updates it.",
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.78"
+  }
+}

@@ -1,11 +1,15 @@
 # Build (`agent-hub-build.yml`) — design
 
 > **Status: being built** ([Building it](#building-it)). **Not enabled for
-> real tickets:** until 3c's install step, it runs only with
-> `AGENT_HUB_BUILD_PREVIEW=true`, for development on a project without
-> dependencies. Since 2.5.0 an approved plan becomes a **draft pull request** — start, validate, build,
-> gates, secret scan, push — that a person reviews; the install, dependency
-> and verify steps, the review, CI gate and hand-off come in later versions.
+> real tickets:** it runs only with `AGENT_HUB_BUILD_PREVIEW=true`, for
+> development, until the review and CI gate (PR 4). Since 2.5.0 an approved
+> plan becomes a **draft pull request** — start, validate, build, gates,
+> secret scan, push — that a person reviews. Since 2.6.0 the build runs in a
+> known environment — the Node version the repository declares, its
+> dependencies installed from the lockfile — and the hub runs the
+> repository's checks on the build's commit itself, pushing nothing if one
+> fails ([Toolchain](#toolchain), [Install](#install), [Verify](#verify)). The
+> dependency step, the review, CI gate and hand-off come in later versions.
 > The agreed plan, reviewed externally three times. Items marked
 > *provisional* are defaults to revisit after the first full pipeline test.
 > When the stage is complete, this page becomes its workflow doc (in the
@@ -132,6 +136,61 @@ ends as *no change needed* — a normal outcome.
    manifest or lockfile, and `git status` must still be clean afterwards. The
    agent never gets registry access; a dependency change the plan approves is
    resolved by the hub ([Dependencies](#dependencies-planned-changes-only)).
+   Built in 2.6.0, with the toolchain: [Toolchain](#toolchain) and
+   [Install](#install).
+
+### Toolchain
+
+The build's commands — the install, the agent's, the checks — run with the
+toolchain the repository declares, not whatever the runner happens to have
+(the first real build ran Node 16 from `/usr/local/bin` because the sandbox
+couldn't see the runner's Node 22 in the home folder).
+
+- **Node** is set up by the workflow (`actions/setup-node`, pinned) from the
+  first of `.nvmrc`, `.node-version`, `.tool-versions` (`nodejs`) or
+  `package.json` (`volta.node`, `engines.node`, `devEngines.runtime`) in the
+  checkout — the files setup-node itself reads (`lib/toolchain.sh`). A
+  repository with a `package.json` that declares none of them is **not
+  built**: the fetch step stops before Claude with "Add an .nvmrc". A
+  repository without a `package.json` gets Node 22, which the hub's own
+  tools need.
+- **The Node folder is made readable** in both sandboxes (the agent's and
+  the hub's) — only that folder of the home folder — and is on the
+  commands' `PATH`.
+- **Other toolchains** (Python, Go, Ruby, …) are what the runner has: the
+  hub doesn't set them up yet. Their checks still run in the sandbox, so a
+  toolchain the sandbox can't read (one installed in the home folder) fails
+  them; install it outside the home folder, or declare the checks
+  ([extending.md](../extending.md#the-builds-checks)).
+
+### Install
+
+A hub step after the fetch and before the agent (no agent, no tracker, no
+GitHub token): the frozen install the repository's lockfile asks for —
+`npm ci` (`package-lock.json` or `npm-shrinkwrap.json`), `corepack pnpm
+install --frozen-lockfile` (`pnpm-lock.yaml`), `corepack yarn install
+--immutable` (Yarn 2 and later) or `--frozen-lockfile` (classic Yarn,
+`yarn.lock`). It runs in the **hub's sandbox** (`lib/sandbox/sandbox.sh`:
+Anthropic's sandbox runtime, `srt`, the engine of Claude Code's own sandbox,
+installed from the hub's lockfile), so every process it starts — a
+package's install scripts and their children included — gets the same
+limits, enforced by the operating system:
+
+| | Install | Checks ([Verify](#verify)) |
+|---|---|---|
+| Network | The package registries only (`registry.npmjs.org`, `registry.yarnpkg.com`, `repo.yarnpkg.com`) | None; localhost only |
+| Read | Not the home folder (where the runner's credentials live), apart from the Node folder | Same |
+| Write | The project folder and the job's temp folder | Same |
+| Environment | Only `PATH`, a temp `HOME`, `TMPDIR`, `CI=true` and package caches in the temp folder: no secrets, no repository variables | Same |
+| Time | `AGENT_HUB_BUILD_INSTALL_MINUTES` (10), the whole process tree ended at the limit | `AGENT_HUB_BUILD_CHECK_MINUTES` (10) per check |
+
+Nothing is built when the repository has dependencies but no lockfile, an
+`.npmrc` that names another registry or holds credentials (not supported
+yet), an install that fails or runs out of time, or an install that changes
+the repository (a rewritten lockfile, or installed files `.gitignore`
+doesn't cover): `git status` must be clean afterwards. A repository with no
+`package.json`, or no dependencies, installs nothing. The output stays on
+the runner, never in the run log.
 
 ### Validate
 
@@ -192,6 +251,36 @@ A fix pass never changes dependencies: a dependency finding is a decision
 item.
 
 ### Verify
+
+**In this version (2.6.0):** a hub step after the agent (no agent, no
+tracker, no GitHub token) commits the agent's changes — the commit the
+apply step checks and pushes — then clones exactly that commit into a
+clean folder (not the checkout, which something the agent left running could
+still change), installs its dependencies the same way and runs the
+repository's checks there, each in the [hub's sandbox](#install) with no
+network but localhost and its own time limit:
+
+- **Which checks:** the repository's `build/checks.json`
+  ([extending.md](../extending.md#the-builds-checks)) if it has one;
+  otherwise the `package.json` scripts named `test`, `lint`, `typecheck`
+  (or `type-check`) and `build`, run with the repository's package manager
+  (`npm run`, `corepack pnpm run`, `corepack yarn run`). Both are read from
+  the **plan's base commit**, as the repository was before the agent ran, so
+  a build can't change which checks judge it. No checks → noted, not a
+  failure.
+- **A check that fails or runs out of time: nothing is pushed.** The ticket
+  gets the ❌ failure comment naming the checks, then a "🧪 Checks that
+  failed" comment with each one's command, result and the end of its output
+  (40 lines). The run log names only each check and its result: the output
+  could quote ticket text or the repository's code, and the log can be
+  public.
+- **All pass:** the apply step pushes only that commit (it checks the head
+  is the one the checks ran on). The pull request and the ticket show the
+  hub's results as authoritative ("Checks run by the hub"), with the checks
+  the agent reported running separately.
+
+The agent is told the checks will be re-run and runs them itself first. The
+table below is the full design, with the review's second verify (PR 4).
 
 After the build (and the dependency step, if any), and again after the fix
 pass:
@@ -587,7 +676,8 @@ request) · `agent-hub-paused` · the kill switch.
 |---|---|---|
 | Build and fix agents | Edit files in the checkout (not refused paths; a dependency declaration only as the plan describes); run commands in the sandbox (localhost network only) | Push, call GitHub or Jira, install packages or reach a registry, read outside the repository, reach the internet, see any credential |
 | Review and fix-check agents | Read the repository; run tests in the sandbox | Edit anything |
-| Install step (no agent) | Install dependencies from the lockfile (frozen), registries-only network | Change manifests or lockfiles |
+| Install step (no agent) | Install dependencies from the lockfile (frozen), registries-only network, in the hub's sandbox | Change manifests or lockfiles; read the home folder; see any credential |
+| Verify step (no agent) | Commit the agent's changes; run the repository's checks on a clean copy of that commit, in the hub's sandbox, localhost-only network | Push; read the home folder; see any credential; change which checks run (they come from the base commit) |
 | Dependency step (no agent) | Resolve and install a dependency change the approved plan describes, updating the lockfile; registries-only network | Run unless the gate confirmed the change matches the plan |
 | Apply step (no agent) | Commit, push to `agent-hub/*`, open and update the pull request, write the state block, update the ticket | Merge, approve, push to other branches (branch protection) |
 | Relay, CI-result and PR-sync workflows (no agent) | Read metadata, acknowledge idempotently, wake the per-ticket run | Write the state block; check out, run or download pull request code or artifacts; evaluate pull-request-supplied text in a shell |
@@ -612,9 +702,14 @@ Chosen by the hub per pass — never by settings, extensions or tickets:
 - **review** (review, fix check): the sandbox with read-only file tools
   (`Bash` sandboxed, no `Edit` or `Write`), no web tools by default.
 
-The exact sandbox setting names, and how the install step is sandboxed, are
-verified against the runner's Claude Code version with real Claude before
-anything depends on them.
+The exact sandbox setting names are verified against the runner's Claude Code
+version with real Claude before anything depends on them. The hub's own
+sandbox for the install and verify steps (the same runtime, without an agent)
+is probed in the test suite against the real runtime — an install script's
+child process can't reach the internet, read the home folder or write outside
+the project; a check reaches localhost and nothing else; a command out of
+time ends with everything it started (`tests/shared/sandbox.bats`, run in CI
+on Linux).
 
 ### Credentials
 
@@ -665,13 +760,15 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | `.github/workflows/agent-hub-build.yml` | Caller: triggers (dispatch from Jira, relay, CI result; manual), the per-ticket concurrency group, limits; one job runs start → validate → build → verify → review → fix → fix check → verify → sync → push |
 | `agent-hub-stage.yml` with `code-stage: true` | The shared stage workflow, as for every stage, plus the full history and the machine user's token for the fetch and apply steps only; the install and dependency steps join it as steps that only code stages run, without the token |
 | `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template); later `fix.md`, `fix-check.md`, `ci-fix.md` |
+| `lib/toolchain.sh` | The Node version a repository declares, for the workflow's setup-node step and the fetch step's check |
+| `lib/sandbox/` | The hub's sandbox for the install and verify steps: `sandbox.sh` (policies, time limit, a clean environment) and the lockfile `srt` is installed from (once per runner, in its tool cache; Dependabot keeps it current) |
 | `stages/pr-review/` | The review's `prompt.md`, `schema.json` (findings: area, severity, kind, file and line, evidence), `policy.json` (kind × severity → fix pass, `R` or `D`), `settings.sh` |
 | `lib/github.sh` | The GitHub interface; one `gh_request` function every call goes through (mocked in tests) |
 | `lib/runners/claude-code.sh` | Tool profiles (`read-only`, `build`, `review`) and the sandbox settings |
 | `agent-hub-relay.yml` | No agent: a review submitted, or a pull request comment `/apply` `/skip` → a numbered acknowledgement; wakes the per-ticket run |
 | `agent-hub-ci-result.yml` | No agent: CI completed for an `agent-hub/*` head → wakes the per-ticket run (metadata only) |
 | `agent-hub-pr-sync.yml` | No agent: pull request approved, merged or closed → wakes the per-ticket run (post-merge check, Done) |
-| Extensions | `build/` and `pr-review/` folders as for every stage; `build/guidance.md` is where a repository says how to install, test and build, and lists sensitive and drift-sensitive paths |
+| Extensions | `build/` and `pr-review/` folders as for every stage; `build/guidance.md` is where a repository says how to install, test and build, and lists sensitive and drift-sensitive paths; `build/checks.json` lists the checks the verify step runs, when the `package.json` scripts aren't the right ones |
 
 **`lib/github.sh` (draft):** `gh_branch_ensure` · `gh_push <branch>
 <expected-head>` (refuses non-fast-forward) · `gh_pr_find` ·
@@ -717,6 +814,7 @@ only wakes the per-ticket run, which reads the checks itself.
 | Scenario (whole workflow runs) | Extracted workflow steps, Jira and GitHub mocks, a local bare git remote, the Claude stub replaying recorded outputs; snapshots of every call | No |
 | Variants | `run_scenario <name> VAR=value` for one-setting differences | No |
 | Gates | A test per class and boundary case (special characters in paths, any letter case, git failing); each fix's test is checked to fail without the fix. An automated mutation check is a later improvement | No |
+| Sandbox probes | `tests/shared/sandbox.bats`: the hub's sandbox (install and verify) against the real runtime — network, home folder, writes, time limit; in CI on Linux, skipped locally without the network | No |
 | Boundary checks | `scripts/check-sandbox.sh`: real Claude Code against hostile settings and sandbox escape attempts, results checked on disk ([runners.md](../runners.md#checking-the-sandbox)) | Yes, about $0.20, confirmed with `use-claude` |
 | Evals | Manual, `use-claude`, capped; one build case on a small fixture repository | Yes |
 | Pipeline test | Real systems, the scenarios under [Building it](#building-it) | Yes |
@@ -774,7 +872,14 @@ plan describes · CI green against GitHub's evaluation commit with GitHub's own
 `isRequired` · post-merge CI waited for when it runs · the per-ticket group
 never cancelled mid-push, with `queue: max` · the secret scan: pinned,
 checksum-verified gitleaks, failing closed (2.4.0) · the hub run from a copy
-and git from metadata copied before the agent ([architecture.md](../architecture.md#after-an-agent-that-can-edit-the-checkout)).
+and git from metadata copied before the agent ([architecture.md](../architecture.md#after-an-agent-that-can-edit-the-checkout)) ·
+in 2.6.0: Node from the version the repository declares (setup-node), and
+a Node project that declares none isn't built; other toolchains are the
+runner's, and the docs say so · the checks from the base commit's
+`package.json` scripts or `build/checks.json` · a check that fails means no
+push, its output on the ticket only · the install and checks in the sandbox
+runtime (`srt`), installed from a hub lockfile · the preview gate kept until
+PR 4 (the reason is in [Building it](#building-it)).
 
 **Still open (*provisional* defaults):**
 
@@ -829,22 +934,30 @@ where stated and only with the owner's OK.
      move to Ready for Review is the hand-off's. A ticket that already has a
      hub pull request isn't built again. Gated
      behind `AGENT_HUB_BUILD_PREVIEW=true` (development only).
-   - *3c*: **the repository's declared toolchain** for the build's commands
-     (from `.nvmrc`, `.node-version`, `engines` or the CI workflow), where the
-     sandbox can read it — today a toolchain installed in the home folder is
-     invisible to sandboxed commands (the first real build ran Node 16 from
-     `/usr/local/bin` instead of the runner's Node 22 under nvm), and a
-     mismatch with what the repository declares fails the run; the install
-     step (frozen, registries-only network, in the sandbox runtime, without
-     the GitHub token) with its probes — including that a package's lifecycle
-     scripts and their child processes get the same limits as the package
-     manager; the dependency step (a planned dependency
-     change resolved by the hub — today a decision item); the deterministic
-     verify step (the repository's checks re-run by the hub, not reported by
-     the agent); reconciliation of an existing pull request; gitleaks cached
-     in the runner's tool cache (still checksum-verified) rather than
-     downloaded per run; then the preview gate is removed and the stage is
-     enabled for real tickets.
+   - *3c* (done in 2.6.0): **a known environment, and checks the hub runs
+     itself** — the repository's declared Node version set up by the
+     workflow and readable in the sandbox, a Node project without one not
+     built ([Toolchain](#toolchain)); the install step, frozen, in the hub's
+     sandbox with registries-only network, with its probes against the real
+     runtime — including that a package's lifecycle scripts and their child
+     processes get the same limits as the package manager
+     ([Install](#install)); the deterministic verify step: the commit, then
+     the repository's checks re-run by the hub on a clean copy of it, a
+     failure meaning no push ([Verify](#verify)); per-step time limits; the
+     playground declaring its Node version (`playground/.nvmrc`) and its
+     checks (`build/checks.json`).
+   - *3d*: the dependency step (a planned dependency change resolved by the
+     hub — today a decision item); reconciliation of an existing pull
+     request; gitleaks cached in the runner's tool cache (still
+     checksum-verified) rather than downloaded per run.
+
+   **The preview gate stays until PR 4** (changed in 2.6.0; the earlier plan
+   removed it after 3c). With 3c a build no longer depends on what the
+   runner happens to have, and the hub checks its own commit — but a person
+   is still the build's only reviewer, and nothing yet re-checks a pull
+   request after people or later runs push to it. The gate comes off with
+   the review, the CI gate and the hand-off, after a dedicated runner user
+   or machine ([Later](#later)).
 4. **Review, fix, CI gate, hand-off** — the review with its policy table; the
    fix pass, fix check and second verify; review coverage; sync and drift; the
    CI-result workflow, the evaluation commit (head and test merge commit both

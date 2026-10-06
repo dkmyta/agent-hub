@@ -19,3 +19,13 @@ updates:
     groups:
       test-dependencies:
         patterns: ["*"]
+
+  # The sandbox runtime the build runs a repository's code in (the hub
+  # installs it from this lockfile; agent-hub docs/workflows/build.md).
+  - package-ecosystem: npm
+    directory: /.github/agent-hub/lib/sandbox
+    schedule:
+      interval: monthly
+    groups:
+      sandbox-runtime:
+        patterns: ["*"]

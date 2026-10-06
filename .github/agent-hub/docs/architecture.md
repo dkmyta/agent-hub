@@ -26,6 +26,8 @@ unless they start with `.github/`.
       load.sh                     what each workflow step sources (from the hub's copy in RUNNER_TEMP)
       github.sh, state.sh         GitHub and the pull request's state block (code stages)
       secret-scan.sh              the pinned secret scan before every push
+      toolchain.sh                the Node version a repository declares (code stages)
+      sandbox/                    the sandbox runtime (srt) for steps that run the repository's code without an agent: sandbox.sh and its lockfile
       paths.sh                    the paths only people change (.github/, .claude/, CODEOWNERS), for every check
       markdown.jq                 reading the attached plan's sections
       stage.sh                    fetching, progress and failure comments, revisions
@@ -318,10 +320,18 @@ stage ([workflows/build.md](workflows/build.md)).
   (`id: return`, any other status) → **Clear progress comment** → **Report
   failure on ticket** (`if: failure()`) → **Remove session and credential files**
   (`if: always()`). The test harness runs every stage with this shape.
+- A code stage (`code-stage: true`) adds steps that run without an agent,
+  a tracker or the GitHub token: **Find the toolchain** and **Set up Node**
+  before the fetch (the version the repository declares, `lib/toolchain.sh`),
+  **Install sandbox tools** on GitHub-hosted Linux, **Install dependencies**
+  (`id: install`) after it and **Verify** (`id: verify`) between the agent
+  and apply — the last two run the repository's own code, in the sandbox
+  runtime ([build.md](workflows/build.md#install)).
 - Each step sources `lib/load.sh` (the settings, then the tracker — or, for
-  the agent step, the agent runner — then `lib/stage.sh` and the stage's
-  `stage.sh`) and calls the stage's function for it: `step_fetch`,
-  `step_agent`, `step_apply` or `step_return`. Those stay short by calling
+  the agent step, the agent runner; for a code stage's install and verify
+  steps, the sandbox — then `lib/stage.sh` and the stage's `stage.sh`) and
+  calls the stage's function for it: `step_fetch`, `step_agent`,
+  `step_apply` or `step_return` (and `step_install`, `step_verify`). Those stay short by calling
   the shared functions (`tracker_*`, `stage_*`, `agent_*`), each documented
   where it's defined. The tests' tracker mock hooks in right after
   `lib/load.sh tracker`, so keep that on its own line.
@@ -489,8 +499,9 @@ re-running the automated review after changes.
   settings, extensions or tickets: *read-only* for the document stages (the
   same capabilities as before profiles existed); *build* (edit the repository, run commands) and *review* (run
   commands, no edits) for the build stage, with no web tools and Claude
-  Code's sandbox for every command — reads only the repository and a temp
-  folder (the home folder, where the runner's credentials live, denied),
+  Code's sandbox for every command — reads only the repository, a temp
+  folder and the Node the workflow set up (the rest of the home folder,
+  where the runner's credentials live, denied),
   writes only those (review: only the temp folder), network to localhost
   only, no secrets in commands' environment, and no command run if the
   sandbox can't start. Set through `--settings`, so the repository can't

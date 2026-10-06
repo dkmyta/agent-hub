@@ -9,8 +9,10 @@ export FIXTURES="$SUITE_DIR/fixtures"
 # The build's development gate on, and Claude Code pinned to the stub's
 # version (settings.sh); tests check both.
 export VARS='{"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9"}'
-# The secret scan's stand-in (lib/bin/gitleaks), so nothing is downloaded.
-export MOCK_GITLEAKS=1
+# The secret scan's and the sandbox runtime's stand-ins (lib/bin/gitleaks,
+# lib/bin/srt), so nothing is downloaded; the repository's checks still run
+# (unsandboxed), with the Node the tests run on.
+export MOCK_GITLEAKS=1 MOCK_SRT=1
 
 # fresh_repo [branch...]: a remote (a local bare repository) with the fixture
 # project on main, and a clean clone of it as the run's checkout (STEP_CWD).
@@ -31,6 +33,13 @@ fresh_repo() {
   ) || return 1
   git clone -q "$dir/remote.git" "$dir/checkout"
   export STEP_CWD="$dir/checkout" REMOTE="$dir/remote.git"
+}
+
+# change_main <message>: commit the checkout's changes to main, on the
+# remote too (the build starts only from the target branch's head).
+change_main() {
+  git -C "$STEP_CWD" add -A && git -C "$STEP_CWD" -c user.name=dev -c user.email=dev@example.com commit -qm "$1" \
+    && git -C "$STEP_CWD" push -q origin main
 }
 
 # remote_file <branch> <path>: a file as pushed to the remote.

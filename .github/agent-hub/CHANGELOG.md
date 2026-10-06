@@ -5,6 +5,75 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.6.0 — 2026-10-05
+
+The build runs in a known environment, and checks its own work: the first
+real builds ran whatever Node the sandbox could find (an old one, since the
+runner's own was in the home folder) and only reported the checks the agent
+said it ran.
+
+- **The repository's Node version.** The build workflow sets up the Node
+  version the repository declares (`.nvmrc`, `.node-version`,
+  `.tool-versions`, or `package.json`'s `engines`, `volta` or `devEngines`)
+  with `actions/setup-node`, and makes that one folder readable in the
+  sandbox and first on the agent's commands' `PATH`. A repository with a
+  `package.json` that declares no version isn't built: the build stops before
+  Claude, asking for an `.nvmrc`. Other toolchains are the runner's, and the
+  docs say so ([build.md](docs/workflows/build.md#toolchain)).
+- **Dependencies installed from the lockfile**, before the agent starts, by a
+  new step with no agent and no credentials: `npm ci`, or pnpm's or Yarn's
+  frozen install, in the sandbox runtime (`srt`, the engine of Claude Code's
+  own sandbox) with the package registries as its only network. Every
+  process the install starts — a package's install scripts and their
+  children too — can't read the home folder, write outside the project or
+  reach anything else. No lockfile, a private registry, an install that fails,
+  runs out of time or changes the repository: nothing is built
+  ([build.md](docs/workflows/build.md#install)).
+- **The hub runs the repository's checks on the build's commit.** A new
+  verify step commits the agent's changes, installs a clean copy of exactly
+  that commit, and runs its checks in the sandbox with no network but
+  localhost: the `package.json` scripts `test`, `lint`, `typecheck` and
+  `build`, or the repository's new `build/checks.json` extension, both as
+  they were before the agent ran. **A check that fails means nothing is
+  pushed**; the ticket gets a "🧪 Checks that failed" comment with the end of
+  each one's output (never in the run log). Otherwise only that commit is
+  pushed, and the pull request and the ticket show the hub's results first,
+  with the checks the agent reported separately
+  ([build.md](docs/workflows/build.md#verify),
+  [extending.md](docs/extending.md#the-builds-checks)).
+- **Time limits** for the install (`AGENT_HUB_BUILD_INSTALL_MINUTES`) and each
+  check (`AGENT_HUB_BUILD_CHECK_MINUTES`), 10 minutes each, ending everything
+  the command started; the build job's limit is now 140 minutes.
+- **The preview gate stays until the review and CI gate (PR 4)**, changing
+  the earlier plan to lift it now: a person is still the build's only
+  reviewer ([build.md](docs/workflows/build.md#building-it)).
+- **Tests:** the sandbox probed against the real runtime
+  (`tests/shared/sandbox.bats`: an install script's child process, localhost
+  for checks, the time limit), run in CI on Linux with the sandbox tools
+  installed; the install command per lockfile, the checks' source, and the
+  build's paths with a failing check, no declared Node and no lockfile.
+- **This repository:** the playground declares Node 22 (`playground/.nvmrc`,
+  used by its CI) and its checks (`.github/agent-hub-extensions/build/checks.json`);
+  Dependabot keeps the sandbox runtime's lockfile current.
+- **Fixes:** a time limit of 0 is refused (it would have been none).
+
+**Updating:**
+
+1. **A Node repository declares its Node version** — add an `.nvmrc` (e.g.
+   `22`) if it has none — and **commits its lockfile**.
+2. **If its checks aren't the root `package.json`'s `test`, `lint`,
+   `typecheck` and `build` scripts** (a project in a subfolder, or not a Node
+   project), add `build/checks.json` to your extensions
+   ([extending.md](docs/extending.md#the-builds-checks)).
+3. **Runners:** a self-hosted Linux runner also needs `ripgrep`, and on
+   Ubuntu 24.04 the user-namespaces setting
+   ([runners.md](docs/runners.md#the-sandbox-build-stage)); macOS needs
+   nothing. Every runner needs to reach `registry.npmjs.org` the first time a
+   build runs (the hub installs the sandbox runtime into its tool cache).
+4. **Run the sandbox check again** (it uses Claude, about $0.20): the build
+   profile's sandbox now reads the Node folder and sets the commands' `PATH`
+   ([runners.md](docs/runners.md#checking-the-sandbox)).
+
 ## 2.5.3 — 2026-10-05
 
 From the second real build: the ticket had everything, but its testing

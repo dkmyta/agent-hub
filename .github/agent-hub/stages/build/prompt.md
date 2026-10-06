@@ -13,7 +13,11 @@ You work in a checkout of the repository. You can read, edit and create files
 in it, and run shell commands in a sandbox: commands can read and write only
 the repository and a temp folder, reach only localhost, and see no secrets.
 There's no internet and no package registry — you can't install or add
-packages. You can't change `.github/`, `.claude/` or `CODEOWNERS`. You don't
+packages. The repository's dependencies are already installed from its
+lockfile, and the Node version it declares is the one on PATH. When you're
+done, the workflow commits your changes and runs the repository's checks
+(its test, lint, typecheck and build scripts, or its own list) on that commit
+itself: if one fails there, nothing is pushed — so run them yourself first. You can't change `.github/`, `.claude/` or `CODEOWNERS`. You don't
 commit, push or contact the tracker: the workflow commits your changes, checks
 them and opens the pull request. Your final answer is structured output
 matching the provided schema.

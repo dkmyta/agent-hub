@@ -42,6 +42,8 @@ extract_workflow() {
 # copied, for speed (stage-workflow.bats runs the real step).
 use_run_env() {
   export RUNNER_TEMP=$1 STEP_OUTPUTS=$1/outputs CALLS=$1/calls.jsonl GH_CALLS=$1/gh-calls.jsonl
+  # The runner's tool cache: per run, so no test uses (or fills) a real one.
+  export RUNNER_TOOL_CACHE=$1/toolcache
   # Inside the test, except in evals (the real Claude, in a copy of the
   # repository): where agent_cleanup looks for Claude Code's session folders,
   # and the repository extensions (none unless a test adds them).
@@ -56,6 +58,13 @@ use_run_env() {
   # Code stages scan before every push: with MOCK_GITLEAKS=1, the stand-in
   # (lib/bin/gitleaks) is where the hub installs gitleaks, so nothing is
   # downloaded.
+  # Code stages run the repository's commands in the sandbox runtime: with
+  # MOCK_SRT=1, the stand-in (lib/bin/srt) is where the hub installs srt.
+  if [ "${MOCK_SRT:-}" = 1 ]; then
+    local srt_dir
+    srt_dir=$(bash -c 'source "$1/lib/sandbox/sandbox.sh"; sandbox_dir' _ "$HUB_DIR")
+    mkdir -p "$srt_dir/node_modules/.bin" && ln -sf "$TESTS_DIR/lib/bin/srt" "$srt_dir/node_modules/.bin/srt"
+  fi
   if [ "${MOCK_GITLEAKS:-}" = 1 ]; then
     mkdir -p "$1/gitleaks-$(sed -n 's/^GITLEAKS_VERSION=//p' "$HUB_LIB/secret-scan.sh")"
     ln -sf "$TESTS_DIR/lib/bin/gitleaks" "$1/gitleaks-$(sed -n 's/^GITLEAKS_VERSION=//p' "$HUB_LIB/secret-scan.sh")/gitleaks"
@@ -160,12 +169,29 @@ run_stage() {
   # runner, where Claude Code is preinstalled.
   skip "Install Claude Code"
 
+  # Code stages (CODE_STAGE=true in their settings) also find their
+  # toolchain, install the dependencies and verify (Set up Node and Install
+  # sandbox tools are actions or GitHub-hosted only, so not run here).
+  local code_stage=false
+  grep -q '^CODE_STAGE=true' "$HUB_DIR/stages/$STAGE/settings.sh" && code_stage=true
+  if [ "$code_stage" = true ]; then step "Find the toolchain" toolchain; fi
+
   step "Fetch ticket" start
   proceed=$(step_output start proceed)
+
+  if [ "$code_stage" = true ]; then
+    if succeeding && [ "$proceed" = true ]; then step "Install dependencies" install
+    else skip "Install dependencies"; fi
+  fi
 
   if succeeding && [ "$proceed" = true ]; then step "Agent" agent
   else skip "Agent"; fi
   status=$(step_output agent status)
+
+  if [ "$code_stage" = true ]; then
+    if succeeding && [ "$status" = ready ]; then step "Verify" verify
+    else skip "Verify"; fi
+  fi
 
   if succeeding && [ "$status" = ready ]; then step "Apply" apply
   else skip "Apply"; fi

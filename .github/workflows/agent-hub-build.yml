@@ -39,5 +39,5 @@ jobs:
       ticket-key: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
       code-stage: true
       agent-minutes: 60
-      job-minutes: 80
+      job-minutes: 140
     secrets: inherit

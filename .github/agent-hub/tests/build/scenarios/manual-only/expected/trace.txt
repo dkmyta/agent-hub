@@ -1,6 +1,9 @@
 Install Claude Code: skipped
+Find the toolchain: success
 Fetch ticket: success
+Install dependencies: skipped
 Agent: skipped
+Verify: skipped
 Apply: skipped
 Send back: skipped
 Clear progress comment: success

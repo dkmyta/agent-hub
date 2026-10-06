@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Stand-in for the sandbox runtime (srt) in the scenario tests (MOCK_SRT=1,
+# see helpers.bash): records each call — its settings, command and folder —
+# in srt-calls.jsonl beside the sandbox's home folder ($RUNNER_TEMP/sandbox/;
+# the hub runs srt with only a few variables set) and runs the command
+# unsandboxed. The real srt is exercised by tests/shared/sandbox.bats.
+settings="" command=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --settings) settings=$2; shift 2 ;;
+    -c) command=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+jq -c --arg command "$command" --arg cwd "$PWD" '{settings: ., command: $command, cwd: $cwd}' "$settings" >> "$(dirname "$HOME")/srt-calls.jsonl"
+exec bash -c "$command"

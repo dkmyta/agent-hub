@@ -42,9 +42,11 @@ SESSION_ID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 # Repository extensions (docs/extending.md), from EXTENSIONS_DIR: shared/ for
 # every stage, then <stage>/. guidance.md joins the stage's instructions and
 # review.md the review's; agents/ and skills/ (Claude Code subagents and
-# skills) are loaded for both passes with --plugin-dir. They add knowledge
-# only: a folder holding anything else fails the run before Claude starts, and
-# the isolation below binds them like everything else.
+# skills) are loaded for both passes with --plugin-dir; build/checks.json
+# (in the build's folder only) lists the repository's checks for the build's
+# verify step (read by the hub, not the agent). They add knowledge only: a folder holding anything else
+# fails the run before Claude starts, and the isolation below binds them like
+# everything else.
 EXTENSION_DIRS=()
 PLUGIN_ARGS=()
 
@@ -53,9 +55,11 @@ PLUGIN_ARGS=()
 # it's all allowed. A link anywhere — the folder itself included — could
 # point outside the repository, so links are refused.
 agent_extension_problems() {
+  local checks=()
   if [ -L "$1" ] || [ -L "$(dirname "$1")" ]; then echo "(a link to another folder)"; return; fi
+  [ "$(basename "$1")" != build ] || checks=(! -path ./checks.json)
   (cd "$1" && find . -mindepth 1 \( -type l -o \( \
-      ! -path ./guidance.md ! -path ./review.md ! -path ./README.md \
+      ! -path ./guidance.md ! -path ./review.md ! -path ./README.md "${checks[@]}" \
       ! -path ./agents ! -path './agents/*.md' ! -path ./skills ! -path './skills/?*/*' ! -path './skills/?*' \
       \) \) -print) | sed 's|^\./||' | sort \
     | awk 'last != "" && index($0, last "/") == 1 { next } { print; last = $0 }'
@@ -189,20 +193,27 @@ agent_sandbox_dir() { mkdir -p "$RUNNER_TEMP/agent-tmp" && echo "$RUNNER_TEMP/ag
 # agent_settings <profile>: the --settings JSON for a profile. For build and
 # review, Claude Code's sandbox for every shell command and what it starts:
 # no reading the home folder (where the runner's credentials live) except the
-# repository and the temp folder; writes only to those (review: only the temp
-# folder); network to localhost only; it fails rather than run a command
+# repository, the temp folder and the toolchain; writes only to the
+# repository and the temp folder (review: only the temp folder); network to
+# localhost only; it fails rather than run a command
 # unsandboxed, and a --settings file closes these settings to the project.
 agent_settings() {
-  local temp
+  local temp toolchain=""
   if [ "$1" = read-only ]; then jq -nc '{disableAllHooks: true, disableBundledSkills: true}'; return; fi
   temp=$(agent_sandbox_dir)
+  # The Node the workflow set up from the repository's declared version
+  # (lib/toolchain.sh): readable (only that folder of the home folder), and
+  # first on the commands' PATH — so the agent runs the repository's checks
+  # with the same Node as the hub's verify step and CI.
+  if command -v node > /dev/null; then toolchain=$(cd "$(dirname "$(command -v node)")/.." && pwd -P); fi
   jq -nc --arg home "$HOME" --arg repo "$(pwd -P)" --arg temp "$temp" --arg profile "$1" \
-      --argjson denied "$AGENT_DENIED_PATHS" '{
+      --arg toolchain "$toolchain" --arg path "$PATH" --argjson denied "$AGENT_DENIED_PATHS" '{
     disableAllHooks: true, disableBundledSkills: true,
+    env: {PATH: $path},
     permissions: {deny: [$denied[] | "Edit(./\(.))", "Write(./\(.))"]},
     sandbox: {
       enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true,
-      filesystem: {denyRead: [$home], allowRead: [$repo, $temp],
+      filesystem: {denyRead: [$home], allowRead: ([$repo, $temp] + (if $toolchain != "" then [$toolchain] else [] end)),
         allowWrite: (if $profile == "build" then [$repo, $temp] else [$temp] end)},
       network: {allowedDomains: ["localhost", "127.0.0.1"], allowLocalBinding: true}}}'
 }

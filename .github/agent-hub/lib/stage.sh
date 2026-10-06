@@ -168,6 +168,9 @@ stage_report_failure() {
   if [ "$current" = "$2" ] || [ "$current" = "$moved" ]; then
     tracker_labels "+$NEEDS_HUMAN_LABEL"
   fi
+  # A stage can add what a failure left for a person (the build: the output of
+  # the checks that failed), from a step that had no tracker access.
+  if declare -F stage_failure_details > /dev/null; then stage_failure_details || true; fi
 }
 
 # stage_transition_id <status>: the id of the transition into <status>, or

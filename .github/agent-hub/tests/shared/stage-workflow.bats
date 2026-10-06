@@ -110,6 +110,11 @@ check_extensions() { # <extensions folder>: prints each problem
     RUNNER_TEMP="$BATS_TEST_TMPDIR" bash -c 'source "$1" && agent_extension_problems "$2"' _ \
       "$HUB_LIB/runners/claude-code.sh" "$1/$dir" | sed "s|^|$dir: |"
   done
+  # The build's checks, read as the verify step reads them.
+  if [ -f "$1/build/checks.json" ]; then
+    bash -c 'source "$1"; build_checks_list' _ "$HUB_DIR/stages/build/stage.sh" < "$1/build/checks.json" > /dev/null \
+      || echo "build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
+  fi
 }
 
 @test "the repository's extensions are for real stages and hold only what an extension may" {
@@ -120,12 +125,17 @@ check_extensions() { # <extensions folder>: prints each problem
 
 @test "the extensions check catches misnamed folders and files an extension can't contain" {
   local ext="$BATS_TEST_TMPDIR/ext"
-  mkdir -p "$ext/shared/agents" "$ext/work-order/skills/style" "$ext/work_order" "$ext/implementation-plan/hooks"
+  mkdir -p "$ext/shared/agents" "$ext/work-order/skills/style" "$ext/work_order" "$ext/implementation-plan/hooks" "$ext/build"
   touch "$ext/shared/guidance.md" "$ext/shared/agents/expert.md" "$ext/work-order/skills/style/SKILL.md" \
     "$ext/work_order/guidance.md" "$ext/implementation-plan/hooks/hooks.json"
+  # checks.json: the build's only, and valid.
+  echo '{"checks": [{"name": "unit"}]}' > "$ext/build/checks.json"
+  echo '{"checks": []}' > "$ext/shared/checks.json"
   run check_extensions "$ext"
   assert_output "implementation-plan: hooks
-work_order: not shared or a stage"
+shared: checks.json
+work_order: not shared or a stage
+build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
 }
 
 # A new stage can't go untested by forgetting to add it to the suite.
