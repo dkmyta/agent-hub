@@ -76,6 +76,21 @@ claude_step() { # <fixture, in fixtures/claude or a full path> [jq edit to apply
   assert_output --partial "../outside.md (outside the repository)"
 }
 
+@test "rejects: dependency changes in a folder that isn't an npm project with a lockfile (before anyone approves the plan)" {
+  # The repository root here has no package-lock.json; .github/ is for people.
+  claude_step ready.json '.structured_output.plan.governance.includes.dependencies = true
+    | .structured_output.plan.governance.dependency_changes = [
+        {folder: ".", package: "left-pad", action: "add", version_range: "^1.3.0", kind: "runtime"},
+        {folder: ".github/agent-hub/tests", package: "x", action: "add", version_range: "^1", kind: "dev"}]'
+  assert_failure
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "name 2 folder(s) the build can't apply them in"
+  assert_output --partial "Folders: . (not an npm project with a package.json and package-lock.json), .github/agent-hub/tests (for a person to change)"
+  # Never in the log (the folders come from Claude).
+  run grep -c "Folders:" "$RUNNER_TEMP/log.txt"
+  assert_output 0
+}
+
 # The path check itself, in a folder with links in and out of it.
 @test "plan paths: inside the repository only — no absolute paths, '..' or links leading out" {
   mkdir -p "$BATS_TEST_TMPDIR/repo/docs" && cd "$BATS_TEST_TMPDIR/repo"
@@ -83,11 +98,16 @@ claude_step() { # <fixture, in fixtures/claude or a full path> [jq edit to apply
   ln -s /etc/hosts docs/out-link.md
   ln -s real.md docs/in-link.md
   ln -s /etc docs/out-dir
+  # Links to links: resolved all the way (in, and out).
+  ln -s in-link.md docs/in-link-2.md
+  ln -s out-link.md docs/out-link-2.md
   source "$HUB_DIR/lib/paths.sh"
   source "$HUB_DIR/stages/implementation-plan/stage.sh"
   run _plan_path_problem modify docs/real.md;     assert_output ""
   run _plan_path_problem modify ./docs/real.md;   assert_output ""
   run _plan_path_problem modify docs/in-link.md;  assert_output ""
+  run _plan_path_problem modify docs/in-link-2.md; assert_output ""
+  run _plan_path_problem modify docs/out-link-2.md; assert_output "outside the repository"
   run _plan_path_problem add docs/new/deeper.md;  assert_output ""
   # Workflows, Claude Code's settings and code owners are manual changes.
   local refused

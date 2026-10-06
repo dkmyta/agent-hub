@@ -15,6 +15,7 @@ unless they start with `.github/`.
     agent-hub-<stage>.yml         one per stage: trigger, concurrency, time limits
     agent-hub-tests.yml           lint and tests, when the hub changes
     agent-hub-evals.yml           live Claude evals, manual only
+    agent-hub-sandbox-check.yml   the sandbox check on the pipeline's runner, manual only
   ISSUE_TEMPLATE/
     agent-hub-request.yml         the intake form (GitHub Projects only)
   agent-hub-extensions/           the repository's own additions, per stage (optional; docs/extending.md)
@@ -461,10 +462,10 @@ re-running the automated review after changes.
 - **Credentials never go on a command line**: the Jira tracker hands them to `curl`
   through a file only the runner's user can read, removed when the step ends.
 - **Downloads are pinned**: third-party binaries are checked against pinned
-  checksums, `npm ci` runs with `--ignore-scripts`, and Dependabot keeps actions
-  and packages current. The workflows use only GitHub's own actions
-  (`actions/*`), by major version; pin them to commit SHAs if your policy
-  requires it (Dependabot updates SHA pins too).
+  checksums, `npm ci` runs with `--ignore-scripts`, and every action is
+  pinned to a full commit SHA. In the hub's own repository Dependabot keeps
+  the actions and packages current; a repository that installs the hub gets
+  those updates with each hub release ([updating.md](updating.md)).
 - `actions/checkout` with `persist-credentials: false`, and a sparse checkout
   that leaves out recorded test data (`tests/*/fixtures`, `scenarios`, `evals`,
   `expected`), so Claude can't copy a past answer. The evals mirror it.

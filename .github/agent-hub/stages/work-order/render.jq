@@ -13,11 +13,22 @@
 #   jq -L "$HUB_DIR/lib" -f render.jq --arg mode edited --slurpfile updates U --slurpfile before B description.json
 #       the headings U changes whose text differs from B (the description
 #       the run started from): edited by a person while the run worked
+#   jq -e -L "$HUB_DIR/lib" -f render.jq --arg mode recognise description.json
+#       whether the description is already a work order (to revise, not
+#       replace): the review line the stage writes first, or at least three
+#       of the group headings below at their level (h3) — so a request that
+#       happens to use "Overview" or "Scope" isn't mistaken for one, while a
+#       work order with a heading or the review line removed by hand still is
 #
 # Later stages replace the Delivery placeholders by heading, so keep those
 # headings stable.
 
 include "adf";
+
+# The work order's groups, in order: its h3 headings. The one list the
+# rendering and the recognising below use (a test checks the rendering
+# matches it).
+def group_headings: ["Overview", "Scope", "Developer Notes", "Risk & Open Questions", "Delivery"];
 
 # Each field's heading (summary has none: it opens the Overview group).
 def field_heading($group; $field): {
@@ -57,7 +68,11 @@ def updated_blocks($h):
         | select(.key > $i and .value.type == "heading") | .key][0] // (.content | length))] end
   else section_blocks($h) end;
 
-if ($ARGS.named.mode // "full") == "missing" then
+if ($ARGS.named.mode // "full") == "recognise" then
+  (.content // [])
+  | ((.[0] // {} | plain_text) | startswith("Expert review:"))
+    or ([.[] | select(.type == "heading" and .attrs.level == 3) | plain_text | select(IN(group_headings[]))] | length >= 3)
+elif ($ARGS.named.mode // "full") == "missing" then
   . as $doc | [updated_headings[] | select(. as $h | $doc | section_index($h) == null)]
 elif ($ARGS.named.mode // "full") == "edited" then
   . as $doc | $ARGS.named.before[0] as $before

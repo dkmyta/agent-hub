@@ -82,6 +82,12 @@ stage_fail() {
   exit 1
 }
 
+# stage_retry <instructions>: how to try again after this failure, instead of
+# the stage's usual way (RETRY_INSTRUCTIONS, or /revise) — for a failure a
+# plain retry can't get past (e.g. the build's existing pull request). Call it
+# before stage_fail.
+stage_retry() { printf '%s\n' "$1" > "$RUNNER_TEMP/retry-instructions"; }
+
 # stage_start_status [default]: the status the ticket was in when the run
 # started (default if the run failed before fetching it).
 stage_start_status() { cat "$RUNNER_TEMP/start-status" 2>/dev/null || echo "${1:-}"; }
@@ -142,8 +148,10 @@ stage_move() {
 # stage_report_failure <title> <start status>: turn the progress comment into
 # the failure notice (or post one if there's no progress comment — never
 # posted, or already gone), with the reason when a step gave one (stage_fail)
-# and how to retry (the stage's RETRY_INSTRUCTIONS, or a /revise comment or a
-# re-run), naming the status the ticket is in now. Adds
+# and how to retry (stage_retry's, the stage's RETRY_INSTRUCTIONS, or a
+# /revise comment or a re-run), naming the status the ticket is in now. Every
+# failure reason leaves the how to this line, so the advice always fits the
+# stage. Adds
 # NEEDS_HUMAN_LABEL — a person has to act — only while the ticket is where the
 # run started or moved it; a ticket a person has moved on isn't relabelled.
 stage_report_failure() {
@@ -152,7 +160,7 @@ stage_report_failure() {
   current=$(tracker_status 2> /dev/null) || current=$2
   moved=$(cat "$RUNNER_TEMP/moved-to" 2> /dev/null || true)
   body=$(jq -n -L "$HUB_DIR/lib" --arg title "$1" --arg status "$current" --arg run "$RUN_URL" \
-    --arg retry "${RETRY_INSTRUCTIONS:-}" \
+    --arg retry "$(cat "$RUNNER_TEMP/retry-instructions" 2> /dev/null || printf '%s' "${RETRY_INSTRUCTIONS:-}")" \
     --rawfile reason <(cat "$RUNNER_TEMP/failure-reason" 2>/dev/null) 'include "adf";
     doc((if ($reason | rtrimstr("\n")) != "" then [para([strong("Why: "), text($reason | rtrimstr("\n"))])] else [] end) as $why
       | [para([strong($title),
@@ -180,7 +188,7 @@ stage_transition_id() {
   local id
   id=$(tracker_transition_id "$1")
   if [ -z "$id" ]; then
-    stage_fail "$TRACKER_NAME has no transition from this ticket's status to '$1', so nothing was changed. Allow that transition in the $TRACKER_NAME workflow ($TRACKER_DOC#transitions), then comment $REVISE_COMMAND to try again." >&2
+    stage_fail "$TRACKER_NAME has no transition from this ticket's status to '$1', so nothing was changed. Allow that transition in the $TRACKER_NAME workflow ($TRACKER_DOC#transitions), then try again." >&2
   fi
   echo "$id"
 }

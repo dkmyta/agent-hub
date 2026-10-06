@@ -1,0 +1,15 @@
+# Who reviews changes (GitHub requests their review automatically). The agent
+# hub never changes this file, .github/ or .claude/: a person does.
+# Requiring code-owner review in branch protection waits until the hub's
+# pull requests come from its machine user (GitHub never lets you approve
+# your own pull request): .github/agent-hub/docs/workflows/build.md.
+
+# Everything.
+*                       @dkmyta
+
+# The paths only people change (.github/agent-hub/lib/paths.sh,
+# HUB_MANAGED_PATHS): last, because the last matching line wins — they stay
+# with the owner even if the line above is changed to share other code.
+/.github/               @dkmyta
+/.claude/               @dkmyta
+CODEOWNERS              @dkmyta

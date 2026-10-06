@@ -66,3 +66,12 @@ x"
   assert_failure
   assert_output --partial "unknown part 'tracer'"
 }
+
+@test "a tracker or runner that isn't one of the hub's: refused by name, before anything loads" {
+  run bash -c 'STAGE=work-order RUNNER_TEMP="$1" VARS="{\"AGENT_HUB_TRACKER\": \"../../tmp/x\"}" source "$2/lib/load.sh" tracker' _ "$BATS_TEST_TMPDIR" "$HUB_DIR"
+  assert_failure
+  assert_output --partial "AGENT_HUB_TRACKER is '../../tmp/x', which isn't one of the hub's trackers (jira)"
+  run bash -c 'STAGE=work-order RUNNER_TEMP="$1" VARS="{\"AGENT_HUB_RUNNER\": \"codex\"}" source "$2/lib/load.sh" agent' _ "$BATS_TEST_TMPDIR" "$HUB_DIR"
+  assert_failure
+  assert_output --partial "AGENT_HUB_RUNNER is 'codex', which isn't one of the hub's agent runners (claude-code)"
+}

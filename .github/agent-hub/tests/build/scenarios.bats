@@ -287,6 +287,12 @@ test/greet.test.js expected"
   run_scenario ready MOCK_GH_PRS_FIXTURE="$BATS_TEST_TMPDIR/open.json"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "already has the hub's pull request #100"
+  # The comment says what a person does first — not "approve again or
+  # re-run", which would stop here again. (It failed before the progress
+  # comment, so the notice is a comment of its own.)
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | tostring' "$CALLS"
+  assert_output --partial "To try again, close pull request #100 and delete agent-hub/PROJ-99"
+  refute_output --partial "re-run"
   run_scenario ready MOCK_GH_PRS_FIXTURE="$BATS_TEST_TMPDIR/closed.json"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "closed unmerged and its branch is still there"
@@ -831,4 +837,17 @@ stops() {
   run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
   assert_output --partial "Claude, via a logged-in Claude account (pro): 2.41 USD API-equivalent, counted against the plan’s usage limits"
   refute_output --partial "private-person@example.com"
+}
+
+@test "a build that Claude can't finish (no usable result, or its budget cap): the comment's retry advice is the build's, never /revise" {
+  for fixture in none claude/budget-exceeded.json; do
+    fresh_repo
+    [ "$fixture" = none ] || cp "$TESTS_DIR/work-order/fixtures/claude/budget-exceeded.json" "$BATS_TEST_TMPDIR/budget.json"
+    run_scenario ready CLAUDE_FIXTURE="$([ "$fixture" = none ] && echo none || echo "$BATS_TEST_TMPDIR/budget.json")" CLAUDE_EXIT=1
+    run trace
+    assert_line "Agent: failure"
+    run failure_notice
+    assert_output --partial "To try again, move the ticket back to Implementation Plan and approve it again"
+    refute_output --partial "/revise"
+  done
 }

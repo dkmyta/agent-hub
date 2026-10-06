@@ -25,11 +25,19 @@ hub's files (this folder, `.github/workflows/agent-hub-*.yml` and
   the test suite yourself before opening a pull request when you've changed
   code (about 5 minutes in parallel: `npm test --prefix .github/agent-hub/tests`).
 - **In CI, as the gate**: `.github/workflows/agent-hub-tests.yml` runs the
-  same checks on every pull request that changes the hub, and the tests on jq
-  1.7 and 1.8. The required status checks for merging are **Agent hub: Lint**
-  and **Agent hub: Test** (which passes only if every jq version passed); both
+  same checks on every pull request that changes the hub, the tests on jq
+  1.7 and 1.8, and the stages' scenarios on macOS with its own Bash 3.2. The
+  required status checks for merging are **Agent hub: Lint** and **Agent hub:
+  Test** (which passes only if every jq version and macOS passed); both
   report success on pull requests that don't touch the hub, so they can stay
   required.
+- **Some tests need the network, by design**: the secret scan, sandbox and
+  dependency-step tests run the real gitleaks, sandbox runtime and npm
+  registry, because a mock can't show a boundary holding. Locally they skip
+  without a network; in CI they fail instead, so a missing tool never passes
+  silently. If one fails in CI because a download or the registry was down
+  (the log shows a network error, not a wrong result), re-run the failed
+  jobs.
 
 | Check | When | What it catches |
 |---|---|---|
@@ -45,7 +53,9 @@ Run them by hand with
 ## Keeping tools up to date
 
 - **Dependabot** opens monthly pull requests for the workflows' actions and the
-  test dependencies (`.github/dependabot.yml`); CI checks each one.
+  test dependencies (`.github/dependabot.yml`); CI checks each one. That
+  file is this repository's own: repositories that install the hub get these
+  updates with hub releases.
 - **Pre-commit hooks**: run `pre-commit autoupdate --config .github/agent-hub/.pre-commit-config.yaml` now and then, and commit
   the updated `.pre-commit-config.yaml`.
 - **Pinned downloads**: CI verifies the jq binaries it downloads against pinned

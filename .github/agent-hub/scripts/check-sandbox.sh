@@ -46,7 +46,10 @@ fi
 # Everything happens in a folder under the home folder, removed when done,
 # with Claude Code's temp files for these sessions.
 P=$(mktemp -d "$HOME/.agent-hub-sandbox-check.XXXXXX")
-trap 'rm -rf "$P" /tmp/claude-$(id -u)/*agent-hub-sandbox-check* 2> /dev/null' EXIT
+# (Claude Code also records the sessions' project folder, named after the
+# copy's path with every character but letters and digits as -: removed too.)
+trap 'rm -rf "$P" /tmp/claude-$(id -u)/*agent-hub-sandbox-check* \
+  "$HOME/.claude/projects/$(printf "%s" "$P/repo" | sed "s/[^A-Za-z0-9]/-/g")" 2> /dev/null' EXIT
 rsync -a --exclude .git --exclude node_modules "$REPO/" "$P/repo/"
 
 # Planted secrets, a hostile settings file, and the repository's own setup.

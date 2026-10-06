@@ -15,17 +15,9 @@
 step_fetch() {
   stage_fetch "$WORK_ORDER_STATUS" || exit 0
   # A description that's already a work order is revised rather than
-  # replaced. It's recognised by the review line the workflow writes first
-  # ("Expert review: …"), or by at least three of the work order's five group
-  # headings at their level (h3) — so a request that happens to use
-  # "Overview" or "Scope" as a heading isn't mistaken for one, while a work
-  # order with a heading or the review line removed by hand still is.
-  if jq -e -L "$HUB_DIR/lib" 'include "adf";
-       .fields.description // {content: []}
-       | ((.content[0] // {} | plain_text) | startswith("Expert review:"))
-         or ([.content[] | select(.type == "heading" and .attrs.level == 3) | plain_text
-              | select(IN("Overview", "Scope", "Developer Notes", "Risk & Open Questions", "Delivery"))] | length >= 3)' \
-       "$RUNNER_TEMP/ticket.json" > /dev/null; then
+  # replaced (render.jq, "recognise": the same headings it renders).
+  if jq '.fields.description // {content: []}' "$RUNNER_TEMP/ticket.json" \
+       | jq -e -L "$HUB_DIR/lib" -f "$STAGE_DIR/render.jq" --arg mode recognise > /dev/null; then
     MODE=revision
   else
     MODE=new

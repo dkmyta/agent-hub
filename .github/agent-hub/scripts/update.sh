@@ -2,7 +2,7 @@
 # Installs or updates the agent hub in this repository, from a copy of the hub
 # at the version you want (docs/updating.md):
 #
-#   git clone --depth 1 --branch v1.0.0 <hub repository URL> /tmp/agent-hub
+#   git clone --depth 1 --branch vX.Y.Z <hub repository URL> /tmp/agent-hub
 #   /tmp/agent-hub/.github/agent-hub/scripts/update.sh /tmp/agent-hub [--with-issue-form] [--force]
 #
 # Run it from the root of the repository being installed into or updated.
@@ -124,6 +124,7 @@ as they are. Updating the hub never touches this folder.
     shared/        for every stage
     work-order/    for one stage (the folder name of a stage in .github/agent-hub/stages/)
       guidance.md, review.md, agents/<name>.md, skills/<name>/SKILL.md
+    build/checks.json   the checks the build runs, when package.json's scripts aren't them
 
 How the stages use them, what they can't do, and examples:
 [.github/agent-hub/docs/extending.md](../agent-hub/docs/extending.md).

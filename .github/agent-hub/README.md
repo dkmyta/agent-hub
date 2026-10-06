@@ -50,6 +50,7 @@ with **[docs/setup.md](docs/setup.md)**.
 | [`agent-hub-stage.yml`](../workflows/agent-hub-stage.yml) | Called by the stage workflows above | The steps every stage runs through: fetch the ticket, run the agent, apply the result or send the ticket back | [architecture.md](docs/architecture.md) |
 | [`agent-hub-tests.yml`](../workflows/agent-hub-tests.yml) | Pull requests and pushes to `main` that change the hub | Lint + the test suite | [tests/README.md](tests/README.md) |
 | [`agent-hub-evals.yml`](../workflows/agent-hub-evals.yml) | Manual | Live Claude evals of the agents' decisions | [evals.md](docs/evals.md) |
+| [`agent-hub-sandbox-check.yml`](../workflows/agent-hub-sandbox-check.yml) | Manual | Checks the agents' limits with the real Claude Code, on the pipeline's runner and with its Claude access | [runners.md](docs/runners.md#checking-the-sandbox) |
 
 ## Documentation
 
