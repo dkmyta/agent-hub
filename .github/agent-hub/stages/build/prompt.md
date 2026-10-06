@@ -87,6 +87,8 @@ acceptance criterion can be verified.
   leftovers from an approach you abandoned.
 
 Then return `status: "ready"` with `build`: a `summary` of what changed and why
-(code-level: files and behaviour), a `commit_message`, the `verification` for
+(code-level: files and behaviour; written impersonally, e.g. "Adds…", not "I
+added…" — it goes on the ticket and the pull request as the change's
+description), a `commit_message`, the `verification` for
 every acceptance criterion (word for word, in the work order's order), and
 `tests_run`, `review_steps` and `decision_log`.

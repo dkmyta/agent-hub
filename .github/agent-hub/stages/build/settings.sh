@@ -55,6 +55,11 @@ BUILD_MAX_FILE_LINES=$(stage_setting MAX_FILE_LINES 1000)
 BUILD_INSTALL_MINUTES=$(stage_setting INSTALL_MINUTES 10)
 BUILD_CHECK_MINUTES=$(stage_setting CHECK_MINUTES 10)
 
+# Whether the repository's checks run on the base commit before the agent
+# (docs/workflows/build.md, "Baseline"): stop (a check already failing there
+# stops the build before Claude is used), warn (build anyway) or off.
+BUILD_BASELINE=$(stage_setting BASELINE stop)
+
 # Ticket text in a public repository's pull requests, commits and comments:
 # off unless set to true (docs/workflows/build.md, "Publication policy").
 PUBLISH_TICKET_CONTENT=$(setting AGENT_HUB_PUBLISH_TICKET_CONTENT false)

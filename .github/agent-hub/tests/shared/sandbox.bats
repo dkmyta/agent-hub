@@ -54,6 +54,13 @@ real_srt() {
   assert_equal "$(jq -r '.filesystem.allowWrite | join(" ")' <<< "$output")" "$(cd "$WORK" && pwd -P) $(cd "$RUNNER_TEMP/sandbox" && pwd -P)"
   # The Node the commands run with is readable, wherever it's installed.
   assert_equal "$(jq -r '.filesystem.allowRead[2]' <<< "$output")" "$(cd "$(dirname "$(command -v node)")/.." && pwd -P)"
+  # So are srt's helpers that run inside the sandbox (Linux's seccomp
+  # program), from the job's temp folder — and nothing else of srt's.
+  mkdir -p "$RUNNER_TEMP/agent-hub-srt/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp"
+  run with_sandbox "sandbox_settings check '$WORK'"
+  assert_equal "$(jq -r '.filesystem.allowRead[3]' <<< "$output")" \
+    "$(cd "$RUNNER_TEMP/agent-hub-srt/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp" && pwd -P)"
+  assert_equal "$(jq -r '.filesystem.allowRead | length' <<< "$output")" 4
   run with_sandbox "sandbox_settings check '$WORK'"
   assert_equal "$(jq -c '.network' <<< "$output")" '{"allowedDomains":[],"deniedDomains":[],"allowLocalBinding":true}'
 }
@@ -132,9 +139,10 @@ JS
 
 @test "real sandbox, as on a self-hosted runner: the job's folders inside the denied home folder; Node runs, its output in the log" {
   real_srt
-  # The runner's temp folder (and so the log and the project copy) is in
-  # the home folder. Node aborts on startup when its output is a file it
-  # can't read, so the output reaches the log through a pipe.
+  # The runner's temp folder (and so the log, the project copy and srt
+  # itself) is in the home folder. Node aborts on startup when its output is
+  # a file it can't read, so the output reaches the log through a pipe; on
+  # Linux, srt's seccomp helper runs inside the sandbox, so it's readable.
   export RUNNER_TEMP="$HOME/actions-runner/_work/_temp"
   mkdir -p "$RUNNER_TEMP/verify"
   run with_sandbox "sandbox_run check '$RUNNER_TEMP/verify' 1 '$RUNNER_TEMP/check.log' 'node -e \"console.log(\\\"node: ok\\\")\"; exit 3'"
@@ -142,4 +150,21 @@ JS
   run cat "$RUNNER_TEMP/check.log"
   assert_line "node: ok"
   refute_output --partial SIGABRT
+}
+
+@test "real sandbox runtime: installed per job from a download cache that's checked — a changed cache isn't used" {
+  real_srt
+  local cached
+  # Every cached package replaced, as another job on the runner could.
+  cached=$(find "$RUNNER_TOOL_CACHE/agent-hub/npm-cache/_cacache/content-v2" -type f | wc -l | tr -d ' ')
+  [ "$cached" -gt 0 ] || fail "nothing in the download cache"
+  find "$RUNNER_TOOL_CACHE/agent-hub/npm-cache/_cacache/content-v2" -type f -exec sh -c 'chmod u+w "$1"; printf AGENT-HUB-CHANGED-7 > "$1"' _ {} \;
+  export RUNNER_TEMP="$BATS_TEST_TMPDIR/next-job" && mkdir -p "$RUNNER_TEMP"
+  run with_sandbox 'sandbox_install'
+  assert_success
+  # The genuine packages, downloaded again: none of the changed content.
+  run grep -rl AGENT-HUB-CHANGED-7 "$RUNNER_TEMP/agent-hub-srt/node_modules"
+  assert_failure
+  assert_equal "$(jq -r .version "$RUNNER_TEMP/agent-hub-srt/node_modules/@anthropic-ai/sandbox-runtime/package.json")" \
+    "$(jq -r '.packages["node_modules/@anthropic-ai/sandbox-runtime"].version' "$HUB_DIR/lib/sandbox/package-lock.json")"
 }

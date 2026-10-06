@@ -167,7 +167,10 @@ a project in a subfolder, or a repository that isn't a Node project:
 - **Each check has a time limit** (`AGENT_HUB_BUILD_CHECK_MINUTES`, 10 by
   default, [setup.md](setup.md#4-set-variables-only-what-differs-from-the-defaults)) and runs with your
   dependencies installed, the Node version you declare and no network:
-  checks that need a service or the internet belong in CI.
+  checks that need a service or the internet belong in CI. They also run
+  on the base commit before the agent (the
+  [baseline](workflows/build.md#baseline)), so a check that can't pass in the
+  sandbox stops builds before any Claude usage, until it's left out here.
 - **It's read by the hub, not the agent**, so it isn't loaded into Claude's
   instructions and changing it doesn't post the **Agent behaviour changed**
   notice. The agent is told the checks will be re-run, and runs the

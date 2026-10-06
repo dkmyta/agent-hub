@@ -366,7 +366,7 @@
                       },
                       {
                         "type": "text",
-                        "text": " — expect: Prints Hello, Ada!. "
+                        "text": " — expect: Prints Hello, Ada! "
                       },
                       {
                         "type": "text",
@@ -402,7 +402,7 @@
                       },
                       {
                         "type": "text",
-                        "text": " — expect: The page shows Hello, Ada!. "
+                        "text": " — expect: The page shows Hello, Ada! "
                       },
                       {
                         "type": "text",

@@ -17,6 +17,12 @@
 # Text from Claude or the ticket: no HTML (which could also forge a state
 # block's marker line), one line where a list item needs it.
 def safe: tostring | gsub("<"; "&lt;");
+def unstop: sub("[.\\s]+$"; "");
+def plural($n; $word): "\($n) \($word)" + (if $n == 1 then "" else "s" end);
+# How a criterion is verified, as a phrase: "verified manually", "verified
+# by a new test".
+def verified: if . == "manual" then "verified **manually**"
+  else "verified by **\(if test("^[aeiou]") then "an" else "a" end) \(.)**" end;
 def line: safe | gsub("\\s*\\n\\s*"; " ");
 def code: "`" + (tostring | gsub("`"; "'") | gsub("\\n"; " ")) + "`";
 def section($title; $lines): if ($lines | length) > 0 then "", "## \($title)", "", $lines[] else empty end;
@@ -36,12 +42,12 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
   "> A draft: automated review and the CI gate come in a later version, so a person reviews this before it's marked ready.",
 
   section("What changed"; (if $publish then [$b.summary | safe, ""] else [] end)
-    + ["\($g.totals.files) file(s), \($g.totals.lines) changed line(s):", ""]
+    + ["\(plural($g.totals.files; "file")), \(plural($g.totals.lines; "changed line")):", ""]
     + [$g.files[] | "- \(.path | code) — \(.status | status_word), \(line_counts) — \(.class)" + (if .reason != "" then ": \(.reason)" else "" end)]),
 
   section("Acceptance criteria"; [$b.verification | to_entries[]
     | if $publish then "\(.key + 1). \(.value.criterion | line) — **\(.value.method)**: \(.value.detail | line)"
-      else "\(.key + 1). Criterion \(.key + 1) (on the ticket) — verified by **\(.value.method)**" end]),
+      else "\(.key + 1). Criterion \(.key + 1) (on the ticket) — \(.value.method | verified)" end]),
 
   section("Checks run by the hub"; ["The repository's own checks, run by the hub on exactly this commit, in the sandbox (no network) — the build pushes only a commit they pass on:", ""]
     + (if ($verify[0].checks | length) > 0 then [$verify[0].checks[] | "- \(.command | code) — **\(.result)**"]
@@ -55,10 +61,10 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
        else "- Check \(.key + 1) — **\(.value.result)**" + (if .value.result == "passed" then "" else " (details on the ticket)" end) end]),
 
   section("How to review"; if $publish then [$b.review_steps[]
-      | "- [ ] \(.step | line) — expect: \(.expected | line)"
+      | "- [ ] \(.step | line) — expect: \(.expected | line | unstop)"
         + (if .checked then " (the build saw this)" else " (not checked by the build: \(.result | line))" end)]
     elif ($b.review_steps | length) > 0 then
-      ["\($b.review_steps | length) step(s) with their expected results, \([$b.review_steps[] | select(.checked)] | length) already seen to pass by the build: they're on the ticket, under Testing Instructions."]
+      ["\(plural($b.review_steps | length; "step")) with their expected results, \([$b.review_steps[] | select(.checked)] | length) already seen to pass by the build: they're on the ticket, under Testing Instructions."]
     else [] end),
 
   section("Decision log"; if $publish then [$b.decision_log[]
