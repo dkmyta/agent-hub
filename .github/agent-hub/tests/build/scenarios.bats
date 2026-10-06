@@ -150,7 +150,7 @@ test/greet.test.js expected"
 @test "the agent changed nothing: nothing pushed" {
   run_scenario ready CLAUDE_EDITS=""
   run trace
-  assert_line "Apply: failure"
+  assert_line "Verify: failure"
   assert_equal "$(remote_branches)" "main"
   run failure_notice
   assert_output --partial "changed no files"
@@ -362,7 +362,7 @@ ln src/greet.js src/linked.js
 SH
   run_scenario ready CLAUDE_EDITS="$BATS_TEST_TMPDIR/link.sh"
   run trace
-  assert_line "Apply: failure"
+  assert_line "Verify: failure"
   assert_equal "$(remote_branches)" "main"
   run failure_notice
   assert_output --partial "hard links"
@@ -378,6 +378,12 @@ SH
   [ ! -s "$GH_CALLS" ] || fail "GitHub was called"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "AGENT_HUB_BUILD_MAX_FILES must be a whole number"
+  # A time limit of 0 would be no limit at all.
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_CHECK_MINUTES": "0"}'
+  run trace
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "AGENT_HUB_BUILD_CHECK_MINUTES must be a whole number of minutes, at least 1"
 }
 
 @test "not in Implementation Plan Approved: nothing happens" {
@@ -387,4 +393,129 @@ SH
   run writes
   assert_output ""
   [ ! -s "$GH_CALLS" ] || fail "GitHub was called"
+}
+
+# srt_calls: the sandbox runtime's calls (the stand-in's record, lib/bin/srt).
+srt_calls() { cat "$RUNNER_TEMP/sandbox/srt-calls.jsonl" 2> /dev/null || true; }
+
+@test "the hub's checks: run on the build's commit in the sandbox with no network, shown as the hub's on the pull request and ticket" {
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  run trace
+  assert_line "Verify: success"
+  assert_line "Apply: success"
+  # One check (the fixture's test script), sandboxed: no network but
+  # localhost, the home folder unreadable, writes only to its copy and temp.
+  run srt_calls
+  assert_equal "$(jq -s 'length' <<< "$output")" 1
+  assert_equal "$(jq -r '.command' <<< "$output")" "npm run test"
+  assert_equal "$(jq -c '.settings.network' <<< "$output")" '{"allowedDomains":[],"deniedDomains":[],"allowLocalBinding":true}'
+  assert_equal "$(jq -r '.settings.filesystem.denyRead[0]' <<< "$output")" "$HOME"
+  assert_equal "$(jq -r '.cwd' <<< "$output")" "$(cd "$RUNNER_TEMP/verify" && pwd -P)"
+  assert_equal "$(jq -r '.settings.filesystem.allowWrite | length' <<< "$output")" 2
+  # The run log names the check and its result, nothing it printed.
+  run grep -c "^Check test: passed" "$RUNNER_TEMP/log.txt"
+  assert_output 1
+  run grep -c "greets by name" "$RUNNER_TEMP/log.txt"
+  assert_output 0
+  # The pull request and the ticket show the hub's result.
+  run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
+  assert_output --partial "Checks run by the hub"
+  assert_output --partial "npm run test"
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | objects | select(.type == "text") | .text] | join("")' "$CALLS"
+  assert_output --partial "npm run test"
+}
+
+@test "a check fails on the build's commit: nothing pushed, its output on the ticket only" {
+  run_scenario ready CLAUDE_EDITS=edits/failing-test.sh
+  run trace
+  assert_line "Verify: failure"
+  assert_line "Apply: skipped"
+  assert_equal "$(remote_branches)" "main"
+  [ ! -s "$GH_CALLS" ] || [ "$(jq -s 'map(select(.method != "GET")) | length' "$GH_CALLS")" = 0 ] || fail "GitHub was written to"
+  run failure_notice
+  assert_output --partial "test (failed)"
+  assert_output --partial "Nothing was pushed"
+  # The next comment: the command and the end of its output.
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | tostring' "$CALLS"
+  assert_output --partial "🧪 Checks that failed"
+  assert_output --partial "npm run test"
+  assert_output --partial "Bonjour, Ada!"
+  # Never in the run log.
+  run grep -c "Bonjour" "$RUNNER_TEMP/log.txt"
+  assert_output 0
+  assert_valid_adf "$CALLS"
+}
+
+@test "a Node project that doesn't declare its Node version: nothing built, before Claude" {
+  rm "$STEP_CWD/.nvmrc" && change_main "No .nvmrc"
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  run trace
+  assert_line "Fetch ticket: failure"
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "doesn't declare its Node version"
+  assert_output --partial "Add an .nvmrc"
+}
+
+@test "dependencies without a lockfile: nothing built, before Claude" {
+  jq '.dependencies = {"left-pad": "1.3.0"}' "$STEP_CWD/package.json" > "$BATS_TEST_TMPDIR/package.json"
+  cp "$BATS_TEST_TMPDIR/package.json" "$STEP_CWD/package.json"
+  change_main "A dependency"
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  run trace
+  assert_line "Install dependencies: failure"
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "no lockfile"
+}
+
+@test "the install: npm ci from the lockfile, sandboxed with the registries only; one that changes the repository stops the build" {
+  # A stand-in npm that records its arguments; with DIRTY set, it also
+  # leaves a file the repository doesn't ignore.
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat > "$BATS_TEST_TMPDIR/bin/npm" <<SH
+#!/usr/bin/env bash
+case "\$1" in ci) echo "\$*" >> "$BATS_TEST_TMPDIR/npm-calls"; [ ! -f "$BATS_TEST_TMPDIR/dirty" ] || touch installed.txt ;;
+  *) exec "$(command -v npm)" "\$@" ;; esac
+SH
+  chmod +x "$BATS_TEST_TMPDIR/bin/npm"
+  echo '{"lockfileVersion": 3, "packages": {}}' > "$STEP_CWD/package-lock.json"
+  change_main "A lockfile"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  run trace
+  assert_line "Install dependencies: success"
+  assert_line "Verify: success"
+  # Installed twice: in the checkout for the agent, and in the verify copy.
+  run cat "$BATS_TEST_TMPDIR/npm-calls"
+  assert_equal "$output" "ci --no-audit --no-fund
+ci --no-audit --no-fund"
+  run srt_calls
+  assert_equal "$(jq -sc 'map(select(.command | startswith("npm ci"))) | .[0].settings.network' <<< "$output")" \
+    '{"allowedDomains":["registry.npmjs.org","registry.yarnpkg.com","repo.yarnpkg.com"],"deniedDomains":[],"allowLocalBinding":false}'
+
+  fresh_repo
+  echo '{"lockfileVersion": 3, "packages": {}}' > "$STEP_CWD/package-lock.json"
+  change_main "A lockfile"
+  touch "$BATS_TEST_TMPDIR/dirty"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  run trace
+  assert_line "Install dependencies: failure"
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "changed files in the repository"
+}
+
+@test "only the commit the checks passed on is pushed" {
+  run_scenario ready CANCEL_AFTER=verify
+  run trace
+  assert_line "Verify: success"
+  assert_line "Apply: skipped"
+  # Apply, with the verify result naming another commit.
+  jq '.head = "0000000000000000000000000000000000000000"' "$RUNNER_TEMP/verify.json" > "$BATS_TEST_TMPDIR/verify.json"
+  cp "$BATS_TEST_TMPDIR/verify.json" "$RUNNER_TEMP/verify.json"
+  run run_step "$STEPS" apply
+  assert_failure
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "isn't the one the checks passed on"
+  assert_equal "$(remote_branches)" "main"
 }

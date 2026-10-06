@@ -20,6 +20,7 @@ Installing the hub creates the folder with a README if it doesn't exist yet
 | `agents/<name>.md` | Both passes | Codebase experts ([Claude Code subagents](https://code.claude.com/docs/en/sub-agents)) the agent can ask about a part of the code |
 | `skills/<name>/SKILL.md` (plus any files it uses) | Both passes | Know-how the agent loads when it's relevant ([Claude Code skills](https://code.claude.com/docs/en/skills)) |
 | `README.md` | People only | Notes for whoever maintains the extensions |
+| `checks.json` (in `build/` only) | The build's verify step — the hub, not the agent | The checks the hub runs on every build's commit, when your `package.json` scripts aren't the right ones ([below](#the-builds-checks)) |
 
 Put each in **`shared/`** to apply to every stage, or in a folder named after
 the stage (`work-order/`, `implementation-plan/`, later stages by their folder
@@ -74,7 +75,7 @@ differs per stage.
 
 Extensions add knowledge, never permissions:
 
-- **Only the files above.** Anything else — hooks, an MCP server config
+- **Only the files above** (`checks.json` only in `build/`). Anything else — hooks, an MCP server config
   (`.mcp.json`), a plugin manifest (`.claude-plugin/`), settings, commands,
   symbolic links, folders inside `agents/` — stops the run before Claude
   starts, with a failure comment naming it. CI catches it earlier: the hub's
@@ -136,6 +137,42 @@ description: The team's writing conventions for tickets and plans. Use whenever 
 - Feature flags are named `ff_<team>_<feature>`.
 ```
 
+## The build's checks
+
+The build's verify step runs your repository's checks on the build's commit,
+in the hub's sandbox (no network but localhost), and pushes nothing if one
+fails ([build.md](workflows/build.md#verify)). By default the checks are the
+`package.json` scripts named `test`, `lint`, `typecheck` (or `type-check`)
+and `build`. `build/checks.json` replaces them — for checks with other names,
+a project in a subfolder, or a repository that isn't a Node project:
+
+```json
+{
+  "checks": [
+    { "name": "unit tests", "command": "npm --prefix web test" },
+    { "name": "types", "command": "npm --prefix web run typecheck" }
+  ]
+}
+```
+
+- **Each check** has a `name` (shown on the pull request and the ticket) and
+  a `command`, run with `bash` from the repository root; a non-zero exit is
+  a failure. Neither may contain a tab or a line break.
+- **Read from the plan's base commit**, as the repository was before the
+  agent ran: a build can't change which checks judge it, and a change to
+  `checks.json` applies from the next plan written after it's merged.
+- **`{"checks": []}`** runs none. A file that isn't valid stops the build
+  before anything is pushed; CI catches it earlier (the hub's tests read it
+  as the verify step does).
+- **Each check has a time limit** (`AGENT_HUB_BUILD_CHECK_MINUTES`, 10 by
+  default, [setup.md](setup.md#4-set-variables-only-what-differs-from-the-defaults)) and runs with your
+  dependencies installed, the Node version you declare and no network:
+  checks that need a service or the internet belong in CI.
+- **It's read by the hub, not the agent**, so it isn't loaded into Claude's
+  instructions and changing it doesn't post the **Agent behaviour changed**
+  notice. The agent is told the checks will be re-run, and runs the
+  repository's checks itself first.
+
 ## Writing good extensions
 
 - **Say where and how, not the answer.** Point to the code and docs that
@@ -159,7 +196,8 @@ description: The team's writing conventions for tickets and plans. Use whenever 
    files.
 2. **Open a pull request.** CI runs the hub's checks on extension changes,
    and posts the **Agent behaviour changed** notice naming the stages the
-   change affects (all of them for `shared/`; README edits don't count).
+   change affects (all of them for `shared/`; README and `build/checks.json`
+   edits don't count).
 3. **Try it** on a real ticket, or — if it's worth the cost — run **Agent
    hub: Evals** for those stages ([evals.md](evals.md)). The run log's
    "Repository extensions: …" line shows what was loaded.

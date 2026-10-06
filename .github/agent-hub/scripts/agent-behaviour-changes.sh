@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Lists changes between <base> and HEAD that can change how the agents decide
 # — prompts, review and revision standards (lib/*.md), output schemas, how
-# the agent is run (lib/runners/), the repository's extensions, and Claude
-# settings —
+# the agent is run (lib/runners/), the repository's extensions (not their
+# READMEs, or build/checks.json, which the hub reads, not the agent), and
+# Claude settings —
 # so CI can remind the author to run the evals (Agent hub: Evals). Prints nothing if none.
 #
 # With --stages, prints which stages' evals to run instead: one per line, or
@@ -20,7 +21,8 @@ EXT=.github/agent-hub-extensions
 
 changes() {
   git diff --name-only "$base"...HEAD -- "$HUB/stages/*/prompt.md" "$HUB/stages/*/schema.json" \
-    "$HUB/stages/*/review.md" "$HUB/lib/*.md" "$HUB/lib/runners/*" "$EXT/*" ":(exclude,glob)$EXT/**/README.md"
+    "$HUB/stages/*/review.md" "$HUB/lib/*.md" "$HUB/lib/runners/*" "$EXT/*" ":(exclude,glob)$EXT/**/README.md" \
+    ":(exclude)$EXT/build/checks.json"
 
   # Claude settings — model, fallback, budget, fetch domains, allowed tools —
   # in the settings files and the agent-hub workflows.

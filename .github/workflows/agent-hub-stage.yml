@@ -96,6 +96,39 @@ jobs:
           cp -R .github/agent-hub/lib .github/agent-hub/stages .github/agent-hub/trackers \
             .github/agent-hub/VERSION "$RUNNER_TEMP/agent-hub/"
 
+      # Code stages run the repository's code (installs, checks, the agent's
+      # commands): with the Node version it declares, set up before anything
+      # runs (lib/toolchain.sh) — or, for a repository that isn't a Node
+      # project, the version the hub's sandbox runtime runs on.
+      - name: Find the toolchain
+        id: toolchain
+        if: inputs.code-stage
+        timeout-minutes: 1
+        run: |
+          source "$RUNNER_TEMP/agent-hub/lib/toolchain.sh"
+          toolchain_outputs >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node
+        if: inputs.code-stage
+        timeout-minutes: 5
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ${{ steps.toolchain.outputs.node-version-file }}
+          node-version: ${{ steps.toolchain.outputs.node-version }}
+          # No cache shared between runs: every build installs from the lockfile.
+          package-manager-cache: false
+
+      # What the sandboxes need on Linux (macOS has it built in); self-hosted
+      # Linux runners have them installed (.github/agent-hub/docs/runners.md).
+      - name: Install sandbox tools
+        if: inputs.code-stage && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep
+          # Ubuntu 24.04 restricts the user namespaces both sandboxes use.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 2> /dev/null || true
+
       # GitHub-hosted runners don't have Claude Code; self-hosted runners have
       # it installed (see .github/agent-hub/docs/runners.md).
       - name: Install Claude Code
@@ -121,6 +154,16 @@ jobs:
           source "$RUNNER_TEMP/agent-hub/lib/load.sh" tracker
           step_fetch
 
+      # Code stages: the repository's dependencies, from its lockfile, in the
+      # sandbox (registries only) — no agent, no secrets.
+      - name: Install dependencies
+        id: install
+        if: inputs.code-stage && steps.start.outputs.proceed == 'true'
+        timeout-minutes: 15
+        run: |
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" sandbox
+          step_install
+
       # The only step that uses Claude, and it never gets the tracker's
       # credentials: it can't change the ticket, only return a result.
       - name: Agent (draft and review)
@@ -134,6 +177,18 @@ jobs:
         run: |
           source "$RUNNER_TEMP/agent-hub/lib/load.sh" agent
           step_agent
+
+      # Code stages: the agent's changes committed (with the metadata copied
+      # before it ran) and the repository's checks run on exactly that commit,
+      # in the sandbox (no network) — no agent, no secrets. Apply pushes only
+      # a commit that passed.
+      - name: Verify
+        id: verify
+        if: inputs.code-stage && steps.agent.outputs.status == 'ready'
+        timeout-minutes: 30
+        run: |
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" sandbox
+          step_verify
 
       - name: Apply to ticket
         id: apply

@@ -5,11 +5,13 @@
 # with code-stage on) with the settings, tracker, GitHub library and shared
 # libraries already loaded. See docs/workflows/build.md.
 #
-# This version: start (the exact plan approved, its contract, the branch),
-# validate and build in one agent pass, the gates, the secret scan and the
-# draft pull request with its state block. The install, dependency and verify
-# steps, the review, CI and hand-off come in later versions; until then a
-# person reviews the draft.
+# This version: start (the exact plan approved, its contract, the branch,
+# the declared Node version), the dependencies installed from the lockfile
+# (install), validate and build in one agent pass, the commit and the
+# repository's own checks run on it by the hub (verify), then the gates, the
+# secret scan and the draft pull request with its state block (apply). The
+# dependency step, the review, CI and hand-off come in later versions; until
+# then a person reviews the draft.
 #
 # The agent can change anything in the checkout — .git included — so no
 # later step trusts it: each loads the hub from the workflow's copy, and git
@@ -39,9 +41,14 @@ step_fetch() {
   stage_set_mode new
   # Not for real tickets yet (settings.sh): stop before anything else.
   [ "$BUILD_PREVIEW" = true ] \
-    || stage_fail "The build stage isn't enabled for real tickets yet: it needs its install step (the next version) so a build can't depend on whatever the runner has installed. Nothing was built. For development on a project without dependencies, set the repository variable AGENT_HUB_BUILD_PREVIEW to true."
+    || stage_fail "The build stage isn't enabled for real tickets yet: until its agent review and CI gate arrive, a person is its only reviewer. Nothing was built. For development, set the repository variable AGENT_HUB_BUILD_PREVIEW to true."
   _require_pinned_claude
   _require_limits
+  # A Node project builds only with the Node version it declares (the
+  # workflow sets it up): the build's result mustn't depend on the runner.
+  if toolchain_uses_node && [ -z "$(toolchain_node_file)" ]; then
+    stage_fail "The repository is a Node project but doesn't declare its Node version, so the build can't run it the same way every time and nothing was built. Add an .nvmrc (e.g. 22) — or .node-version, or engines.node in package.json — then retry."
+  fi
 
   # The checkout as the workflow made it, and its git metadata kept before
   # any agent runs.
@@ -62,6 +69,7 @@ step_fetch() {
     exit 0
   fi
   _branch
+  _committer
   # The agent gets the work order and the approved plan — not the comments,
   # which nobody approved.
   stage_ticket_markdown
@@ -73,13 +81,18 @@ step_fetch() {
     " — implementing the approved plan; usually takes 10–30 minutes. Refresh the page to see the result. "
 }
 
-# _require_limits: the size limits (settings.sh) are whole numbers — checked
-# before any Claude usage, since the gates can't run without them.
+# _require_limits: the size and time limits (settings.sh) are whole numbers —
+# checked before any Claude usage, since the gates and steps need them.
 _require_limits() {
   local limit
   for limit in "MAX_FILES=$BUILD_MAX_FILES" "MAX_LINES=$BUILD_MAX_LINES" "MAX_FILE_LINES=$BUILD_MAX_FILE_LINES"; do
     [[ "${limit#*=}" =~ ^[0-9]+$ ]] \
       || stage_fail "The repository variable AGENT_HUB_BUILD_${limit%%=*} must be a whole number, not '${limit#*=}', so nothing was built."
+  done
+  # A time limit of 0 would be none at all.
+  for limit in "INSTALL_MINUTES=$BUILD_INSTALL_MINUTES" "CHECK_MINUTES=$BUILD_CHECK_MINUTES"; do
+    [[ "${limit#*=}" =~ ^[1-9][0-9]*$ ]] \
+      || stage_fail "The repository variable AGENT_HUB_BUILD_${limit%%=*} must be a whole number of minutes, at least 1, not '${limit#*=}', so nothing was built."
   done
 }
 
@@ -272,6 +285,18 @@ _branch() {
     "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
 }
 
+# _committer: the account the token belongs to (the machine user), for the
+# commit the verify step makes (it has no token): its login and its GitHub
+# noreply address (<id>+<login>@users.noreply.github.com), which GitHub
+# attributes to the account — from /user, so the token needs no email
+# permission. Added to build-context.json.
+_committer() {
+  local user
+  user=$(gh_api GET /user) || stage_fail "Couldn't read the machine user from GitHub, so nothing was built."
+  jq --argjson user "$user" '. + {committer: {name: $user.login, email: "\($user.id)+\($user.login)@users.noreply.github.com"}}' \
+    "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
+}
+
 # _approved_after_close <branch>: whether the plan's latest approval came
 # after the branch's pull request was closed. Fails (closed) if either time
 # can't be read.
@@ -298,30 +323,68 @@ step_agent() {
   agent_summary "Build"
 }
 
-# step_apply: Commit, check and push the build, and open its draft pull request.
-step_apply() {
-  local base branch target publish refused findings rc=0 number user message title url
-  stage_require_status "$PLAN_APPROVED_STATUS"
-  build_git
-  _require_same_plan
-  base=$(context .base) branch=$(context .branch) target=$(context .target) publish=$(context .publish)
+# step_install: Install the repository's dependencies, from its lockfile, in the sandbox.
+step_install() {
+  local rc=0 log="$RUNNER_TEMP/install.log"
+  _install_dependencies "$PWD" "$log" || rc=$?
+  case "$rc" in
+    0) ;;
+    2) stage_fail "The repository has dependencies but no lockfile (package-lock.json, pnpm-lock.yaml or yarn.lock), so they can't be installed the same way every time and nothing was built. Commit a lockfile, then retry." ;;
+    3) stage_fail "The repository's .npmrc points at a private registry or holds credentials, which the build doesn't support yet, so nothing was built." ;;
+    124) stage_fail "Installing the dependencies took longer than $BUILD_INSTALL_MINUTES minutes, so nothing was built. Raise AGENT_HUB_BUILD_INSTALL_MINUTES if it's expected, then retry." ;;
+    125) stage_fail "The sandbox couldn't start for the install ($(tail -n 1 "$log" 2> /dev/null || true)), so nothing was built." ;;
+    *) stage_fail "Installing the dependencies failed (exit $rc), so nothing was built. The install's output is on the runner; retry, and check the lockfile if it fails again." ;;
+  esac
+  # The install changes nothing tracked and leaves nothing untracked: the
+  # agent starts from the repository exactly as it is.
+  [ -z "$(git status --porcelain)" ] \
+    || stage_fail "Installing the dependencies changed files in the repository (a lockfile rewritten, or installed files not ignored — e.g. node_modules/ missing from .gitignore), so nothing was built."
+}
 
+# _install_dependencies <folder> <log>: the frozen install its lockfile asks
+# for, in the sandbox (the registries only), or nothing for a repository
+# without package.json or dependencies. 0 done, 2 dependencies but no
+# lockfile, 3 an unsupported registry, otherwise the install's exit code
+# (sandbox_run: 124 out of time, 125 no sandbox).
+_install_dependencies() {
+  local folder=$1 log=$2 command
+  [ -f "$folder/package.json" ] || { echo "No package.json: nothing to install."; : > "$log"; return 0; }
+  # Credentials or another registry would need secrets the sandbox doesn't
+  # pass, and a registry it doesn't allow.
+  if [ -f "$folder/.npmrc" ] && grep -qiE '(_auth|_authToken|_password|^\s*registry\s*=|:registry\s*=)' "$folder/.npmrc"; then
+    return 3
+  fi
+  if [ -f "$folder/package-lock.json" ] || [ -f "$folder/npm-shrinkwrap.json" ]; then command="npm ci --no-audit --no-fund"
+  elif [ -f "$folder/pnpm-lock.yaml" ]; then command="corepack pnpm install --frozen-lockfile"
+  elif [ -f "$folder/yarn.lock" ]; then
+    # Yarn 2+ (a .yarnrc.yml, or packageManager yarn@2+) or classic Yarn.
+    if [ -f "$folder/.yarnrc.yml" ] || jq -e '.packageManager // "" | test("^yarn@[2-9]")' "$folder/package.json" > /dev/null 2>&1; then
+      command="corepack yarn install --immutable"
+    else command="corepack yarn install --frozen-lockfile"; fi
+  elif jq -e '[.dependencies, .devDependencies, .optionalDependencies] | map(. // {} | length) | add > 0' "$folder/package.json" > /dev/null 2>&1; then
+    return 2
+  else echo "No dependencies: nothing to install."; : > "$log"; return 0
+  fi
+  echo "Installing the dependencies: $command"
+  sandbox_run install "$folder" "$BUILD_INSTALL_MINUTES" "$log" "$command"
+}
+
+# step_verify: Commit the agent's changes and run the repository's checks on exactly that commit, in the sandbox.
+step_verify() {
+  local base publish message clone rc check name command results="[]" started seconds result
+  build_git
+  base=$(context .base) publish=$(context .publish)
   # A hard link would pull in a file from elsewhere on the runner that the
   # sandbox kept the agent from reading (it can't create one today: this is
   # a second line), so a file with more than one link is never committed.
   _refuse_hard_links
-  # Commit everything the agent left in the checkout, as the account the
-  # token belongs to (the machine user): its login and its GitHub noreply
-  # address (<id>+<login>@users.noreply.github.com), which GitHub attributes
-  # to the account — from /user, so the token needs no email permission.
+  # Commit everything the agent left in the checkout, as the machine user.
   git add -A
   if git diff --cached --quiet; then
     stage_fail "Claude reported the build finished but changed no files, so there's nothing to push."
   fi
-  user=$(gh_api GET /user) || stage_fail "Couldn't read the machine user from GitHub, so nothing was pushed."
   export GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
-  GIT_AUTHOR_NAME=$(jq -r '.login' <<< "$user")
-  GIT_AUTHOR_EMAIL="$(jq -r '.id' <<< "$user")+$GIT_AUTHOR_NAME@users.noreply.github.com"
+  GIT_AUTHOR_NAME=$(context .committer.name) GIT_AUTHOR_EMAIL=$(context .committer.email)
   GIT_COMMITTER_NAME=$GIT_AUTHOR_NAME GIT_COMMITTER_EMAIL=$GIT_AUTHOR_EMAIL
   # Claude's message comes from the ticket, so a public repository gets it
   # only if ticket content may be published; trailers in it (Co-authored-by
@@ -331,6 +394,100 @@ step_apply() {
       | grep -viE '^(co-authored-by|signed-off-by|reviewed-by|acked-by|tested-by|refs):' || true)
   else message="Build $TICKET_KEY from its approved implementation plan"; fi
   printf '%s\n\nRefs: %s\n' "$message" "$TICKET_KEY" | git commit -q -F -
+
+  # The checks run on a clean copy of exactly that commit — not the checkout,
+  # which something the agent left running could still change — with its
+  # dependencies installed the same way.
+  clone="$RUNNER_TEMP/verify"
+  rm -rf "$clone"
+  env -u GIT_DIR -u GIT_WORK_TREE git clone -q --no-hardlinks "$BUILD_GIT" "$clone" 2> /dev/null || stage_fail "Couldn't make a copy of the build's commit to check, so nothing was pushed."
+  rc=0
+  _install_dependencies "$clone" "$RUNNER_TEMP/verify-install.log" > /dev/null || rc=$?
+  [ "$rc" = 0 ] || stage_fail "Installing the dependencies for the checks failed (exit $rc), so nothing was pushed."
+  mkdir -p "$RUNNER_TEMP/checks"
+  _checks "$base" > "$RUNNER_TEMP/checks.tsv" || stage_fail "The repository's list of checks (build/checks.json in its extensions) isn't valid, so nothing was pushed. It's {\"checks\": [{\"name\": …, \"command\": …}]} (docs/extending.md)."
+  check=0
+  while IFS=$'\t' read -r name command; do
+    check=$((check + 1))
+    started=$(date +%s) rc=0
+    sandbox_run check "$clone" "$BUILD_CHECK_MINUTES" "$RUNNER_TEMP/checks/$check.log" "$command" || rc=$?
+    seconds=$(($(date +%s) - started))
+    case "$rc" in 0) result=passed ;; 124) result="timed out" ;; *) result=failed ;; esac
+    # Names and commands come from the repository's own files (as they were
+    # before the agent ran); their output stays off the run log.
+    echo "Check $name: $result (${seconds}s)"
+    results=$(jq -c --arg name "$name" --arg command "$command" --arg result "$result" --argjson exit "$rc" \
+      --argjson seconds "$seconds" --argjson n "$check" \
+      '. + [{n: $n, name: $name, command: $command, result: $result, exit: $exit, seconds: $seconds}]' <<< "$results")
+  done < "$RUNNER_TEMP/checks.tsv"
+  [ "$check" -gt 0 ] || echo "The repository declares no checks (no test, lint, typecheck or build script)."
+  jq -n --argjson checks "$results" --arg head "$(git rev-parse HEAD)" '{head: $head, checks: $checks}' > "$RUNNER_TEMP/verify.json"
+  if jq -e 'any(.checks[]; .result != "passed")' "$RUNNER_TEMP/verify.json" > /dev/null; then
+    stage_fail "The repository's checks failed when the hub ran them: $(jq -r '[.checks[] | select(.result != "passed") | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/verify.json"). Nothing was pushed; the output is in the next comment."
+  fi
+}
+
+# _checks <base commit>: the repository's checks, one "name<TAB>command" per
+# line, as the repository was before the agent ran (so a build can't change
+# which checks judge it): its build/checks.json extension if there is one
+# (docs/extending.md), otherwise the package.json scripts named test, lint,
+# typecheck (or type-check) and build, run with its package manager. Fails
+# if checks.json isn't valid.
+_checks() {
+  local listed runner=npm
+  if listed=$(git show "$1:$EXTENSIONS_DIR/build/checks.json" 2> /dev/null); then
+    build_checks_list <<< "$listed"
+    return
+  fi
+  git show "$1:package.json" > "$RUNNER_TEMP/base-package.json" 2> /dev/null || return 0
+  if git cat-file -e "$1:pnpm-lock.yaml" 2> /dev/null; then runner="corepack pnpm"
+  elif git cat-file -e "$1:yarn.lock" 2> /dev/null; then runner="corepack yarn"; fi
+  jq -r --arg runner "$runner" '.scripts // {} | ["test", "lint", "typecheck", "type-check", "build"] as $names
+    | [$names[] as $n | select(has($n)) | $n] | .[] | "\(.)\t\($runner) run \(.)"' "$RUNNER_TEMP/base-package.json"
+}
+
+# build_checks_list < checks.json: its checks, one "name<TAB>command" per
+# line (none for an empty list) — or a failure if it isn't
+# {"checks": [{"name": …, "command": …}, …]} with each a non-empty string
+# without tabs or line breaks.
+build_checks_list() {
+  local listed
+  listed=$(cat)
+  jq -er '.checks | if type == "array" and all(.[]; (.name | type == "string" and length > 0)
+      and (.command | type == "string" and length > 0) and ((.name + .command) | test("[\t\n]") | not))
+    then .[] | "\(.name)\t\(.command)" else error("invalid") end' <<< "$listed" 2> /dev/null \
+    || [ "$(jq -c '.checks' <<< "$listed" 2> /dev/null)" = "[]" ]
+}
+
+# stage_failure_details: when the checks failed, a comment with each failing
+# check's command, result and the end of its output — on the ticket only
+# (it's private; the run log may not be).
+stage_failure_details() {
+  [ -s "$RUNNER_TEMP/verify.json" ] && jq -e 'any(.checks[]; .result != "passed")' "$RUNNER_TEMP/verify.json" > /dev/null || return 0
+  local failed
+  failed=$(jq -c '[.checks[] | select(.result != "passed")]' "$RUNNER_TEMP/verify.json")
+  # shellcheck disable=SC1112 # curly apostrophes intended
+  jq -n -L "$HUB_DIR/lib" --argjson failed "$failed" --rawfile outputs <(
+      jq -r '.[].n' <<< "$failed" | while read -r n; do
+        tail -n 40 "$RUNNER_TEMP/checks/$n.log" 2> /dev/null | cut -c1-300 | jq -Rs . ; done | jq -s .) 'include "adf";
+    ($outputs | fromjson) as $logs
+    | doc([para([strong("🧪 Checks that failed"), text(" — the hub ran the repository’s checks on the build’s commit, in the sandbox (no network), and these didn’t pass, so nothing was pushed:")])]
+      + [$failed | to_entries[] | .key as $i | .value
+         | para([code(.command), text(" — \(.result) (exit \(.exit), \(.seconds)s). The end of its output:")]),
+           {type: "codeBlock", attrs: {}, content: (if ($logs[$i] // "") == "" then [] else [text($logs[$i])] end)}])' \
+    | tracker_comment > /dev/null
+}
+
+# step_apply: Check and push the verified build, and open its draft pull request.
+step_apply() {
+  local base branch target publish refused findings rc=0 number title url
+  stage_require_status "$PLAN_APPROVED_STATUS"
+  build_git
+  _require_same_plan
+  base=$(context .base) branch=$(context .branch) target=$(context .target) publish=$(context .publish)
+  # Only the commit the checks passed on is pushed.
+  [ "$(git rev-parse HEAD)" = "$(jq -r '.head' "$RUNNER_TEMP/verify.json" 2> /dev/null)" ] \
+    || stage_fail "The build's commit isn't the one the checks passed on, so nothing was pushed."
 
   # The gates, on the commit. Refused files stop the push; decision items
   # go to the pull request for a person.
@@ -376,7 +533,8 @@ step_apply() {
   [ "$publish" != true ] || url=$TICKET_URL
   jq -nr -f "$STAGE_DIR/pr-body.jq" --slurpfile out "$BUILD_OUTPUT" --slurpfile context "$BUILD_CONTEXT" \
       --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile contract "$RUNNER_TEMP/contract.json" \
-      --slurpfile state "$RUNNER_TEMP/state.json" --arg ticket "$TICKET_KEY" --arg url "$url" --arg run "$RUN_URL" \
+      --slurpfile state "$RUNNER_TEMP/state.json" --slurpfile verify "$RUNNER_TEMP/verify.json" \
+      --arg ticket "$TICKET_KEY" --arg url "$url" --arg run "$RUN_URL" \
     | state_render "$(cat "$RUNNER_TEMP/state.json")" > "$RUNNER_TEMP/pr-body.md"
   title=$(_pr_title "$publish")
   number=$(gh_pr_open_draft "$branch" "$target" "$title" < "$RUNNER_TEMP/pr-body.md") \
@@ -456,7 +614,7 @@ _ticket_report() {
   # shellcheck disable=SC1112 # curly apostrophes intended
   jq -n -L "$HUB_DIR/lib" --arg number "$1" --arg url "$2" --arg run "$RUN_URL" \
       --slurpfile out "$BUILD_OUTPUT" --slurpfile gates "$RUNNER_TEMP/gates.json" \
-      --slurpfile contract "$RUNNER_TEMP/contract.json" 'include "adf";
+      --slurpfile contract "$RUNNER_TEMP/contract.json" --slurpfile verify "$RUNNER_TEMP/verify.json" 'include "adf";
     $out[0] as $o | $o.structured_output.build as $b | $gates[0] as $g | $contract[0] as $p
     | def heading($t): para([strong($t)]);
     doc([para([strong("🔨 Draft pull request opened"), text(" — "), link("#\($number)"; $url),
@@ -464,7 +622,11 @@ _ticket_report() {
         heading("What changed"), para($b.summary),
         heading("Acceptance criteria — how each is verified"),
         bullets([$b.verification[] | [strong(.criterion), text(" — \(.method): \(.detail)")]]),
-        heading("Checks run in the sandbox"),
+        heading("Checks the hub ran on the pushed commit"),
+        (if ($verify[0].checks | length) > 0
+         then bullets([$verify[0].checks[] | [code(.command), text(" — "), strong(.result)]])
+         else para("None: the repository declares no checks (no test, lint, typecheck or build script).") end),
+        heading("Checks the build agent ran"),
         bullets([$b.tests_run[] | [code(.command), text(" — "), strong(.result), text(": \(.summary)")]]),
         heading("How to review — and what the build saw"),
         bullets([$b.review_steps[] | [code(.step), text(" — expect: \(.expected). ")]
@@ -495,7 +657,8 @@ _ticket_delivery() {
   local updated size
   # shellcheck disable=SC1112 # curly apostrophe intended
   updated=$(tracker_issue description | jq -c -L "$HUB_DIR/lib" --arg number "$1" --arg url "$2" --arg branch "$3" \
-      --slurpfile out "$BUILD_OUTPUT" --slurpfile gates "$RUNNER_TEMP/gates.json" 'include "adf";
+      --slurpfile out "$BUILD_OUTPUT" --slurpfile gates "$RUNNER_TEMP/gates.json" \
+      --slurpfile verify "$RUNNER_TEMP/verify.json" 'include "adf";
     $out[0].structured_output.build as $b
     | .fields.description
     | replace_section("Pull Request";
@@ -512,7 +675,9 @@ _ticket_delivery() {
               content: [text("\(.value.step) — expect: \(.value.expected)"
                 + (if .value.checked then " (the build saw this)" else " (not checked by the build: \(.value.result))" end))]}]}]
            else [para("The build gave no steps: follow the plan’s Testing section.")] end)
-        + [para("Checks the build ran:"), bullets([$b.tests_run[] | [code(.command), text(" — \(.result)")]])])' 2> /dev/null) \
+        + [para("Checks the hub ran on this commit (the pull request is only pushed if they pass):"),
+           (if ($verify[0].checks | length) > 0 then bullets([$verify[0].checks[] | [code(.command), text(" — \(.result)")]])
+            else para("None: the repository declares no checks.") end)])' 2> /dev/null) \
     || { echo "::warning::The description has no Pull Request or Testing Instructions section, so only the report comment has them."; tracker_labels "+$NEEDS_HUMAN_LABEL"; return 0; }
   size=$(jq -r -L "$HUB_DIR/lib" 'include "adf"; to_markdown | length' <<< "$updated")
   if [ "$size" -gt "$DESCRIPTION_MAX_CHARS" ]; then

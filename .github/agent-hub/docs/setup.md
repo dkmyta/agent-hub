@@ -87,10 +87,13 @@ API-equivalent dollars ([claude-usage.md](claude-usage.md)):
 | `REVIEW_MAX_BUDGET_USD` | `2.00` | `5.00` | Cap for the expert review |
 | `REVISION_MAX_BUDGET_USD` | `1.00` | `2.00` | Cap for each pass of a revision, which is scoped to the requested changes |
 
-The build (`BUILD`) is **not enabled for real tickets yet**: until its install
-step arrives (next version), a build could depend on whatever the runner has
-installed, so it runs only with `AGENT_HUB_BUILD_PREVIEW=true` — for
-development on a project without dependencies, like `playground/`. Its
+The build (`BUILD`) is **not enabled for real tickets yet**: until the agent
+review and CI gate (PR 4) a person is its only reviewer, so it runs only with
+`AGENT_HUB_BUILD_PREVIEW=true` — for development, like `playground/`. A Node
+project must declare its Node version (an `.nvmrc`, for example: see
+[build.md](workflows/build.md#toolchain)); its dependencies are installed
+from its lockfile, and the hub runs its checks on every build's commit
+([extending.md](extending.md#the-builds-checks) to choose them). Its
 settings: `MODEL` (`claude-opus-5-5`), `FALLBACK_MODEL`
 (`claude-sonnet-5`) and `MAX_BUDGET_USD` (`10.00`, one pass: it validates and
 builds), plus:
@@ -101,6 +104,14 @@ builds), plus:
 | `LABEL` | `agent-hub` | Marks the hub's own pull requests; one from `agent-hub/<KEY>` without it isn't touched |
 | `MAX_FILES`, `MAX_LINES` | `50`, `2000` | Over either, the pull request gets a decision item for a person |
 | `MAX_FILE_LINES` | `1000` | A single file changing more lines than this is a decision item |
+| `INSTALL_MINUTES` | `10` | Time limit for installing the dependencies (each install: in the checkout, and in the verify step's copy); over it, nothing is built |
+| `CHECK_MINUTES` | `10` | Time limit for each of the repository's checks in the verify step; over it, the check counts as failed and nothing is pushed |
+
+The workflow's steps have their own limits, which these settings can't
+raise: 15 minutes for **Install dependencies**, and 30 for **Verify** — the
+verify copy's install and every check together. They're part of the hub's
+workflow (`agent-hub-stage.yml`, which updates replace), so a repository
+whose install and checks need longer than that isn't supported yet.
 
 ## 5. Set up your tracker
 

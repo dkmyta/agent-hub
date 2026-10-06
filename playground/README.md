@@ -2,15 +2,19 @@
 
 A tiny Node.js project for trying the agent hub's build stage in this
 repository: small enough that a build is quick and cheap, with real tests
-for the build to run and extend. It has no dependencies (the build's sandbox
-has no package registry until the install step arrives).
+for the build to run and extend. It has no dependencies, and declares its
+Node version in `.nvmrc`.
 
 - `src/text.js` — text helpers (`slugify`, `wordCount`)
 - `src/cli.js` — a command-line front end: `node src/cli.js slugify "Hello World"`
 - `test/` — the tests, run with `npm test` (Node's built-in test runner)
 
 Its CI is `.github/workflows/playground-tests.yml`, which runs the tests on
-pull requests that change this folder.
+pull requests that change this folder, with the Node version in `.nvmrc`.
+The build runs them too, on every build's commit, before anything is pushed:
+the repository declares them in
+`.github/agent-hub-extensions/build/checks.json`, since this project is in a
+subfolder (the build looks for a `package.json` at the repository root).
 
 ## Trying the build
 

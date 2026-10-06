@@ -499,14 +499,18 @@ $RUNNER_TEMP/plugins/repository"
   grep -qx -- --restricted "$RUNNER_TEMP/claude-args.txt"
   # The environment scrub requires Claude Code's default mode: asked for, not overridden.
   assert_equal "$(arg --permission-mode)" default
-  local settings repo temp
+  local settings repo temp toolchain
   settings=$(arg --settings)
   repo=$(cd "$REPO_DIR" && pwd -P)
   temp="$RUNNER_TEMP/agent-tmp"
   assert_equal "$(jq -c '.sandbox | {enabled, failIfUnavailable, allowUnsandboxedCommands, autoAllowBashIfSandboxed}' <<< "$settings")" \
     '{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"autoAllowBashIfSandboxed":true}'
+  # The Node the workflow set up is readable (even in the home folder) and on
+  # the commands' PATH, the step's own.
+  toolchain=$(cd "$(dirname "$(command -v node)")/.." && pwd -P)
   assert_equal "$(jq -c '.sandbox.filesystem' <<< "$settings")" \
-    "$(jq -nc --arg h "$HOME" --arg r "$repo" --arg t "$temp" '{denyRead: [$h], allowRead: [$r, $t], allowWrite: [$r, $t]}')"
+    "$(jq -nc --arg h "$HOME" --arg r "$repo" --arg t "$temp" --arg n "$toolchain" '{denyRead: [$h], allowRead: [$r, $t, $n], allowWrite: [$r, $t]}')"
+  assert_equal "$(jq -r --arg bin "$toolchain/bin" '.env.PATH | split(":") | any(. == $bin)' <<< "$settings")" true
   assert_equal "$(jq -c '.sandbox.network' <<< "$settings")" '{"allowedDomains":["localhost","127.0.0.1"],"allowLocalBinding":true}'
   assert_equal "$(jq -c '.permissions.deny' <<< "$settings")" \
     '["Edit(./.github/**)","Write(./.github/**)","Edit(./.claude/**)","Write(./.claude/**)","Edit(./CODEOWNERS)","Write(./CODEOWNERS)","Edit(./**/CODEOWNERS)","Write(./**/CODEOWNERS)"]'

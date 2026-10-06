@@ -156,6 +156,16 @@ jobs:
       - name: Install GNU parallel
         run: command -v parallel || { sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends parallel; }
 
+      # The sandbox the build runs a repository's code in needs these on
+      # Linux, so its probes (tests/shared/sandbox.bats) run against the real
+      # sandbox here — in CI they fail rather than skip without them. Ubuntu
+      # 24.04 restricts the user namespaces it uses.
+      - name: Install sandbox tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       # --ignore-scripts: none of the test dependencies need install scripts.
       - run: npm ci --prefix .github/agent-hub/tests --ignore-scripts
 

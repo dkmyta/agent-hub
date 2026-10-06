@@ -139,29 +139,38 @@ The build stage runs commands — the repository's tests, linters
 and builds — in Claude Code's sandbox: they read only the repository and a
 temp folder, write only those, reach only localhost, and get no secrets in
 their environment (an API key included). If the sandbox can't start, the
-command doesn't run. The document stages don't run commands, so they don't
-need it.
+command doesn't run. The hub's own steps that run the repository's code
+without an agent — installing its dependencies, and re-running its checks
+on the build's commit — use the same sandbox runtime (`srt`, which the hub
+installs once per runner into its tool cache, from a lockfile), with the
+package registries as the only network for the install
+([build.md](workflows/build.md#install)). The document stages don't run
+commands, so they don't need it.
 
 | Runner | What the sandbox needs |
 |---|---|
 | macOS (self-hosted) | Nothing — it uses macOS's built-in Seatbelt |
-| Linux (self-hosted) | `bubblewrap` and `socat`: `sudo apt-get install bubblewrap socat` (Debian/Ubuntu) or your distribution's equivalent |
-| GitHub-hosted (Linux, with the Claude API) | Installed by the build workflow — from the next version (its install step); until then the build needs a self-hosted runner (on a GitHub-hosted one, Claude Code refuses to run commands without the sandbox, so the build fails) |
+| Linux (self-hosted) | `bubblewrap`, `socat` and `ripgrep`: `sudo apt-get install bubblewrap socat ripgrep` (Debian/Ubuntu) or your distribution's equivalent. On Ubuntu 24.04 and later, also allow unprivileged user namespaces: `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` (and in `/etc/sysctl.d/` to keep it) |
+| GitHub-hosted (Linux, with the Claude API) | Installed by the build workflow (its **Install sandbox tools** step) |
+
+Every runner also needs **npm** on its `PATH` before the build starts (the
+workflow's **Set up Node** step provides it) — the hub installs `srt` with
+it — and network access to `registry.npmjs.org` for that first install.
 
 The build also needs **git 2.40 or later** on the runner (it reads
 `.gitattributes` from the commit it checks, not the working tree).
 
-**Tools installed in your home folder aren't visible to the build's
-commands.** The sandbox denies reading the home folder (where credentials
-live), so a toolchain installed there — Node through nvm, Python through pyenv
-or `~/.local`, Ruby through rbenv — can't run inside it: commands fall back to
-whatever is installed outside the home folder (e.g. `/usr/local/bin`), which
-may be older or missing. The build then reports the affected checks as
-failed or not run, saying why, and CI's result is the one to trust. The
-install step (next version) fixes this: it provides the repository's
-declared toolchain where the sandbox can read it. Until then, keep the tools
-a repository's checks need installed outside the home folder too, or rely on
-CI.
+**Node comes from the repository, not the runner.** The build workflow sets
+up the Node version the repository declares (`actions/setup-node`, into the
+runner's tool cache) and makes that one folder readable in the sandbox, so
+the runner's own Node — through nvm or otherwise — doesn't matter
+([build.md](workflows/build.md#toolchain)). **Other tools installed in your
+home folder aren't visible to the build's commands:** the sandbox denies
+reading the home folder (where credentials live), so a toolchain installed
+there — Python through pyenv or `~/.local`, Ruby through rbenv — can't run
+inside it, and commands fall back to whatever is installed outside the home
+folder (e.g. `/usr/local/bin`), which may be older or missing. Keep the tools
+a non-Node repository's checks need installed outside the home folder.
 
 ### Checking the sandbox
 

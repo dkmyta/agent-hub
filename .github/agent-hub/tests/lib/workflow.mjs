@@ -57,7 +57,13 @@ if (command === "extract") {
     const name = String(value ?? "").match(/^\$\{\{\s*inputs\.([\w-]+)\s*\}\}$/)?.[1];
     return name ? (inputs[name] ?? null) : (value ?? null);
   };
-  const stepTimeouts = steps.filter((s) => s.run).map((s) => ({ step: s.name, minutes: resolve(s["timeout-minutes"]) }));
+  // Steps only code stages run (if: inputs.code-stage …) count only for a
+  // caller that sets code-stage.
+  const codeStage = inputs["code-stage"] === true;
+  const stepTimeouts = steps
+    .filter((s) => s.run || s.uses?.startsWith("actions/setup-node@"))
+    .filter((s) => codeStage || !String(s.if ?? "").includes("inputs.code-stage"))
+    .map((s) => ({ step: s.name, minutes: resolve(s["timeout-minutes"]) }));
   console.log(JSON.stringify({ job: resolve(jobs[0]["timeout-minutes"]), steps: stepTimeouts }));
 } else {
   throw new Error(`Unknown command: ${command}`);

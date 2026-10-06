@@ -4,12 +4,13 @@
 #
 #   jq -nr -f pr-body.jq --slurpfile out agent-output.json --slurpfile context build-context.json \
 #     --slurpfile gates gates.json --slurpfile contract contract.json --slurpfile state state.json \
+#     --slurpfile verify verify.json \
 #     --arg ticket KEY --arg url "<ticket URL, or empty>" --arg run "<run URL>"
 #
 # The publication policy ("Publication policy"): unless ticket content may be
 # published (a private repository, or the setting), it carries only the
-# ticket key and what the hub itself determined — files, the gates, each
-# check's result — never Claude's summary, the criteria, the decision log,
+# ticket key and what the hub itself determined — files, the gates, the
+# checks it ran (from the repository's own files) and each check's result — never Claude's summary, the criteria, the decision log,
 # the review steps or the commands it ran (Claude wrote them, so they could
 # carry ticket text).
 
@@ -42,9 +43,13 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
     | if $publish then "\(.key + 1). \(.value.criterion | line) — **\(.value.method)**: \(.value.detail | line)"
       else "\(.key + 1). Criterion \(.key + 1) (on the ticket) — verified by **\(.value.method)**" end]),
 
-  section("Checks run in the sandbox";
+  section("Checks run by the hub"; ["The repository's own checks, run by the hub on exactly this commit, in the sandbox (no network) — the build pushes only a commit they pass on:", ""]
+    + (if ($verify[0].checks | length) > 0 then [$verify[0].checks[] | "- \(.command | code) — **\(.result)**"]
+       else ["- None: the repository declares no checks (no test, lint, typecheck or build script)."] end)),
+
+  section("Checks the build agent reported";
     (if any($b.tests_run[]; .result == "failed")
-     then ["> [!WARNING]", "> Claude reported a failing check" + (if $publish then "." else " — what it ran and why it failed are on the ticket." end), ""]
+     then ["> [!NOTE]", "> The agent reported a failing check" + (if $publish then "" else " (details on the ticket)" end) + "; the hub's own run above is the one that decides.", ""]
      else [] end)
     + [$b.tests_run | to_entries[] | if $publish then "- \(.value.command | code) — **\(.value.result)**: \(.value.summary | line)"
        else "- Check \(.key + 1) — **\(.value.result)**" + (if .value.result == "passed" then "" else " (details on the ticket)" end) end]),
