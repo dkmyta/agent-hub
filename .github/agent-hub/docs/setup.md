@@ -106,6 +106,7 @@ builds), plus:
 | `MAX_FILE_LINES` | `1000` | A single file changing more lines than this is a decision item |
 | `INSTALL_MINUTES` | `10` | Time limit for installing the dependencies (each install: in the checkout, and in the verify step's copy); over it, nothing is built |
 | `CHECK_MINUTES` | `10` | Time limit for each of the repository's checks in the verify step; over it, the check counts as failed and nothing is pushed |
+| `BASELINE` | `stop` | The repository's checks on the base commit before the agent: `stop` builds nothing (and uses no Claude) when one already fails there; `warn` builds anyway, for a plan that fixes a failing check; `off` skips them ([build.md](workflows/build.md#baseline)) |
 
 The workflow's steps have their own limits, which these settings can't
 raise: 15 minutes for **Install dependencies**, and 30 for **Verify** — the

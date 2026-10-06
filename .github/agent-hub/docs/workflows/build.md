@@ -200,6 +200,27 @@ verify step stops the build here instead, so after the agent only the checks
 themselves can fail. (Since 2.6.1: the first real build in 2.6.0 spent its
 Claude budget, then couldn't make the verify copy.)
 
+### Baseline
+
+Since 2.6.3, the rehearsal also runs the repository's checks on the base
+commit, before the agent: a check that already fails there would fail the
+verify step too, after Claude had run. `AGENT_HUB_BUILD_BASELINE` decides
+what happens then:
+
+| Setting | A check already failing on the target branch |
+|---|---|
+| `stop` (default) | Nothing is built and Claude isn't used: the ❌ comment names the checks, and "🧪 Checks that failed" has their output |
+| `warn` | The build goes ahead, with a warning in the run log — for a plan that fixes a failing check. The checks must still pass on the build's commit for anything to be pushed; the failure comment says which also failed before the agent |
+| `off` | No baseline (no extra runner time for a slow test suite) |
+
+A failing check runs once more before it counts, in case a test is flaky.
+The checks run in the sandbox, without the network: a repository whose
+tests need the network or a service fails its baseline every time — the
+message says to list the checks that can run offline in `build/checks.json`
+([extending.md](../extending.md#the-builds-checks)), and let CI run the rest.
+The baseline costs runner time (the checks run once more per build), never
+Claude usage.
+
 ### Validate
 
 The agent reads the whole plan and checks it against the code as it is now,
@@ -770,7 +791,7 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | `agent-hub-stage.yml` with `code-stage: true` | The shared stage workflow, as for every stage, plus the full history and the machine user's token for the fetch and apply steps only; the install and dependency steps join it as steps that only code stages run, without the token |
 | `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template); later `fix.md`, `fix-check.md`, `ci-fix.md` |
 | `lib/toolchain.sh` | The Node version a repository declares, for the workflow's setup-node step and the fetch step's check |
-| `lib/sandbox/` | The hub's sandbox for the install and verify steps: `sandbox.sh` (policies, time limit, a clean environment) and the lockfile `srt` is installed from (once per runner, in its tool cache; Dependabot keeps it current) |
+| `lib/sandbox/` | The hub's sandbox for the install and verify steps: `sandbox.sh` (policies, time limit, a clean environment) and the lockfile `srt` is installed from (per job, from npm's download cache in the runner's tool cache, checked against the lockfile every time; Dependabot keeps it current) |
 | `stages/pr-review/` | The review's `prompt.md`, `schema.json` (findings: area, severity, kind, file and line, evidence), `policy.json` (kind × severity → fix pass, `R` or `D`), `settings.sh` |
 | `lib/github.sh` | The GitHub interface; one `gh_request` function every call goes through (mocked in tests) |
 | `lib/runners/claude-code.sh` | Tool profiles (`read-only`, `build`, `review`) and the sandbox settings |
@@ -955,10 +976,37 @@ where stated and only with the owner's OK.
      failure meaning no push ([Verify](#verify)); per-step time limits; the
      playground declaring its Node version (`playground/.nvmrc`) and its
      checks (`build/checks.json`).
-   - *3d*: the dependency step (a planned dependency change resolved by the
-     hub — today a decision item); reconciliation of an existing pull
-     request; gitleaks cached in the runner's tool cache (still
-     checksum-verified) rather than downloaded per run.
+   - *3d-1* (done in 2.6.3): the [baseline](#baseline) before Claude;
+     gitleaks' release archive kept in the runner's tool cache and checked
+     against its pinned checksum on every job; the sandbox runtime installed
+     per job from npm's download cache (checked against the lockfile on
+     every install), instead of trusting a copy another job on the runner
+     could have changed.
+   - *3d-2*: the dependency step, resolved **before** the agent (changed in
+     2.6.3 from resolving after it, which left the agent writing code against
+     a package it couldn't install or test). The plan names each change
+     exactly — manifest folder, package, version range, runtime or dev, add,
+     update or remove — and the install step applies exactly those with the
+     package manager, in the sandbox with registries-only network: resolved
+     without install scripts, then installed in the sandbox (where new
+     packages' scripts get the install step's limits). The agent starts with
+     them installed; the gate then requires the commit's manifest and
+     lockfile to be byte-for-byte what the hub produced. Also: a minimum
+     release age (3 days by default) for every resolved version, refusing —
+     a decision item — where the package manager can't enforce it; registry
+     signatures and provenance checked (`npm audit signatures`); each new
+     package's licence and known vulnerabilities in the pull request, a
+     missing, unknown or strong-copyleft licence a decision item; a lockfile
+     format change a decision item, and the lockfile's added, changed and
+     removed packages counted in the pull request. npm, pnpm and Yarn, one
+     manifest per change (workspaces stay decision items); a plan with the
+     dependency flag but no exact list stays a decision item. The plan
+     stage's new field needs a plan eval run.
+   - *Moved to PR 4:* reconciliation of an existing pull request. Until the
+     review, fixes and the CI gate, nothing happens to a hub pull request
+     after it opens except a person closing it, which the build already
+     handles; and reconciliation trusts the state block, which needs the
+     recorded edit-history fixtures below first.
 
    **The preview gate stays until PR 4** (changed in 2.6.0; the earlier plan
    removed it after 3c). With 3c a build no longer depends on what the
@@ -971,6 +1019,7 @@ where stated and only with the owner's OK.
    fix pass, fix check and second verify; review coverage; sync and drift; the
    CI-result workflow, the evaluation commit (head and test merge commit both
    covered), conservative classification and CI fixes; hand-off eligibility.
+   With it, reconciliation of an existing pull request (moved from 3d).
    **Prerequisites, before the review pass or reconciliation is enabled**
    (from the 2.5.0 reviews):
    - *A read-only review profile, proven.* The review profile drops the

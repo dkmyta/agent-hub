@@ -143,3 +143,20 @@ JS
   assert_line "node: ok"
   refute_output --partial SIGABRT
 }
+
+@test "real sandbox runtime: installed per job from a download cache that's checked — a changed cache isn't used" {
+  real_srt
+  local cached
+  # Every cached package replaced, as another job on the runner could.
+  cached=$(find "$RUNNER_TOOL_CACHE/agent-hub/npm-cache/_cacache/content-v2" -type f | wc -l | tr -d ' ')
+  [ "$cached" -gt 0 ] || fail "nothing in the download cache"
+  find "$RUNNER_TOOL_CACHE/agent-hub/npm-cache/_cacache/content-v2" -type f -exec sh -c 'chmod u+w "$1"; printf AGENT-HUB-CHANGED-7 > "$1"' _ {} \;
+  export RUNNER_TEMP="$BATS_TEST_TMPDIR/next-job" && mkdir -p "$RUNNER_TEMP"
+  run with_sandbox 'sandbox_install'
+  assert_success
+  # The genuine packages, downloaded again: none of the changed content.
+  run grep -rl AGENT-HUB-CHANGED-7 "$RUNNER_TEMP/agent-hub-srt/node_modules"
+  assert_failure
+  assert_equal "$(jq -r .version "$RUNNER_TEMP/agent-hub-srt/node_modules/@anthropic-ai/sandbox-runtime/package.json")" \
+    "$(jq -r '.packages["node_modules/@anthropic-ai/sandbox-runtime"].version' "$HUB_DIR/lib/sandbox/package-lock.json")"
+}

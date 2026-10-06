@@ -14,23 +14,25 @@
 #
 #   sandbox_run <install|check> <folder> <minutes> <log file> <command>
 #
-# srt is installed once per runner from this folder's lockfile (package.json,
-# package-lock.json): every package pinned by its integrity hash.
+# srt is installed into each job's temp folder from this folder's lockfile
+# (package.json, package-lock.json): every package pinned by its integrity
+# hash, and checked against it on every install. Only npm's download cache is
+# kept between jobs, in the runner's tool cache: other jobs on a self-hosted
+# runner can write there, so nothing in it is trusted unchecked — npm
+# refuses a cached package that doesn't match its hash and downloads it
+# again.
 
 SANDBOX_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # The registries an install may reach (npm, and yarn's; pnpm uses npm's).
 SANDBOX_REGISTRIES='["registry.npmjs.org", "registry.yarnpkg.com", "repo.yarnpkg.com"]'
 
-# sandbox_dir: where srt is installed — the runner's tool cache (kept across
-# jobs; agents can't write there), keyed by the lockfile, so a new lockfile
-# installs anew.
-sandbox_dir() {
-  local key
-  key=$(_sandbox_sha256 "$SANDBOX_LIB/package-lock.json" | cut -c1-16)
-  echo "${RUNNER_TOOL_CACHE:-$RUNNER_TEMP}/agent-hub/srt-$key"
-}
+# sandbox_dir: where srt is installed — the job's temp folder (once per job,
+# before any agent runs; agents can't write there).
+sandbox_dir() { echo "$RUNNER_TEMP/agent-hub-srt"; }
 
-_sandbox_sha256() { if command -v sha256sum > /dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d ' ' -f1; }
+# sandbox_cache: npm's download cache, kept between jobs (the runner's tool
+# cache), so most installs need no download — checked on every use.
+sandbox_cache() { echo "${RUNNER_TOOL_CACHE:-$RUNNER_TEMP}/agent-hub/npm-cache"; }
 
 # sandbox_install: srt's path, installed if needed (npm ci from the lockfile,
 # no install scripts) — or a failure, with the reason on stderr.
@@ -39,9 +41,10 @@ sandbox_install() {
   dir=$(sandbox_dir)
   if [ ! -x "$dir/node_modules/.bin/srt" ]; then
     command -v npm > /dev/null || { echo "npm isn't installed, so the sandbox runtime can't be" >&2; return 1; }
-    mkdir -p "$(dirname "$dir")" && work=$(mktemp -d "${dir}.XXXXXX") || return 1
+    work=$(mktemp -d "${dir}.XXXXXX") || return 1
     cp "$SANDBOX_LIB/package.json" "$SANDBOX_LIB/package-lock.json" "$work/"
-    if ! (cd "$work" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error > /dev/null); then
+    if ! (cd "$work" && npm ci --ignore-scripts --no-audit --no-fund --no-update-notifier --prefer-offline \
+        --cache "$(sandbox_cache)" --loglevel=error > /dev/null); then
       rm -rf "$work"
       echo "the sandbox runtime couldn't be installed" >&2
       return 1

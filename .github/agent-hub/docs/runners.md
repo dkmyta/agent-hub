@@ -142,7 +142,8 @@ their environment (an API key included). If the sandbox can't start, the
 command doesn't run. The hub's own steps that run the repository's code
 without an agent — installing its dependencies, and re-running its checks
 on the build's commit — use the same sandbox runtime (`srt`, which the hub
-installs once per runner into its tool cache, from a lockfile), with the
+installs for each job from a lockfile; npm's download cache stays in the
+runner's tool cache and is checked against the lockfile every time), with the
 package registries as the only network for the install
 ([build.md](workflows/build.md#install)). The document stages don't run
 commands, so they don't need it.
@@ -155,7 +156,12 @@ commands, so they don't need it.
 
 Every runner also needs **npm** on its `PATH` before the build starts (the
 workflow's **Set up Node** step provides it) — the hub installs `srt` with
-it — and network access to `registry.npmjs.org` for that first install.
+it — and network access to `registry.npmjs.org` the first time (and
+whenever the cached download doesn't match). The secret scan's gitleaks is
+kept the same way: its release archive in the tool cache, checked against
+its pinned checksum on every job, downloaded from GitHub's releases when
+it's missing or doesn't match. Other jobs on a self-hosted runner can write
+to its tool cache, so nothing there is used unchecked.
 
 The build also needs **git 2.40 or later** on the runner (it reads
 `.gitattributes` from the commit it checks, not the working tree).

@@ -7,7 +7,7 @@ Built by the agent hub from the approved implementation plan for [PROJ-99](https
 
 src/greet.js: greet takes an optional name and returns "Hello, &lt;name>!", or "Hello!" without one. test/greet.test.js covers both.
 
-2 file(s), 8 changed line(s):
+2 files, 8 changed lines:
 
 - `src/greet.js` — modified, +2 −2 — expected
 - `test/greet.test.js` — modified, +4 −0 — expected

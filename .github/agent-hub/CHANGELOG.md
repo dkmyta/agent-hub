@@ -5,6 +5,44 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.6.3 — 2026-10-06
+
+Less Claude spend on builds that can't succeed, the runner's caches checked
+on every use, and clearer wording. The first part of 3d, after a review of
+its plan against how dependency bots, npm and CI systems handle the same
+jobs (docs/workflows/build.md, "Building it").
+
+- **Baseline before Claude.** The repository's checks now also run on the
+  base commit before the agent. If one already fails there, the build would
+  fail it too, so nothing is built and Claude isn't used; the output is on
+  the ticket. A failing check runs once more first, in case it's flaky.
+  `AGENT_HUB_BUILD_BASELINE`: `stop` (default), `warn` (build anyway, for a
+  plan that fixes a failing check) or `off`
+  ([build.md](docs/workflows/build.md#baseline)).
+- **The runner's caches are checked on every use.** Other jobs on a
+  self-hosted runner can write to its tool cache, so the hub no longer
+  trusts anything there unchecked. The sandbox runtime (`srt`) was
+  installed once into the tool cache and reused as it was; it's now
+  installed for each job from npm's download cache, which npm checks
+  against the hub's lockfile on every install (a changed package is
+  downloaded again). gitleaks' release archive is now kept in the tool
+  cache, rather than downloaded every job, and checked against its pinned
+  checksum every time before it's unpacked.
+- **Wording:** an expected result that ends in a full stop doesn't get a
+  second one; the pull request says "1 file" and "2 files" (not "file(s)"),
+  and "verified manually" or "verified by a new test"; the build's summary,
+  which goes on the ticket and the pull request, is written impersonally
+  ("Adds…", not "I added…").
+- **Design, 3d-2 (the dependency step):** dependencies resolved by the hub
+  before the agent, from an exact list in the plan, with a minimum release
+  age, provenance and licence checks; reconciliation of an existing pull
+  request moved to PR 4 ([build.md](docs/workflows/build.md#building-it)).
+
+**Updating:** nothing to do. A repository whose checks can't pass in the
+sandbox (they need the network or a service) now finds out before Claude
+runs: list the checks that can run offline in `build/checks.json`, or set
+`AGENT_HUB_BUILD_BASELINE` to `off`.
+
 ## 2.6.2 — 2026-10-06
 
 The re-test on 2.6.1 got through the verify copy, then the check failed in

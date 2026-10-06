@@ -4,6 +4,17 @@
 # Builders turn plain strings into ADF nodes; to_markdown turns an ADF
 # document back into Markdown for prompts.
 
+# --- Wording ----------------------------------------------------------------
+
+# unstop: the text without a trailing full stop (and spaces), for one that
+# continues — "expect: X (the build saw this)".
+def unstop: sub("[.\\s]+$"; "");
+# sentence: the text ending in a full stop, unless it already ends in ., !
+# or ? — "expect: X." never reads "expect: X..".
+def sentence: sub("\\s+$"; "") | if test("[.!?]$") then . else . + "." end;
+# plural($n; $word): "1 file", "2 files".
+def plural($n; $word): "\($n) \($word)" + (if $n == 1 then "" else "s" end);
+
 # --- Inline nodes -----------------------------------------------------------
 
 def text($t): {type: "text", text: $t};

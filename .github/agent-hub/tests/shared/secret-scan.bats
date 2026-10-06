@@ -51,6 +51,44 @@ EOF
   assert_output --partial "gitleaks has no pinned build for this runner"
 }
 
+# A stand-in release archive (a gitleaks that prints "stand-in"), and the
+# scan library with it as the pinned build and a counted download.
+fake_release() {
+  mkdir -p "$BATS_TEST_TMPDIR/release"
+  printf '#!/bin/sh\necho stand-in\n' > "$BATS_TEST_TMPDIR/release/gitleaks" && chmod +x "$BATS_TEST_TMPDIR/release/gitleaks"
+  tar -czf "$BATS_TEST_TMPDIR/release.tar.gz" -C "$BATS_TEST_TMPDIR/release" gitleaks
+}
+with_release() {
+  bash -c 'source "$HUB_DIR/lib/secret-scan.sh"; release=$1
+    _gitleaks_sha256() { _sha256 "$release"; }
+    _gitleaks_download() { echo download >> "$RUNNER_TEMP/../downloads"; cp "$release" "$2"; }
+    secret_scan_install' _ "$BATS_TEST_TMPDIR/release.tar.gz"
+}
+
+@test "the archive is kept in the runner's tool cache, checked on every job, and downloaded again if it changed" {
+  fake_release
+  export RUNNER_TOOL_CACHE="$BATS_TEST_TMPDIR/toolcache"
+  : > "$BATS_TEST_TMPDIR/downloads"
+  # Job 1 downloads it; job 2 (a new temp folder) uses the cached archive.
+  for job in 1 2; do
+    export RUNNER_TEMP="$BATS_TEST_TMPDIR/job$job" && mkdir -p "$RUNNER_TEMP"
+    run with_release
+    assert_success
+    assert_equal "$("$output")" stand-in
+  done
+  assert_equal "$(wc -l < "$BATS_TEST_TMPDIR/downloads" | tr -d ' ')" 1
+  # Another job on the runner changed the cached archive: it isn't used; the
+  # release is downloaded again and checked.
+  printf '#!/bin/sh\necho replaced\n' > "$BATS_TEST_TMPDIR/release/gitleaks"
+  tar -czf "$BATS_TEST_TMPDIR/replaced.tar.gz" -C "$BATS_TEST_TMPDIR/release" gitleaks
+  cp "$BATS_TEST_TMPDIR/replaced.tar.gz" "$RUNNER_TOOL_CACHE"/agent-hub/gitleaks/*.tar.gz
+  export RUNNER_TEMP="$BATS_TEST_TMPDIR/job3" && mkdir -p "$RUNNER_TEMP"
+  run with_release
+  assert_success
+  assert_equal "$("$output")" stand-in
+  assert_equal "$(wc -l < "$BATS_TEST_TMPDIR/downloads" | tr -d ' ')" 2
+}
+
 @test "the scan can't run → it fails as 'couldn't run', never as clean" {
   repo_with notes.txt "hello"
   run with_scan '_gitleaks_download() { return 22; }; secret_scan "$1"' _ "$BASE"

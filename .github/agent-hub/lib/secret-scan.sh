@@ -37,22 +37,36 @@ _gitleaks_download() {
 
 _sha256() { if command -v sha256sum > /dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d ' ' -f1; }
 
-# secret_scan_install: the verified gitleaks binary's path (installed once per
-# job, in the job's temp folder), or a failure with the reason on stderr.
+# secret_scan_install: the verified gitleaks binary's path, or a failure with
+# the reason on stderr. Unpacked once per job, in the job's temp folder, from
+# the release archive — kept between jobs in the runner's tool cache, so it's
+# usually not downloaded again. Other jobs on a self-hosted runner can write
+# there, so the archive is checked against its pinned checksum every time,
+# and downloaded again if it doesn't match.
 secret_scan_install() {
-  local platform expected dir="$RUNNER_TEMP/gitleaks-$GITLEAKS_VERSION"
+  local platform expected dir="$RUNNER_TEMP/gitleaks-$GITLEAKS_VERSION" cache archive download
   [ -x "$dir/gitleaks" ] && { echo "$dir/gitleaks"; return 0; }
   platform=$(_gitleaks_platform) && expected=$(_gitleaks_sha256 "$platform") \
     || { echo "gitleaks has no pinned build for this runner ($(uname -s) $(uname -m))" >&2; return 1; }
-  mkdir -p "$dir"
-  _gitleaks_download "$platform" "$dir/gitleaks.tar.gz" || { echo "gitleaks couldn't be downloaded" >&2; return 1; }
-  if [ "$(_sha256 "$dir/gitleaks.tar.gz")" != "$expected" ]; then
-    rm -f "$dir/gitleaks.tar.gz"
-    echo "gitleaks' download didn't match its published checksum" >&2
-    return 1
+  cache="${RUNNER_TOOL_CACHE:-$RUNNER_TEMP}/agent-hub/gitleaks"
+  archive="$cache/gitleaks_${GITLEAKS_VERSION}_$platform.tar.gz"
+  mkdir -p "$dir" "$cache" || return 1
+  if [ ! -f "$archive" ] || [ "$(_sha256 "$archive")" != "$expected" ]; then
+    download=$(mktemp "$archive.XXXXXX") || return 1
+    _gitleaks_download "$platform" "$download" || { rm -f "$download"; echo "gitleaks couldn't be downloaded" >&2; return 1; }
+    if [ "$(_sha256 "$download")" != "$expected" ]; then
+      rm -f "$download"
+      echo "gitleaks' download didn't match its published checksum" >&2
+      return 1
+    fi
+    # Moved into place whole: another job never sees half an archive.
+    mv -f "$download" "$archive" || return 1
   fi
-  tar -xzf "$dir/gitleaks.tar.gz" -C "$dir" gitleaks && rm -f "$dir/gitleaks.tar.gz" \
-    || { echo "gitleaks couldn't be unpacked" >&2; return 1; }
+  # Unpacked from a copy checked here, so the archive can't change between
+  # the check and the unpacking.
+  cp "$archive" "$dir/gitleaks.tar.gz" && [ "$(_sha256 "$dir/gitleaks.tar.gz")" = "$expected" ] \
+    && tar -xzf "$dir/gitleaks.tar.gz" -C "$dir" gitleaks && rm -f "$dir/gitleaks.tar.gz" \
+    || { rm -f "$dir/gitleaks.tar.gz"; echo "gitleaks couldn't be unpacked" >&2; return 1; }
   echo "$dir/gitleaks"
 }
 

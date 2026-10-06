@@ -89,6 +89,8 @@ _require_limits() {
     [[ "${limit#*=}" =~ ^[0-9]+$ ]] \
       || stage_fail "The repository variable AGENT_HUB_BUILD_${limit%%=*} must be a whole number, not '${limit#*=}', so nothing was built."
   done
+  [[ "$BUILD_BASELINE" =~ ^(stop|warn|off)$ ]] \
+    || stage_fail "The repository variable AGENT_HUB_BUILD_BASELINE must be stop, warn or off, not '$BUILD_BASELINE', so nothing was built."
   # A time limit of 0 would be none at all.
   for limit in "INSTALL_MINUTES=$BUILD_INSTALL_MINUTES" "CHECK_MINUTES=$BUILD_CHECK_MINUTES"; do
     [[ "${limit#*=}" =~ ^[1-9][0-9]*$ ]] \
@@ -359,6 +361,28 @@ step_install() {
   sandbox_run check "$RUNNER_TEMP/verify" 1 "$RUNNER_TEMP/sandbox-check.log" "if command -v node > /dev/null; then node --version; fi" || rc=$?
   [ "$rc" = 0 ] || stage_fail "The sandbox the checks run in can't run commands on this runner (exit $rc), so nothing was built. Run .github/agent-hub/scripts/check-sandbox.sh on the runner, and see docs/runners.md." \
     "Its output ended: $(grep -v '^[[:space:]]*$' "$RUNNER_TEMP/sandbox-check.log" | tail -n 3 | cut -c1-300 | paste -sd ' ' - || true)"
+  _baseline
+}
+
+# _baseline: the repository's checks on the base commit, before the agent
+# (AGENT_HUB_BUILD_BASELINE, docs/workflows/build.md, "Baseline"). A check
+# that already fails there would fail the verify step after Claude has run,
+# so — "stop", the default — nothing is built; "warn" goes ahead (a plan that
+# fixes a failing check); "off" skips it. A failing check runs once more
+# first, in case it's flaky. Results in baseline.json.
+_baseline() {
+  local results failing
+  [ "$BUILD_BASELINE" != off ] || return 0
+  _checks "$(context .base)" > "$RUNNER_TEMP/baseline-checks.tsv"
+  results=$(_run_checks "$RUNNER_TEMP/verify" "$RUNNER_TEMP/baseline-checks.tsv" "$RUNNER_TEMP/baseline" 2 "Baseline check")
+  jq -n --argjson checks "$results" '{checks: $checks}' > "$RUNNER_TEMP/baseline.json"
+  failing=$(jq -r '[.checks[] | select(.result != "passed") | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/baseline.json")
+  [ -n "$failing" ] || return 0
+  if [ "$BUILD_BASELINE" = warn ]; then
+    echo "::warning::The repository's checks already fail on $(context .target) before the agent runs: $failing. Building anyway (AGENT_HUB_BUILD_BASELINE=warn); they must pass on the build's commit for anything to be pushed."
+    return 0
+  fi
+  stage_fail "The repository's checks already fail on $(context .target), before the agent: $failing. The build would fail them too, so nothing was built and Claude wasn't used; the output is in the next comment. Fix them first. If a check needs the network or a service, which the sandbox doesn't have, list the checks that can run offline in build/checks.json (docs/extending.md). For a plan that fixes a failing check, set AGENT_HUB_BUILD_BASELINE to warn."
 }
 
 # _verify_copy <commit> <folder>: a clean copy of the commit from the
@@ -417,7 +441,7 @@ _install_dependencies() {
 
 # step_verify: Commit the agent's changes and run the repository's checks on exactly that commit, in the sandbox.
 step_verify() {
-  local base publish message clone rc check name command results="[]" started seconds result
+  local base publish message clone rc results
   build_git
   base=$(context .base) publish=$(context .publish)
   # A hard link would pull in a file from elsewhere on the runner that the
@@ -453,25 +477,40 @@ step_verify() {
   [ "$rc" = 0 ] || stage_fail "Installing the dependencies for the checks failed (exit $rc), so nothing was pushed."
   mkdir -p "$RUNNER_TEMP/checks"
   _checks "$base" > "$RUNNER_TEMP/checks.tsv" || stage_fail "$(_checks_invalid "nothing was pushed")"
-  check=0
-  while IFS=$'\t' read -r name command; do
-    check=$((check + 1))
-    started=$(date +%s) rc=0
-    sandbox_run check "$clone" "$BUILD_CHECK_MINUTES" "$RUNNER_TEMP/checks/$check.log" "$command" || rc=$?
-    seconds=$(($(date +%s) - started))
-    case "$rc" in 0) result=passed ;; 124) result="timed out" ;; *) result=failed ;; esac
-    # Names and commands come from the repository's own files (as they were
-    # before the agent ran); their output stays off the run log.
-    echo "Check $name: $result (${seconds}s)"
-    results=$(jq -c --arg name "$name" --arg command "$command" --arg result "$result" --argjson exit "$rc" \
-      --argjson seconds "$seconds" --argjson n "$check" \
-      '. + [{n: $n, name: $name, command: $command, result: $result, exit: $exit, seconds: $seconds}]' <<< "$results")
-  done < "$RUNNER_TEMP/checks.tsv"
-  [ "$check" -gt 0 ] || echo "The repository declares no checks (no test, lint, typecheck or build script)."
+  results=$(_run_checks "$clone" "$RUNNER_TEMP/checks.tsv" "$RUNNER_TEMP/checks" 1 Check)
+  [ "$results" != "[]" ] || echo "The repository declares no checks (no test, lint, typecheck or build script)."
   jq -n --argjson checks "$results" --arg head "$(git rev-parse HEAD)" '{head: $head, checks: $checks}' > "$RUNNER_TEMP/verify.json"
   if jq -e 'any(.checks[]; .result != "passed")' "$RUNNER_TEMP/verify.json" > /dev/null; then
     stage_fail "The repository's checks failed when the hub ran them: $(jq -r '[.checks[] | select(.result != "passed") | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/verify.json"). Nothing was pushed; the output is in the next comment."
   fi
+}
+
+# _run_checks <folder> <checks.tsv> <log folder> <tries> <label>: run each check
+# (_checks' "name<TAB>command" lines) in <folder>, in the sandbox with no
+# network, each with its time limit; prints the results as a JSON array
+# ({n, name, command, result: passed | failed | timed out, exit, seconds}).
+# With 2 tries a failing check runs once more (a flaky test), and passes if
+# either run does. The run log gets "<label> <name>: <result>" only:
+# names and commands come from the repository's own files (as they were
+# before the agent ran), and their output can quote anything.
+_run_checks() {
+  local folder=$1 list=$2 logs=$3 tries=$4 label=$5 n=0 name command started seconds rc result try results="[]"
+  mkdir -p "$logs"
+  while IFS=$'\t' read -r name command; do
+    n=$((n + 1))
+    for ((try = 1; try <= tries; try++)); do
+      started=$(date +%s) rc=0
+      sandbox_run check "$folder" "$BUILD_CHECK_MINUTES" "$logs/$n.log" "$command" < /dev/null || rc=$?
+      seconds=$(($(date +%s) - started))
+      [ "$rc" != 0 ] || break
+    done
+    case "$rc" in 0) result=passed ;; 124) result="timed out" ;; *) result=failed ;; esac
+    echo "$label $name: $result (${seconds}s)" >&2
+    results=$(jq -c --arg name "$name" --arg command "$command" --arg result "$result" --argjson exit "$rc" \
+      --argjson seconds "$seconds" --argjson n "$n" \
+      '. + [{n: $n, name: $name, command: $command, result: $result, exit: $exit, seconds: $seconds}]' <<< "$results")
+  done < "$list"
+  echo "$results"
 }
 
 # _checks <base commit>: the repository's checks, one "name<TAB>command" per
@@ -510,17 +549,28 @@ build_checks_list() {
 # check's command, result and the end of its output — on the ticket only
 # (it's private; the run log may not be).
 stage_failure_details() {
-  [ -s "$RUNNER_TEMP/verify.json" ] && jq -e 'any(.checks[]; .result != "passed")' "$RUNNER_TEMP/verify.json" > /dev/null || return 0
-  local failed
-  failed=$(jq -c '[.checks[] | select(.result != "passed")]' "$RUNNER_TEMP/verify.json")
+  local results logs title before="[]"
+  _failed() { [ -s "$1" ] && jq -e 'any(.checks[]; .result != "passed")' "$1" > /dev/null; }
   # shellcheck disable=SC1112 # curly apostrophes intended
-  jq -n -L "$HUB_DIR/lib" --argjson failed "$failed" --rawfile outputs <(
-      jq -r '.[].n' <<< "$failed" | while read -r n; do
-        tail -n 40 "$RUNNER_TEMP/checks/$n.log" 2> /dev/null | cut -c1-300 | jq -Rs . ; done | jq -s .) 'include "adf";
+  if _failed "$RUNNER_TEMP/verify.json"; then
+    results="$RUNNER_TEMP/verify.json" logs="$RUNNER_TEMP/checks"
+    title=" — the hub ran the repository’s checks on the build’s commit, in the sandbox (no network), and these didn’t pass, so nothing was pushed:"
+    [ ! -s "$RUNNER_TEMP/baseline.json" ] \
+      || before=$(jq -c '[.checks[] | select(.result != "passed") | .name]' "$RUNNER_TEMP/baseline.json")
+  elif _failed "$RUNNER_TEMP/baseline.json" && [ "$BUILD_BASELINE" = stop ]; then
+    results="$RUNNER_TEMP/baseline.json" logs="$RUNNER_TEMP/baseline"
+    title=" — the hub ran the repository’s checks on the base commit before the agent, in the sandbox (no network), and these already fail (each run twice), so nothing was built:"
+  else return 0; fi
+  jq -n -L "$HUB_DIR/lib" --slurpfile results "$results" --arg title "$title" --argjson before "$before" --rawfile outputs <(
+      jq -r '.checks[] | select(.result != "passed") | .n' "$results" | while read -r n; do
+        tail -n 40 "$logs/$n.log" 2> /dev/null | cut -c1-300 | jq -Rs . ; done | jq -s .) 'include "adf";
     ($outputs | fromjson) as $logs
-    | doc([para([strong("🧪 Checks that failed"), text(" — the hub ran the repository’s checks on the build’s commit, in the sandbox (no network), and these didn’t pass, so nothing was pushed:")])]
+    | [$results[0].checks[] | select(.result != "passed")] as $failed
+    | doc([para([strong("🧪 Checks that failed"), text($title)])]
       + [$failed | to_entries[] | .key as $i | .value
-         | para([code(.command), text(" — \(.result) (exit \(.exit), \(.seconds)s). The end of its output:")]),
+         | para([code(.command), text(" — \(.result) (exit \(.exit), \(.seconds)s)"
+             + (if (.name | IN($before[])) then "; it also failed before the agent ran" else "" end)
+             + ". The end of its output:")]),
            {type: "codeBlock", attrs: {}, content: (if ($logs[$i] // "") == "" then [] else [text($logs[$i])] end)}])' \
     | tracker_comment > /dev/null
 }
@@ -548,7 +598,7 @@ step_apply() {
   refused=$(jq '.refused | length' "$RUNNER_TEMP/gates.json")
   if [ "$refused" -gt 0 ]; then
     # The paths come from Claude's changes, so they go only on the ticket.
-    stage_fail "The build changed $refused file(s) the hub never pushes ($(jq -r '[.refused[].reason] | unique | join("; ")' "$RUNNER_TEMP/gates.json")), so nothing was pushed. If the plan needs them, they're manual changes for a person." \
+    stage_fail "The build changed $refused file$([ "$refused" = 1 ] || echo s) the hub never pushes ($(jq -r '[.refused[].reason] | unique | join("; ")' "$RUNNER_TEMP/gates.json")), so nothing was pushed. If the plan needs them, they're manual changes for a person." \
       "Files: $(jq -r '[.refused[].path] | join(", ")' "$RUNNER_TEMP/gates.json")."
   fi
 
@@ -676,7 +726,7 @@ _ticket_report() {
         heading("Checks the build agent ran"),
         bullets([$b.tests_run[] | [code(.command), text(" — "), strong(.result), text(": \(.summary)")]]),
         heading("How to review — and what the build saw"),
-        bullets([$b.review_steps[] | [code(.step), text(" — expect: \(.expected). ")]
+        bullets([$b.review_steps[] | [code(.step), text(" — expect: \(.expected | sentence) ")]
                  + (if .checked then [strong("Seen by the build"), text(": \(.result)")]
                     else [strong("Not checked by the build"), text(": \(.result)")] end)]),
         heading("Decisions the build made"),
@@ -719,7 +769,7 @@ _ticket_delivery() {
         + (if ($b.review_steps | length) > 0 then
             [{type: "taskList", attrs: {localId: "testing"}, content: [$b.review_steps | to_entries[] | {type: "taskItem",
               attrs: {localId: "testing-\(.key)", state: "TODO"},
-              content: [text("\(.value.step) — expect: \(.value.expected)"
+              content: [text("\(.value.step) — expect: \(.value.expected | unstop)"
                 + (if .value.checked then " (the build saw this)" else " (not checked by the build: \(.value.result))" end))]}]}]
            else [para("The build gave no steps: follow the plan’s Testing section.")] end)
         + [para("Checks the hub ran on this commit (the pull request is only pushed if they pass):"),

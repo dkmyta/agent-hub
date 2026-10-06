@@ -97,7 +97,7 @@ test/greet.test.js expected"
   # The title says what the hub itself knows: the files changed.
   assert_line --index 0 "PROJ-99: change src/greet.js and test/greet.test.js"
   assert_output --partial "are on the ticket, not here"
-  assert_output --partial "1. Criterion 1 (on the ticket) — verified by **updated test**"
+  assert_output --partial "1. Criterion 1 (on the ticket) — verified by **an updated test**"
   assert_output --partial '- `src/greet.js` — modified, +2 −2 — expected'
   refute_output --partial "Greet people by name"
   refute_output --partial "Hello, Ada"
@@ -403,14 +403,14 @@ srt_calls() { cat "$RUNNER_TEMP/sandbox/srt-calls.jsonl" 2> /dev/null || true; }
   run trace
   assert_line "Verify: success"
   assert_line "Apply: success"
-  # The rehearsal's run before the agent (the toolchain starting in the
-  # sandbox), then one check (the fixture's test script), sandboxed: no
-  # network but localhost, the home folder unreadable, writes only to its
-  # copy and temp.
+  # Before the agent, the rehearsal (the toolchain starting in the sandbox)
+  # and the baseline (the check on the base commit); then the check on the
+  # build's commit (the fixture's test script) — sandboxed: no network but
+  # localhost, the home folder unreadable, writes only to its copy and temp.
   run srt_calls
   assert_equal "$(jq -sr 'map(.command) | join(" | ")' <<< "$output")" \
-    "if command -v node > /dev/null; then node --version; fi | npm run test"
-  output=$(jq -c 'select(.command == "npm run test")' <<< "$output")
+    "if command -v node > /dev/null; then node --version; fi | npm run test | npm run test"
+  output=$(jq -sc '.[-1]' <<< "$output")
   assert_equal "$(jq -c '.settings.network' <<< "$output")" '{"allowedDomains":[],"deniedDomains":[],"allowLocalBinding":true}'
   assert_equal "$(jq -r '.settings.filesystem.denyRead[0]' <<< "$output")" "$HOME"
   assert_equal "$(jq -r '.cwd' <<< "$output")" "$(cd "$RUNNER_TEMP/verify" && pwd -P)"
@@ -420,6 +420,8 @@ srt_calls() { cat "$RUNNER_TEMP/sandbox/srt-calls.jsonl" 2> /dev/null || true; }
   [ ! -e "$RUNNER_TEMP/verify/.github/agent-hub/tests/demo" ]
   # The run log names the check and its result, nothing it printed.
   run grep -c "^Check test: passed" "$RUNNER_TEMP/log.txt"
+  assert_output 1
+  run grep -c "^Baseline check test: passed" "$RUNNER_TEMP/log.txt"
   assert_output 1
   run grep -c "greets by name" "$RUNNER_TEMP/log.txt"
   assert_output 0
@@ -565,4 +567,88 @@ SH
   # The output reaches the ticket only, never the run log.
   run grep -c "SIGABRT" "$RUNNER_TEMP/log.txt"
   assert_output 0
+}
+
+# A fixture project whose test already fails on main (before the agent).
+break_main() {
+  printf 'import test from "node:test";\ntest("already broken", () => { throw new Error("Broken before the build"); });\n' \
+    > "$STEP_CWD/test/broken.test.js"
+  change_main "A failing test"
+}
+
+@test "baseline: a check already failing on the target stops the build before Claude, its output on the ticket" {
+  break_main
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  run trace
+  assert_line "Install dependencies: failure"
+  assert_line "Agent: skipped"
+  assert_equal "$(remote_branches)" "main"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "already fail on main, before the agent: test (failed)"
+  assert_output --partial "Claude wasn't used"
+  assert_output --partial "AGENT_HUB_BUILD_BASELINE to warn"
+  # Run twice (a flaky test gets a second chance), then the output on the
+  # ticket only.
+  run grep -c "^Baseline check test: failed" "$RUNNER_TEMP/log.txt"
+  assert_output 1
+  assert_equal "$(srt_calls | jq -s 'map(select(.command == "npm run test")) | length')" 2
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | tostring' "$CALLS"
+  assert_output --partial "🧪 Checks that failed"
+  assert_output --partial "already fail (each run twice), so nothing was built"
+  assert_output --partial "Broken before the build"
+  run grep -c "Broken before the build" "$RUNNER_TEMP/log.txt"
+  assert_output 0
+  assert_valid_adf "$CALLS"
+}
+
+@test "baseline: warn builds anyway (a plan that fixes the check); off skips it; anything else is refused" {
+  break_main
+  # The agent fixes it: removes the failing test along with the plan's change.
+  printf 'bash -e "%s"\nrm test/broken.test.js\n' "$FIXTURES/edits/greet.sh" > "$BATS_TEST_TMPDIR/fix.sh"
+  run_scenario ready CLAUDE_EDITS="$BATS_TEST_TMPDIR/fix.sh" \
+    'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "warn"}'
+  run trace
+  assert_line "Install dependencies: success"
+  assert_line "Verify: success"
+  assert_line "Apply: success"
+  run grep -c "already fail on main before the agent runs: test (failed)" "$RUNNER_TEMP/log.txt"
+  assert_output 1
+
+  fresh_repo
+  break_main
+  run_scenario ready CLAUDE_EDITS="$BATS_TEST_TMPDIR/fix.sh" \
+    'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "off"}'
+  run trace
+  assert_line "Apply: success"
+  run grep -c "^Baseline check" "$RUNNER_TEMP/log.txt"
+  assert_output 0
+
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "sometimes"}'
+  run trace
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "AGENT_HUB_BUILD_BASELINE must be stop, warn or off"
+}
+
+@test "baseline: a check failing after the build that also failed before it says so" {
+  break_main
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh \
+    'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "warn"}'
+  run trace
+  assert_line "Verify: failure"
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | tostring' "$CALLS"
+  assert_output --partial "it also failed before the agent ran"
+}
+
+@test "wording: an expected result ending in a full stop gets one, criteria read 'verified manually' or 'by a …', counts are plural only when they should be" {
+  run_scenario ready MOCK_GH_VISIBILITY=public CLAUDE_EDITS=edits/greet.sh \
+    'CLAUDE_FIXTURE_EDIT=.structured_output.build.review_steps[0].expected = "Prints Hello, Ada." | .structured_output.build.verification[1].method = "manual"'
+  run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
+  assert_line "1. Criterion 1 (on the ticket) — verified by **an updated test**"
+  assert_line "2. Criterion 2 (on the ticket) — verified **manually**"
+  assert_line "2 steps with their expected results, 1 already seen to pass by the build: they're on the ticket, under Testing Instructions."
+  run jq -r 'select(.method != "GET") | .body | tostring' "$CALLS"
+  assert_output --partial "expect: Prints Hello, Ada (the build saw this)"
+  assert_output --partial "expect: Prints Hello, Ada. "
+  refute_output --partial "Ada.."
 }
