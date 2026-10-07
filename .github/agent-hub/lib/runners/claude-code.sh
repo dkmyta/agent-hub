@@ -214,9 +214,9 @@ agent_settings() {
     permissions: {deny: [$denied[] | "Edit(./\(.))", "Write(./\(.))"]},
     sandbox: {
       enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true,
-      filesystem: {denyRead: [$home], allowRead: ([$repo, $temp] + (if $toolchain != "" then [$toolchain] else [] end)),
+      filesystem: ({denyRead: [$home], allowRead: ([$repo, $temp] + (if $toolchain != "" then [$toolchain] else [] end)),
         allowWrite: (if $profile == "build" then [$repo, $temp] else [$temp] end)}
-        + (if $profile == "review" then {denyWrite: [$repo]} else {} end),
+        + (if $profile == "review" then {denyWrite: [$repo]} else {} end)),
       network: {allowedDomains: ["localhost", "127.0.0.1"], allowLocalBinding: true}}}'
 }
 
