@@ -46,9 +46,8 @@ draft, `AGENT_HUB_<STAGE>_REVIEW_MAX_BUDGET_USD` for the review, and a lower
 which is scoped to the requested changes; the build's single pass is capped
 by `AGENT_HUB_BUILD_MAX_BUDGET_USD`
 ([setup.md](setup.md#4-set-variables-only-what-differs-from-the-defaults)).
-These are API-equivalent caps per pass, not a billing ledger: nothing limits
-the total across repeated requests or re-runs of a ticket yet (per-ticket caps
-are planned for the build).
+These are API-equivalent caps per pass. A ticket's total across every pass
+and run is capped too ([Per-ticket caps](#per-ticket-caps)).
 
 **When a pass reaches its cap**, Claude Code stops it and the run fails with
 the reason on the ticket ("Claude reached its budget cap before finishing").
@@ -82,6 +81,38 @@ docs link here):
 | Implementation plan evals (3 cases) | $3–10 | 20–40 minutes |
 | The sandbox check | About $0.20 | Two short sessions, each capped (under $1 together) |
 | Every stage (**all**) | The sum; up to $4–13, over the $10 default cap: raise it for that run | Only after a model or Claude Code change |
+
+## Per-ticket caps
+
+Every ticket has two caps on its Claude usage, across every stage and every
+run — retries, revisions and resubmissions included:
+
+| Variable | Default | Counts |
+|---|---|---|
+| `AGENT_HUB_TICKET_MAX_RUNS` | `10` | Runs that used Claude |
+| `AGENT_HUB_TICKET_MAX_COST_USD` | `60.00` | Their API-equivalent cost |
+
+- **Counted by the hub, on the ticket.** After each run that used Claude, the
+  hub adds the run and its cost to a record it keeps on the ticket (in Jira,
+  an issue property: JSON on the ticket that Jira's screens don't show), with
+  each stage's share. A pass with no cost report — cut off by a time limit or
+  cancelled — counts at its whole budget, and the total is marked
+  *estimated*. Each run summary ends with the ticket's total. Runs that stop
+  before Claude (a wrong status, a check that fails first) don't count.
+- **Checked before Claude is used.** A run for a ticket at either cap stops
+  before its progress comment: the ticket gets the `agent-hub-over-cap` label
+  (`AGENT_HUB_OVER_CAP_LABEL`) and `needs-human`, and a ⛔ comment with the
+  totals and how to go on. Nothing else changes.
+- **A person lifts it** by removing the `agent-hub-over-cap` label, then
+  retrying as usual. The next run allows one more cap's worth (another 10
+  runs and $60 by default), counted from there; the record keeps the full
+  history.
+- **Approximate, not a bill.** The cost is Claude Code's API-equivalent
+  figure. Two stages' runs for one ticket at the same moment can each miss
+  the other's run; a run that can't record its usage says so in a warning.
+  On a subscription the plan's own limits still apply; with an API key, set a
+  monthly spend limit in the Claude Console as well
+  ([runners.md](runners.md#using-the-claude-api)).
 
 ## Tests vs evals
 

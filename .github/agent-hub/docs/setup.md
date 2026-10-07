@@ -69,6 +69,9 @@ use its default. (The defaults are in `lib/settings.sh` and each stage's
 | `AGENT_HUB_PUBLISH_TICKET_CONTENT` | `false` | `true` lets the build put ticket text (the title, criteria, Claude's summary and decision log) in a **public** repository's pull requests and commits; private repositories always get it ([build.md](workflows/build.md#publication-policy)) |
 | `AGENT_HUB_NEEDS_HUMAN_LABEL` | `needs-human` | Label for tickets waiting for a person |
 | `AGENT_HUB_NEEDS_CLARIFICATION_LABEL` | `needs-clarification` | Label for tickets the plan stage sent back with questions |
+| `AGENT_HUB_TICKET_MAX_RUNS` | `10` | Runs that used Claude, per ticket across every stage, before a person must lift the cap ([claude-usage.md](claude-usage.md#per-ticket-caps)) |
+| `AGENT_HUB_TICKET_MAX_COST_USD` | `60.00` | API-equivalent dollars per ticket across every stage, likewise |
+| `AGENT_HUB_OVER_CAP_LABEL` | `agent-hub-over-cap` | Label on a ticket at its caps; removing it lifts them |
 | `AGENT_HUB_REVISE_COMMAND` | `/revise` | Comments starting with this word ask an agent to revise (or retry); must match the Revision Requested rule |
 | `AGENT_HUB_REVIEW_MODEL` | `claude-opus-5-5` | Model for the expert review of every draft (needs Claude Code 2.1.280+) |
 | `AGENT_HUB_REVIEW_FALLBACK_MODEL` | `claude-sonnet-5` | Used when the review model is overloaded or unsupported |

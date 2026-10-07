@@ -10,6 +10,7 @@ Agent (draft and review) | id: agent | if: steps.start.outputs.proceed == 'true'
 Verify | id: verify | if: inputs.code-stage && steps.agent.outputs.status == 'ready' | env: -
 Apply to ticket | id: apply | if: steps.agent.outputs.status == 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN,AGENT_HUB_GITHUB_TOKEN
 Send back | id: return | if: steps.agent.outputs.status != '' && steps.agent.outputs.status != 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
+Record Claude usage | id: - | if: always() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
 Clear progress comment | id: - | if: success() || cancelled() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
 Report failure on ticket | id: - | if: failure() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
 Remove session and credential files | id: - | if: always() | env: -

@@ -154,7 +154,8 @@ data to it: `{fields: {summary, description (ADF), status: {name}, attachment:
 | `tracker_history_since <status>` | Every change since the ticket last entered a status (who moved it there and when, then each change with its old and new values and a tracker-independent `kind`: `attachment` with the file's name, `description`, `status`), from the tracker's history; fails if it can't be read in full |
 | `tracker_set_description [+label\|-label]...` | Replace the description with the ADF on stdin, changing labels in the same update |
 | `tracker_comments`, `tracker_comment`, `tracker_update_comment <id>`, `tracker_delete_comment <id>` | Read comments; post the ADF on stdin (prints the id); replace; delete |
-| `tracker_labels <+label\|-label>...` | Add and remove labels, in one update |
+| `tracker_labels <+label\|-label>...`, `tracker_ticket_labels` | Add and remove labels, in one update; the labels now (a JSON array) |
+| `tracker_ledger`, `tracker_set_ledger` | The hub's own record of the ticket (its Claude usage), as JSON kept on the ticket out of people's view (`{}` if none); replace it with the JSON on stdin |
 | `tracker_attachments`, `tracker_attach <file>`, `tracker_attachment_content <id>`, `tracker_delete_attachment <id>` | Attachments (the plan file) |
 | `tracker_transition_id <status>`, `tracker_transition <id>` | Move the ticket to a status (empty id: not allowed from here) |
 
@@ -219,8 +220,9 @@ statuses are the tracker's; *(planned)* marks what the build stage doesn't do ye
 stage's run summary: *written* (a new output), *revised*, *sent back* (needs
 details or a decision), *no change needed*, *superseded* (a newer request
 replaced it), *stale* (what it read changed underneath it — nothing written),
-*failed* (the reason on the ticket, `needs-human`). The build adds *blocked*
-and *paused*. A run whose work an earlier run already did ends as *no change
+*failed* (the reason on the ticket, `needs-human`), *blocked* (the ticket is
+at its Claude usage caps: [claude-usage.md](claude-usage.md#per-ticket-caps)).
+The build adds *paused*. A run whose work an earlier run already did ends as *no change
 needed* — a normal outcome. Each run summary ends with its outcome
 (`stage_outcome`).
 

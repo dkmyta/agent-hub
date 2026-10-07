@@ -45,7 +45,7 @@ stage_fetch() {
 }
 
 # stage_outcome <outcome>: how the run ended, named the same in every stage —
-# written, revised, sent back, no change needed, superseded, stale or failed
+# written, revised, sent back, no change needed, superseded, stale, blocked or failed
 # (docs/architecture.md) — recorded for later steps and in the run summary.
 stage_outcome() {
   echo "$1" > "$RUNNER_TEMP/outcome"
@@ -121,12 +121,102 @@ stage_ticket_markdown() {
 }
 
 # stage_progress_comment <title> <text>: the "⏳ …" comment people see while
-# the run is going; its id goes to progress-comment-id. Sets proceed=true.
+# the run is going; its id goes to progress-comment-id. Sets proceed=true —
+# unless the ticket is over its Claude usage caps (stage_check_caps).
 stage_progress_comment() {
+  stage_check_caps
   jq -n -L "$HUB_DIR/lib" --arg title "$1" --arg text "$2" --arg run "$RUN_URL" 'include "adf";
     doc([para([strong($title), text($text), link("Follow progress in GitHub Actions"; $run)])])' \
     | tracker_comment > "$RUNNER_TEMP/progress-comment-id"
   echo "proceed=true" >> "$GITHUB_OUTPUT"
+}
+
+# The ticket's Claude usage, across every stage, in the tracker's ledger
+# (tracker_ledger): {runs, cost_usd, estimated, over_cap, lifted_runs,
+# lifted_cost_usd, stages: {<stage>: {runs, cost_usd}}}. The caps count from
+# the last lift (lifted_*). docs/claude-usage.md, "Per-ticket caps".
+
+# _require_caps: the caps are a whole number of runs and a number of dollars,
+# both positive.
+_require_caps() {
+  [[ "$TICKET_MAX_RUNS" =~ ^[0-9]+$ ]] && [ "$TICKET_MAX_RUNS" -gt 0 ] \
+    || stage_fail "AGENT_HUB_TICKET_MAX_RUNS must be a positive whole number, not '$TICKET_MAX_RUNS', so Claude wasn't used."
+  [[ "$TICKET_MAX_COST_USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] && [ "$(printf '%s' "$TICKET_MAX_COST_USD" | tr -d '0.')" != "" ] \
+    || stage_fail "AGENT_HUB_TICKET_MAX_COST_USD must be a positive number of dollars (e.g. 60.00), not '$TICKET_MAX_COST_USD', so Claude wasn't used."
+}
+
+# stage_check_caps: before a run uses Claude. A ticket at either cap gets the
+# over-cap label and needs-human, and a ⛔ comment saying how to go on; the
+# run ends there (outcome blocked) and Claude isn't used. Removing the label
+# is how a person lifts the cap: the next run allows one more cap's worth.
+stage_check_caps() {
+  local ledger labels over
+  _require_caps
+  ledger=$(tracker_ledger) || stage_fail "Couldn't read $TICKET_KEY's Claude usage from $TRACKER_NAME, so Claude wasn't used."
+  if jq -e '.over_cap == true' <<< "$ledger" > /dev/null; then
+    labels=$(tracker_ticket_labels) || stage_fail "Couldn't read $TICKET_KEY's labels from $TRACKER_NAME, so Claude wasn't used."
+    if ! jq -e --arg label "$OVER_CAP_LABEL" 'index($label) != null' <<< "$labels" > /dev/null; then
+      ledger=$(jq -c '.over_cap = false | .lifted_runs = (.runs // 0) | .lifted_cost_usd = (.cost_usd // 0)' <<< "$ledger")
+      tracker_set_ledger <<< "$ledger" || stage_fail "Couldn't record in $TRACKER_NAME that $TICKET_KEY's Claude usage cap was lifted, so Claude wasn't used."
+      echo "::notice::The $OVER_CAP_LABEL label was removed from $TICKET_KEY, so its caps allow another $TICKET_MAX_RUNS run(s) and \$$TICKET_MAX_COST_USD."
+    fi
+  fi
+  over=$(jq -r --argjson runs "$TICKET_MAX_RUNS" --arg cost "$TICKET_MAX_COST_USD" '($cost | tonumber) as $cost |
+    if .over_cap == true then "still"
+    elif ((.runs // 0) - (.lifted_runs // 0)) >= $runs or ((.cost_usd // 0) - (.lifted_cost_usd // 0)) >= $cost then "now"
+    else "" end' <<< "$ledger")
+  [ -n "$over" ] || return 0
+  if [ "$over" = now ]; then
+    tracker_set_ledger <<< "$(jq -c '.over_cap = true' <<< "$ledger")" \
+      || stage_fail "$TICKET_KEY is over its Claude usage cap, but that couldn't be recorded in $TRACKER_NAME. Claude wasn't used."
+  fi
+  tracker_labels "+$OVER_CAP_LABEL" "+$NEEDS_HUMAN_LABEL" > /dev/null \
+    || stage_fail "$TICKET_KEY is over its Claude usage cap, but its labels couldn't be changed. Claude wasn't used."
+  jq -n -L "$HUB_DIR/lib" --argjson ledger "$ledger" --argjson max_runs "$TICKET_MAX_RUNS" --argjson max_cost "$(jq -n --arg c "$TICKET_MAX_COST_USD" '$c | tonumber')" \
+      --arg label "$OVER_CAP_LABEL" --arg run "$RUN_URL" 'include "adf";
+    def usd: "$\(. * 100 | round / 100)";
+    (($ledger.runs // 0) - ($ledger.lifted_runs // 0)) as $runs
+    | (($ledger.cost_usd // 0) - ($ledger.lifted_cost_usd // 0)) as $cost
+    | doc([para([strong("⛔ Claude usage cap reached"),
+        text(" — this ticket has used \($cost | usd)\(if $ledger.estimated then " (estimated)" else "" end) of its \($max_cost | usd) cap in \($runs) of its \($max_runs) runs, across every stage, so this run stopped before using Claude. To go on, a person removes the "),
+        code($label), text(" label — which allows another \($max_cost | usd) and \($max_runs) runs — then tries again. "),
+        link("Run details"; $run)])])' | tracker_comment > /dev/null \
+    || stage_fail "$TICKET_KEY is over its Claude usage cap, but the comment saying so couldn't be posted. Claude wasn't used."
+  echo "::notice::$TICKET_KEY is over its Claude usage cap ($TICKET_MAX_RUNS runs, \$$TICKET_MAX_COST_USD), so Claude wasn't used."
+  stage_outcome blocked
+  exit 0
+}
+
+# stage_record_usage: add this run to the ticket's usage, if it used Claude —
+# each pass's cost as Claude Code reported it, or, for a pass with no report
+# (cut off by a time limit or cancelled), its whole budget, marked estimated.
+# Runs whatever happened. A failure to record is a warning, not a failed run:
+# the run's work is already done.
+stage_record_usage() {
+  local passes="$RUNNER_TEMP/claude-passes.jsonl" pending="$RUNNER_TEMP/claude-pass-pending" usage ledger
+  [ -s "$passes" ] || [ -s "$pending" ] || return 0
+  usage=$({ cat "$passes" 2> /dev/null; [ ! -s "$pending" ] || jq -nc --argjson budget "$(cat "$pending")" '{cost: null, budget: $budget}'; } \
+    | jq -sc '{cost: (map(.cost // .budget) | add), estimated: any(.[]; .cost == null)}')
+  if ! ledger=$(tracker_ledger); then
+    echo "::warning::Couldn't read $TICKET_KEY's Claude usage from $TRACKER_NAME, so this run's (\$$(jq -r '.cost * 100 | round / 100' <<< "$usage")) isn't counted towards its cap."
+    return 0
+  fi
+  # Dollars to four decimal places, so sums don't drift.
+  ledger=$(jq -c --argjson usage "$usage" --arg stage "$STAGE" '
+    def usd: . * 10000 | round / 10000;
+    .runs = (.runs // 0) + 1 | .cost_usd = ((.cost_usd // 0) + $usage.cost | usd)
+    | .estimated = (.estimated == true or $usage.estimated)
+    | .stages[$stage].runs = (.stages[$stage].runs // 0) + 1
+    | .stages[$stage].cost_usd = ((.stages[$stage].cost_usd // 0) + $usage.cost | usd)' <<< "$ledger")
+  if ! tracker_set_ledger <<< "$ledger"; then
+    echo "::warning::Couldn't record $TICKET_KEY's Claude usage in $TRACKER_NAME, so this run isn't counted towards its cap."
+    return 0
+  fi
+  jq -r --argjson usage "$usage" --argjson max_runs "$TICKET_MAX_RUNS" --arg max_cost "$TICKET_MAX_COST_USD" '
+    ($max_cost | tonumber) as $max_cost |
+    def usd: "$\(. * 100 | round / 100)";
+    "**Ticket usage:** this run \($usage.cost | usd)\(if $usage.estimated then " (estimated: a pass had no report)" else "" end); the ticket \(.runs - (.lifted_runs // 0)) of \($max_runs) runs and \((.cost_usd - (.lifted_cost_usd // 0)) | usd) of \($max_cost | usd) since its caps last started."' \
+    <<< "$ledger" | tee -a "$GITHUB_STEP_SUMMARY"
 }
 
 # stage_clear_progress: delete the progress comment, if one was posted.

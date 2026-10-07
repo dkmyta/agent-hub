@@ -6,6 +6,7 @@ Agent: success
 Verify: skipped
 Apply: skipped
 Send back: success
+Record Claude usage: success
 Clear progress comment: success
 Report failure: skipped
 Remove session and credential files: success
@@ -17,6 +18,7 @@ GET ?fields=attachment
 GET /attachment/content/10001
 GET /changelog?startAt=0&maxResults=100
 GET ?fields=attachment
+GET /properties
 POST /comment — comment: ⏳ Building
 GET ?fields=status
 GET /myself
@@ -27,6 +29,8 @@ POST /attachments — {"upload":"PROJ-99-implementation-plan.md"}
 POST /comment — comment: Needs clarification
 PUT  — {"update":{"labels":[{"add":"needs-clarification"},{"add":"needs-human"}]}}
 POST /transitions — {"transition":{"id":"41"}}
+GET /properties
+PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":2.41,"estimated":false,"stages":{"build":{"runs":1,"cost_usd":2.41}}}
 DELETE /comment/5001
 --- GitHub calls
 GET /repos/example/repo

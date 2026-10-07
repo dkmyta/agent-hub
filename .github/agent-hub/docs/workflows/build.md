@@ -754,8 +754,8 @@ description, and mirrored to the ticket (one comment per review round,
 | Merge conflicts | 2 attempts | Draft kept, ❌ on the ticket, `needs-human` |
 | CI fixes (code and test failures) | 2 per hand-off | Same |
 | Semantic-drift re-validation | 1 | A person decides |
-| Runs per ticket (all started by people) | 10 (*provisional*) | Nothing more runs until a person lifts it |
-| Spend per ticket | $60 (*provisional*) | Same |
+| Runs per ticket that used Claude, every stage (all started by people; since 2.8.0) | 10 (*provisional*) | Nothing more uses Claude until a person lifts it ([claude-usage.md](../claude-usage.md#per-ticket-caps)) |
+| Spend per ticket, every stage (since 2.8.0) | $60 (*provisional*) | Same |
 | Each pass | Budget and time limit | The run fails with the reason; nothing pushed |
 | Changed files / lines | 50 / 2,000, plus a single-file limit (*provisional*) | Draft kept; a person decides |
 
@@ -982,7 +982,10 @@ runner's, and the docs say so · the checks from the base commit's
 `package.json` scripts or `build/checks.json` · a check that fails means no
 push, its output on the ticket only · the install and checks in the sandbox
 runtime (`srt`), installed from a hub lockfile · the preview gate kept until
-PR 4 (the reason is in [Building it](#building-it)) · in 2.7.2: **people
+PR 4 (the reason is in [Building it](#building-it)) · in 2.8.0: **per-ticket caps across every stage**,
+kept by the tracker on the ticket (a Jira issue property), not in the state
+block — a run that never opens a pull request, and the document stages,
+count too; a person lifts them by removing the over-cap label · in 2.7.2: **people
 merge, on GitHub**, under branch protection; the hub has no merge
 capability. It observes the merge, checks the merged head is the one it
 recorded (the post-merge check under
@@ -1108,6 +1111,12 @@ where stated and only with the owner's OK.
    CI-result workflow, the evaluation commit (head and test merge commit both
    covered), conservative classification and CI fixes; hand-off eligibility.
    With it, reconciliation of an existing pull request (moved from 3d).
+   In four parts (decided after the pre-PR 4 review): *4a* (2.8.0) the
+   prerequisites below; *4b* the review, fix pass, fix check and second
+   verify, with its eval case; *4c* an existing pull request — reconciliation,
+   sync and drift, review coverage, stale-run checks; *4d* the CI gate (after
+   a spike on the CI-result mechanism), CI fixes and the hand-off. The
+   preview gate comes off after 4d, once the runner blockers are met.
    **Prerequisites, before the review pass or reconciliation is enabled**
    (from the 2.5.0 reviews):
    - *A read-only review profile, proven.* The review profile drops the
@@ -1116,11 +1125,11 @@ where stated and only with the owner's OK.
      explicitly, keep a temp folder writable for test output, and add a
      review-profile run to the sandbox check (shell redirection, a script or
      child process writing, the file tools).
-   - *A spend cap per ticket.* Each run has its own budget, but a ticket's
-     runs (retries, revisions, the review and fix passes) add up with
-     nothing stopping them. Record each run's cost, and stop before Claude
-     is used once the ticket's total reaches the cap (provisional default
-     under [Decisions](#decisions)), with `needs-human`.
+   - *A spend cap per ticket* (done in 2.8.0, 4a). Each run has its own
+     budget, but a ticket's runs (retries, revisions, the review and fix
+     passes) added up with nothing stopping them. The hub now records each
+     run's cost on the ticket and stops before Claude at the caps
+     ([claude-usage.md](../claude-usage.md#per-ticket-caps)).
    - *GitHub's edit-history format, recorded.* `gh_pr_body_versions` reads
      each `userContentEdit.diff` as the whole description after that edit —
      confirmed read-only against the API in 2.4.0, but the test mock encodes

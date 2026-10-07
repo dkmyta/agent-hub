@@ -6,3 +6,4 @@
 
 [PROJ-99](https://example.atlassian.net/browse/PROJ-99) returned to Implementation Plan as needs-clarification.
 **Outcome:** sent back
+**Ticket usage:** this run $2.41; the ticket 1 of 10 runs and $2.41 of $60 since its caps last started.

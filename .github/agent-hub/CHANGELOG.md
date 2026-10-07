@@ -5,6 +5,37 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.8.0 — 2026-10-07
+
+The first of PR 4's prerequisites (4a): per-ticket caps on Claude usage,
+across every stage. The rest of 4a follows in the next release.
+
+- **Every ticket has two caps**, across every stage and run — retries,
+  revisions and resubmissions included: 10 runs that used Claude
+  (`AGENT_HUB_TICKET_MAX_RUNS`) and $60 API-equivalent
+  (`AGENT_HUB_TICKET_MAX_COST_USD`). Both provisional, like the build's
+  other caps.
+- **Counted on the ticket:** after each run that used Claude, a new step
+  (*Record Claude usage*, which runs whatever happened) adds the run and its
+  cost to a record the hub keeps on the ticket — in Jira an issue property,
+  which Jira's screens don't show — with each stage's share. A pass with no
+  cost report (cut off by a time limit, or cancelled) counts at its whole
+  budget, marked estimated. The run summary ends with the ticket's total.
+- **Checked before Claude:** a run for a ticket at either cap stops before
+  its progress comment, adds `agent-hub-over-cap` and `needs-human`, and
+  posts a ⛔ comment with the totals and how to go on (outcome *blocked*,
+  now one of every stage's outcomes). A person lifts the caps by removing
+  the label; the next run allows one more cap's worth. A record or label
+  that can't be read stops the run rather than lifting a cap.
+- Docs: claude-usage.md ("Per-ticket caps"), setup.md (the three
+  variables), jira.md (the label; the permission it needs, which the
+  automation account already has), architecture.md (the tracker interface's
+  new functions), build.md (the cap decision and PR 4's four parts).
+
+**Updating:** nothing to do — existing tickets start counting from their
+next run. To change a cap, set the variables. The automation account needs
+Edit work items, which it already has.
+
 ## 2.7.3 — 2026-10-07
 
 Jira and GitHub calls survive brief outages and rate limits, and the two

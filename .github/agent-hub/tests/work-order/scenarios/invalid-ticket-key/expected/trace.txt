@@ -3,6 +3,7 @@ Fetch ticket: failure
 Agent: skipped
 Apply: skipped
 Send back: skipped
+Record Claude usage: failure
 Clear progress comment: skipped
 Report failure: failure
 Remove session and credential files: success

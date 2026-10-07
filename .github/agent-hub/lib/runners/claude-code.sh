@@ -220,7 +220,7 @@ agent_settings() {
 
 # _claude <model> <fallback> <budget> <system prompt file> <schema> <prompt> > output
 _claude() {
-  local tools allowed denied domain session temp mode=dontAsk env=()
+  local tools allowed denied domain session temp output mode=dontAsk env=()
   session=$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid) | tr 'A-Z' 'a-z')
   [[ "$session" =~ $SESSION_ID_PATTERN ]] || { echo "::error::Could not create a session id." >&2; exit 1; }
   echo "$session" >> "$AGENT_SESSIONS"
@@ -263,6 +263,11 @@ _claude() {
   # skills, for extensions, included); the profile's settings above; and the
   # tools a profile doesn't have denied outright — allowlists alone don't
   # bind subagents whose definitions grant them.
+  # Each pass's cost goes to the ticket's usage (lib/stage.sh,
+  # stage_record_usage): while it runs, its budget is recorded as pending, so
+  # a pass cut off by a time limit still counts — at its whole budget.
+  printf '%s\n' "$3" > "$RUNNER_TEMP/claude-pass-pending"
+  output=$(mktemp "$RUNNER_TEMP/claude-output.XXXXXX")
   env "${env[@]}" claude -p "$6" \
     --session-id "$session" \
     --no-session-persistence \
@@ -281,7 +286,13 @@ _claude() {
     --permission-mode "$mode" \
     --allowedTools "$allowed" \
     "${PLUGIN_ARGS[@]}" \
-    < /dev/null || true
+    < /dev/null > "$output" || true
+  jq -c --arg budget "$3" '{cost: (.total_cost_usd // null), budget: ($budget | tonumber)}' "$output" 2> /dev/null \
+    | tail -n 1 | grep . >> "$RUNNER_TEMP/claude-passes.jsonl" \
+    || jq -nc --arg budget "$3" '{cost: null, budget: ($budget | tonumber)}' >> "$RUNNER_TEMP/claude-passes.jsonl"
+  rm -f "$RUNNER_TEMP/claude-pass-pending"
+  cat "$output"
+  rm -f "$output"
 }
 
 agent_revising() { [ "$(cat "$RUNNER_TEMP/mode" 2>/dev/null)" = revision ]; }

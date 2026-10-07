@@ -273,3 +273,100 @@ edited_mid_run() {
   run jq -c 'select(.body.update.labels) | .body.update.labels[]' "$CALLS"
   refute_line '{"remove":"needs-clarification"}'
 }
+
+# The ticket's Claude usage caps (lib/stage.sh; the same for every stage).
+# ledger: the hub's record the run left on the ticket.
+ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
+
+@test "caps: every run that used Claude is added to the ticket's usage, by stage" {
+  run_scenario ready 'MOCK_LEDGER={"runs":2,"cost_usd":1.5,"stages":{"work-order":{"runs":2,"cost_usd":1.5}}}'
+  run jq -c '{runs, estimated, stages: (.stages | map_values(.runs))}' <<< "$(ledger)"
+  assert_output '{"runs":3,"estimated":false,"stages":{"work-order":3}}'
+  run jq ".cost_usd" <<< "$(ledger)"
+  assert_output 2.5084
+  run cat "$RUNNER_TEMP/summary.md"
+  assert_output --partial "**Ticket usage:** this run \$1.01; the ticket 3 of 10 runs and \$2.51 of \$60 since its caps last started."
+}
+
+@test "caps: at either cap the run stops before Claude — labelled, a comment saying how to go on, nothing else changed" {
+  local ledger
+  for ledger in '{"runs":10,"cost_usd":5}' '{"runs":1,"cost_usd":60}' '{"runs":14,"cost_usd":70,"lifted_runs":4,"lifted_cost_usd":1}'; do
+    run_scenario ready "MOCK_LEDGER=$ledger"
+    run cat "$RUNNER_TEMP/trace.txt"
+    assert_line "Agent: skipped"
+    assert_line "Clear progress comment: success"
+    refute_line --partial "⏳"
+    assert_line --partial 'PUT  — {"update":{"labels":[{"add":"agent-hub-over-cap"},{"add":"needs-human"}]}}'
+    assert_line --partial "POST /comment — comment: ⛔ Claude usage cap reached"
+    assert_equal "$(jq -c '.over_cap' <<< "$(ledger)")" true
+    # Claude wasn't used, so nothing is added.
+    assert_equal "$(jq -c '.runs' <<< "$(ledger)")" "$(jq -c '.runs' <<< "$ledger")"
+    assert_equal "$(cat "$RUNNER_TEMP/outcome")" blocked
+  done
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
+  assert_output "⛔ Claude usage cap reached — this ticket has used \$69 of its \$60 cap in 10 of its 10 runs, across every stage, so this run stopped before using Claude. To go on, a person removes the agent-hub-over-cap label — which allows another \$60 and 10 runs — then tries again. Run details"
+}
+
+@test "caps: still over while the label stays; removing it allows one more cap's worth" {
+  run_scenario ready 'MOCK_LEDGER={"runs":10,"cost_usd":5,"over_cap":true}' 'MOCK_LABELS=["agent-hub-over-cap"]'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  refute_line --partial "PUT /properties"
+  assert_line --partial "⛔ Claude usage cap reached"
+  run_scenario ready 'MOCK_LEDGER={"runs":10,"cost_usd":5,"over_cap":true}' 'MOCK_LABELS=["needs-human"]'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: success"
+  run jq -c '{runs, over_cap, lifted_runs, lifted_cost_usd}' <<< "$(ledger)"
+  assert_output '{"runs":11,"over_cap":false,"lifted_runs":10,"lifted_cost_usd":5}'
+  run cat "$RUNNER_TEMP/log.txt"
+  assert_output --partial "label was removed from PROJ-99, so its caps allow another 10 run(s) and \$60.00."
+}
+
+@test "caps: the label can't be read, or the ledger can't be: Claude isn't used, and the cap is never lifted by mistake" {
+  run_scenario ready 'MOCK_LEDGER={"runs":10,"cost_usd":5,"over_cap":true}' 'MOCK_FAIL=GET ?fields=labels'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Fetch ticket: failure"
+  assert_line "Agent: skipped"
+  refute_line --partial "PUT /properties"
+  run_scenario ready 'MOCK_FAIL=GET /properties'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output "Couldn't read PROJ-99's Claude usage from Jira, so Claude wasn't used."
+}
+
+@test "caps: settings that aren't positive numbers stop the run before Claude" {
+  local vars
+  for vars in '{"AGENT_HUB_TICKET_MAX_RUNS": "0"}' '{"AGENT_HUB_TICKET_MAX_RUNS": "ten"}' '{"AGENT_HUB_TICKET_MAX_COST_USD": "0.00"}' '{"AGENT_HUB_TICKET_MAX_COST_USD": "-5"}'; do
+    run_scenario ready "VARS=$vars"
+    run cat "$RUNNER_TEMP/trace.txt"
+    assert_line "Agent: skipped"
+    assert_line "Report failure: success"
+  done
+}
+
+@test "caps: a pass with no report counts at its whole budget, marked estimated" {
+  # Claude Code printed nothing usable.
+  run_scenario claude-fails CLAUDE_FIXTURE=none
+  run jq -c '{runs, cost_usd, estimated}' <<< "$(ledger)"
+  assert_output '{"runs":1,"cost_usd":2,"estimated":true}'
+  # A pass cut off while running (a time limit): its budget, still pending.
+  use_run_env "$(mktemp -d "$BATS_TEST_TMPDIR/run.XXXXXX")"
+  export TICKET_KEY=PROJ-99 MOCK_LEDGER="" MOCK_FAIL=""
+  echo 2.50 > "$RUNNER_TEMP/claude-pass-pending"
+  echo '{"cost":0.75,"budget":2}' > "$RUNNER_TEMP/claude-passes.jsonl"
+  run_step "$STEPS" record-claude-usage
+  run jq -c '{runs, cost_usd, estimated}' <<< "$(ledger)"
+  assert_output '{"runs":1,"cost_usd":3.25,"estimated":true}'
+}
+
+@test "caps: a run that didn't use Claude isn't counted, and a ledger that can't be written is a warning, not a failed run" {
+  run_scenario invalid-ticket-key
+  [ ! -e "$RUNNER_TEMP/mock-ledger.json" ]
+  run_scenario ready 'MOCK_FAIL=PUT /properties/agent-hub-ledger'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Record Claude usage: success"
+  assert_line "Report failure: skipped"
+  run cat "$RUNNER_TEMP/log.txt"
+  assert_output --partial "::warning::Couldn't record PROJ-99's Claude usage in Jira, so this run isn't counted towards its cap."
+}

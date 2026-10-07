@@ -6,6 +6,7 @@ Agent: skipped
 Verify: skipped
 Apply: skipped
 Send back: skipped
+Record Claude usage: success
 Clear progress comment: success
 Report failure: skipped
 Remove session and credential files: success

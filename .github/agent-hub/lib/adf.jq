@@ -127,10 +127,10 @@ def is_command($cmd):
   | $c != "" and ($t | startswith($c)) and ($t[($c | length):] | test("^(\\s|$)"));
 
 # Whether a comment is the automation's own: posted by an app (a tracker rule),
-# or one of the workflows' progress (⏳), failure (❌), resolved (✅) or reply
-# (🔁) comments.
+# or one of the workflows' progress (⏳), failure (❌), resolved (✅), reply
+# (🔁) or over-cap (⛔) comments.
 def automation_comment:
-  (.author.accountType == "app") or (.body | first_text | test("^(⏳|❌|✅ Resolved|🔁)"));
+  (.author.accountType == "app") or (.body | first_text | test("^(⏳|❌|✅ Resolved|🔁|⛔)"));
 
 # Whether a comment is a person's change request: not the automation's own,
 # and starting with the command word $cmd. The one rule for both what the agent

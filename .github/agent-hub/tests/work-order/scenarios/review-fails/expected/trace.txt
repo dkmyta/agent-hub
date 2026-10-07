@@ -3,13 +3,17 @@ Fetch ticket: success
 Agent: failure
 Apply: skipped
 Send back: skipped
+Record Claude usage: success
 Clear progress comment: skipped
 Report failure: success
 Remove session and credential files: success
 --- Jira calls
 GET ?fields=summary,description,status
 GET /comment?maxResults=100
+GET /properties
 POST /comment — comment: ⏳ Generating work order
+GET /properties
+PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":2.8084,"estimated":true,"stages":{"work-order":{"runs":1,"cost_usd":2.8084}}}
 GET ?fields=status
 PUT /comment/5001 — comment: ❌ Work order generation failed
 PUT  — {"update":{"labels":[{"add":"needs-human"}]}}

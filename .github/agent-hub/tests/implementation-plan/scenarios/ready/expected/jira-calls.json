@@ -20,6 +20,11 @@
     "body": null
   },
   {
+    "method": "GET",
+    "path": "/properties",
+    "body": null
+  },
+  {
     "method": "POST",
     "path": "/comment",
     "body": {
@@ -1708,6 +1713,26 @@
             ]
           }
         ]
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/properties",
+    "body": null
+  },
+  {
+    "method": "PUT",
+    "path": "/properties/agent-hub-ledger",
+    "body": {
+      "runs": 1,
+      "cost_usd": 1.9484,
+      "estimated": false,
+      "stages": {
+        "implementation-plan": {
+          "runs": 1,
+          "cost_usd": 1.9484
+        }
       }
     }
   },
