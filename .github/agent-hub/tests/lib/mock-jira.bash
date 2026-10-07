@@ -26,6 +26,11 @@
 #                        transition the run makes changes it, as in Jira
 #   MOCK_FAIL            "METHOD path" of a call that should fail
 #   MOCK_FAIL_FROM       fail it from this occurrence on (default: the first)
+#   MOCK_LEDGER          the hub's record of the ticket (its Claude usage) when
+#                        the run starts, as JSON (default: none); the run's
+#                        writes replace it, as in Jira
+#   MOCK_LABELS          the ticket's labels, as a JSON array, when read on
+#                        their own (default: none)
 #   MOCK_LOST            a transition works, but the first reply is lost (a
 #                        failure, as when a connection breaks after Jira acted)
 #
@@ -96,6 +101,14 @@ jira_request() {
       fi
       if [ -n "$attachments" ]; then jq -c '{fields: {attachment: .}}' "$attachments"; else echo '{"fields":{"attachment":[]}}'; fi ;;
     "GET /myself") echo '{"accountId":"agent-hub-bot"}' ;;
+    "GET /properties")
+      if [ -s "$RUNNER_TEMP/mock-ledger.json" ] || [ -n "${MOCK_LEDGER:-}" ]; then echo '{"keys":[{"key":"agent-hub-ledger"}]}'
+      else echo '{"keys":[]}'; fi ;;
+    "GET /properties/agent-hub-ledger")
+      if [ -s "$RUNNER_TEMP/mock-ledger.json" ]; then jq -c '{key: "agent-hub-ledger", value: .}' "$RUNNER_TEMP/mock-ledger.json"
+      else jq -nc --argjson v "$MOCK_LEDGER" '{key: "agent-hub-ledger", value: $v}'; fi ;;
+    "PUT /properties/agent-hub-ledger") printf '%s\n' "$body" > "$RUNNER_TEMP/mock-ledger.json" ;;
+    "GET ?fields=labels") jq -nc --argjson labels "${MOCK_LABELS:-[]}" '{fields: {labels: $labels}}' ;;
     "POST /attachments") echo '[{"id":"9001"}]' ;;
     "GET /attachment/content/"*) cat "$ATTACHMENT_CONTENT_FIXTURE" ;;
     "POST /comment")

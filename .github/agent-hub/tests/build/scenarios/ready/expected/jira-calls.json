@@ -35,6 +35,11 @@
     "body": null
   },
   {
+    "method": "GET",
+    "path": "/properties",
+    "body": null
+  },
+  {
     "method": "POST",
     "path": "/comment",
     "body": {
@@ -829,6 +834,26 @@
             "add": "needs-human"
           }
         ]
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/properties",
+    "body": null
+  },
+  {
+    "method": "PUT",
+    "path": "/properties/agent-hub-ledger",
+    "body": {
+      "runs": 1,
+      "cost_usd": 2.41,
+      "estimated": false,
+      "stages": {
+        "build": {
+          "runs": 1,
+          "cost_usd": 2.41
+        }
       }
     }
   },

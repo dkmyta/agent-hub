@@ -6,6 +6,7 @@ Agent: success
 Verify: success
 Apply: success
 Send back: skipped
+Record Claude usage: success
 Clear progress comment: success
 Report failure: skipped
 Remove session and credential files: success
@@ -17,6 +18,7 @@ GET ?fields=attachment
 GET /attachment/content/10001
 GET /changelog?startAt=0&maxResults=100
 GET ?fields=attachment
+GET /properties
 POST /comment — comment: ⏳ Building
 GET ?fields=status
 GET /myself
@@ -25,6 +27,8 @@ GET ?fields=attachment
 POST /comment — comment: 🔨 Draft pull request opened
 GET ?fields=description
 PUT ?notifyUsers=true — description: 6 headings, labels: [{"add":"needs-human"}]
+GET /properties
+PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":2.41,"estimated":false,"stages":{"build":{"runs":1,"cost_usd":2.41}}}
 DELETE /comment/5001
 --- GitHub calls
 GET /repos/example/repo

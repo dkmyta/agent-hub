@@ -213,6 +213,18 @@ jobs:
           source "$RUNNER_TEMP/agent-hub/lib/load.sh" tracker
           step_return
 
+      # Every run that used Claude is added to the ticket's usage, whatever
+      # happened after, for its caps (docs/claude-usage.md, "Per-ticket
+      # caps"). Nothing to do if Claude wasn't used, or the hub never loaded.
+      - name: Record Claude usage
+        if: always()
+        timeout-minutes: 2
+        env: *tracker-env
+        run: |
+          [ -f "$RUNNER_TEMP/agent-hub/lib/load.sh" ] || exit 0
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" tracker
+          stage_record_usage
+
       # Runs on success and on cancellation (a newer request for the ticket
       # superseded this run), so no "⏳" progress comment is left behind.
       - name: Clear progress comment

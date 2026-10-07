@@ -199,6 +199,8 @@ run_stage() {
   if succeeding && [ -n "$status" ] && [ "$status" != ready ]; then step "Send back" return
   else skip "Send back"; fi
 
+  step "Record Claude usage" record-claude-usage  # always()
+
   if succeeding || [ $cancelled = 1 ]; then step "Clear progress comment" clear-progress-comment
   else skip "Clear progress comment"; fi
 
@@ -228,7 +230,7 @@ run_scenario() {
   local full="" dir="$SUITE_DIR/scenarios/$1" var overrides=() arg
   shift
   for arg in "$@"; do case "$arg" in --full) full=--full ;; *) overrides+=("$arg") ;; esac; done
-  export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" MOCK_FAIL_FROM="" CLAUDE_FIXTURE=none CANCEL_AFTER=""
+  export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" MOCK_FAIL_FROM="" CLAUDE_FIXTURE=none CANCEL_AFTER="" MOCK_LEDGER="" MOCK_LABELS=""
   export CLAUDE_REVIEW_FIXTURE=approve CLAUDE_REVIEW_EXIT=0 CLAUDE_FIXTURE_EDIT="" CLAUDE_REVIEW_FIXTURE_EDIT="" CLAUDE_EDITS=""
   export TICKET_FIXTURE=tickets/ready.json TICKET_LATER_FIXTURE="" CHANGELOG_FIXTURE="" CHANGELOG_PAGE2_FIXTURE="" COMMENTS_FIXTURE="" COMMENTS_LATER_FIXTURE=""
   export MOCK_GH_VISIBILITY=private MOCK_GH_FAIL="" MOCK_GH_PRS_FIXTURE=""

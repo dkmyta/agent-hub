@@ -66,6 +66,14 @@ NEEDS_DETAILS_LABEL=$(setting AGENT_HUB_NEEDS_DETAILS_LABEL needs-details)
 NEEDS_HUMAN_LABEL=$(setting AGENT_HUB_NEEDS_HUMAN_LABEL needs-human)
 NEEDS_CLARIFICATION_LABEL=$(setting AGENT_HUB_NEEDS_CLARIFICATION_LABEL needs-clarification)
 
+# A ticket's total Claude usage, across every stage: the runs that used
+# Claude and their API-equivalent cost. Past either cap nothing more uses
+# Claude for the ticket until a person removes the over-cap label, which
+# allows one more cap's worth (docs/claude-usage.md, "Per-ticket caps").
+TICKET_MAX_RUNS=$(setting AGENT_HUB_TICKET_MAX_RUNS 10)
+TICKET_MAX_COST_USD=$(setting AGENT_HUB_TICKET_MAX_COST_USD 60.00)
+OVER_CAP_LABEL=$(setting AGENT_HUB_OVER_CAP_LABEL agent-hub-over-cap)
+
 # Comments starting with this are change requests (or retries); the tracker's
 # "Revision Requested" rule starts a run for them, and the run marks them
 # resolved once handled.

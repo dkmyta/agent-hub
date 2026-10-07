@@ -3,6 +3,7 @@ Fetch ticket: success
 Agent: success
 Apply: success
 Send back: skipped
+Record Claude usage: success
 Clear progress comment: success
 Report failure: skipped
 Remove session and credential files: success
@@ -11,6 +12,7 @@ GET ?fields=summary,description,status
 GET /changelog?startAt=0&maxResults=100
 GET /comment?maxResults=100
 GET ?fields=attachment
+GET /properties
 POST /comment — comment: ⏳ Writing implementation plan
 GET ?fields=status
 GET /transitions
@@ -22,4 +24,6 @@ PUT ?notifyUsers=true — description: 21 headings, labels: [{"remove":"needs-cl
 GET ?fields=attachment
 POST /transitions — {"transition":{"id":"31"}}
 GET /comment?maxResults=100
+GET /properties
+PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":3.4967,"estimated":false,"stages":{"implementation-plan":{"runs":1,"cost_usd":3.4967}}}
 DELETE /comment/5001

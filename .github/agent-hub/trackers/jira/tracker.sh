@@ -160,6 +160,29 @@ tracker_edited_after() {
   jq -r --arg field "$2" 'if (.entered | not) then "unknown" elif any(.changes[]; .field == $field) then "yes" else "no" end' <<< "$history"
 }
 
+# The hub's own record of the ticket — its Claude usage (lib/stage.sh,
+# stage_check_caps) — kept as a Jira issue property: JSON on the ticket that
+# Jira's screens don't show. Writing it needs the same permission as editing
+# the ticket.
+LEDGER_URL="$ISSUE_URL/properties/agent-hub-ledger"
+
+# tracker_ledger: the record as JSON, or {} if there's none yet.
+tracker_ledger() {
+  local keys
+  keys=$(jira "$ISSUE_URL/properties") || return 1
+  if jq -e 'any(.keys[]?; .key == "agent-hub-ledger")' <<< "$keys" > /dev/null; then
+    jira "$LEDGER_URL" | jq -c '.value // {}'
+  else
+    echo '{}'
+  fi
+}
+
+# tracker_set_ledger < JSON: replace the record.
+tracker_set_ledger() { jira -X PUT "$LEDGER_URL" -d @- > /dev/null; }
+
+# tracker_ticket_labels: the ticket's labels now, as a JSON array.
+tracker_ticket_labels() { tracker_issue labels | jq -c '.fields.labels // []'; }
+
 # Attach Markdown file $1 to the ticket (a multipart upload; Jira requires the
 # X-Atlassian-Token header). Prints the new attachment's id.
 tracker_attach() {

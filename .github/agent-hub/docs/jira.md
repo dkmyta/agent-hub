@@ -74,6 +74,7 @@ transition per status). Then restrict the two approvals to people:
 |---|---|---|---|
 | `needs-details` | The request can't be worked from yet | Work Order Requested rule, or the work-order stage | Work Order Requested or Revision Requested rule, on resubmission |
 | `needs-human` | Waiting for a person to act: review and approve, answer questions, or deal with a failed run | Work-order stage (work order written), plan stage (plan written or clarification needed), either stage when a run fails | The rule for each "…Approved" transition; Revision Requested and Work Order Requested rules (the agent is working); the work-order stage when it returns a ticket to Intake |
+| `agent-hub-over-cap` | The ticket reached its Claude usage caps; nothing more uses Claude for it ([claude-usage.md](claude-usage.md#per-ticket-caps)) | Any stage, before using Claude | A person, to lift the caps (then retry) |
 | `needs-clarification` | The plan needs a product or scope decision | Plan stage | Implementation Plan Requested rule on re-approval; the work-order stage when a revision settles the plan's questions; plan stage when a plan is written |
 
 ## Rule: Work Order Requested
@@ -299,7 +300,8 @@ work items, Add comments, Delete own comments, Edit all comments (to resolve
 the rule's comments), Create attachments, Delete own attachments (to replace
 its own earlier plan files; a person's upload is never deleted, so Delete all
 attachments isn't needed). In team-managed projects the Member role has these
-by default.
+by default. Edit work items also covers the hub's record of each ticket's
+Claude usage, an issue property ([claude-usage.md](claude-usage.md#per-ticket-caps)).
 
 **Required: a dedicated service account.** Use an account that is only the
 automation — not a person's — for three reasons:
