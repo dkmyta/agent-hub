@@ -465,8 +465,8 @@ sandbox check), the shared review model (`AGENT_HUB_REVIEW_MODEL`) and its
 own budget (`AGENT_HUB_BUILD_REVIEW_MAX_BUDGET_USD`, $5). Its inputs are the
 ticket and plan, the hub's check results and the diff the hub computed from
 the git metadata copied before the agent ran — never git in the checkout.
-The hub, not the agent, sorts each finding by `review/policy.json`. Until
-the fix pass (2.10.0), fix-eligible findings are review items marked so.
+The hub, not the agent, sorts each finding by `review/policy.json`; since
+2.10.0 the fix-eligible ones go to the fix pass.
 The pull request lists every item; a public repository's shows only each
 finding's kind, severity and area (its text is on the ticket, with the
 evidence and suggestion). The review never costs the build: the step
@@ -486,6 +486,23 @@ A separate pass with the build's permissions applies the fix-pass findings —
 tests, the criterion) → resolved, unresolved or new concern. Anything not
 resolved becomes a review item; there's no second fix loop. The fix check also
 examines any test a fix changed. Then Verify runs again.
+
+**As built (2.10.0, `stages/build/fix.sh`):** the *Fix* step runs the fix
+pass (the build profile; `AGENT_HUB_BUILD_FIX_MODEL`, Sonnet, capped by
+`AGENT_HUB_BUILD_FIX_MAX_BUDGET_USD`, $3) only when the review found
+fix-eligible findings, then the fix check (the review profile, the same
+model, `AGENT_HUB_BUILD_FIX_CHECK_MAX_BUDGET_USD`, $1) on exactly the diff
+the fix made, as the hub computed it. *Verify fix* — no agent — commits the
+fix on top of the reviewed commit and **keeps it only if the gates refuse
+nothing and the repository's checks pass on it**; otherwise it resets to the
+reviewed commit, which is pushed as it was. A fix the check couldn't judge,
+or a fix pass that changed nothing, isn't kept either. Both steps continue
+on error, and Apply drops a fix that never finished verifying, so the fix
+pass can't cost the build or push an unchecked commit. On the pull request,
+a resolved finding is listed as fixed; an unresolved one, or any when the
+fix wasn't kept, stays open; the fix check's new concerns are sorted by the
+same policy into decision or review items (never fixed: there's no second
+loop). Its eval: `tests/build/evals` ([evals.md](../evals.md)).
 
 ### Gates (deterministic)
 
@@ -1134,8 +1151,8 @@ where stated and only with the owner's OK.
    With it, reconciliation of an existing pull request (moved from 3d).
    In four parts (decided after the pre-PR 4 review): *4a* (2.8.0, 2.8.1) the
    prerequisites below; *4b* the review (2.9.0: findings become items, no
-   automatic changes), then the fix pass, fix check and second verify
-   (2.10.0), with its eval case; *4c* an existing pull request — reconciliation,
+   automatic changes), then the fix pass, fix check and second verify, with
+   its eval case (2.10.0); *4c* an existing pull request — reconciliation,
    sync and drift, review coverage, stale-run checks; *4d* the CI gate (after
    a spike on the CI-result mechanism), CI fixes and the hand-off. The
    preview gate comes off after 4d, once the runner blockers are met.

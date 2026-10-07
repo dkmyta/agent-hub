@@ -35,6 +35,8 @@ fi
 if [ "$1" = --help ]; then [ "${CLAUDE_NO_RESTRICTED:-}" = 1 ] || echo "  --restricted  Restricted mode"; exit 0; fi
 
 case " $* " in
+  *fix-check-pass-prompt.md*) pass=fix-check ;;
+  *fix-pass-prompt.md*) pass=fix ;;
   *pass-prompt.md*) pass=pass ;;
   *review-prompt.md*) pass=review ;;
   *) pass=draft ;;
@@ -48,6 +50,27 @@ while [ $# -gt 0 ]; do
   [ "$1" = -p ] && { printf '%s' "$2" > "$RUNNER_TEMP/claude$suffix-prompt.txt"; break; }
   shift
 done
+
+# The build's fix pass: $CLAUDE_FIX_EDITS (a script, run in the checkout)
+# stands in for its changes; it prints $CLAUDE_FIX_FIXTURE. The fix check
+# prints $CLAUDE_FIX_CHECK_FIXTURE. "none" prints nothing for either.
+if [ "$pass" = fix ]; then
+  [ -z "${CLAUDE_FIX_EDITS:-}" ] || bash -e "$CLAUDE_FIX_EDITS" || exit 98
+  case "${CLAUDE_FIX_FIXTURE:-}" in
+    "") jq -n '{type: "result", subtype: "success", is_error: false, total_cost_usd: 0.3, structured_output: {fixes: []}}' ;;
+    none) ;;
+    *) cat "$CLAUDE_FIX_FIXTURE" ;;
+  esac
+  exit 0
+fi
+if [ "$pass" = fix-check ]; then
+  case "${CLAUDE_FIX_CHECK_FIXTURE:-}" in
+    "") jq -n '{type: "result", subtype: "success", is_error: false, total_cost_usd: 0.1, structured_output: {checks: [], new_concerns: []}}' ;;
+    none) ;;
+    *) cat "$CLAUDE_FIX_CHECK_FIXTURE" ;;
+  esac
+  exit 0
+fi
 
 if [ "$pass" = pass ]; then
   case "${CLAUDE_PASS_FIXTURE:-}" in

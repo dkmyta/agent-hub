@@ -5,6 +5,8 @@ Install dependencies: success
 Agent: success
 Verify: skipped
 Review: skipped
+Fix: skipped
+Verify fix: skipped
 Apply: skipped
 Send back: success
 Record Claude usage: success

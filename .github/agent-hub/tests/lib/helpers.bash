@@ -161,13 +161,14 @@ run_stage() {
     if run_step "$STEPS" "$2"; then echo "$1: success"; else echo "$1: failure"; failed=1; fi
     if [ "$2" = "${CANCEL_AFTER:-}" ]; then echo "(run cancelled)"; cancelled=1; fi
   }
-  skip() { echo "$1: skipped"; }
+  # (Not "skip": that would replace bats' own, for the rest of the test.)
+  skip_step() { echo "$1: skipped"; }
   succeeding() { [ $failed = 0 ] && [ $cancelled = 0 ]; }  # success()
 
   # "Copy the hub" isn't run: use_run_env provides the copy (a link), and
   # stage-workflow.bats runs the real step. The tests run as a self-hosted
   # runner, where Claude Code is preinstalled.
-  skip "Install Claude Code"
+  skip_step "Install Claude Code"
 
   # Code stages (CODE_STAGE=true in their settings) also find their
   # toolchain, install the dependencies and verify (Set up Node and Install
@@ -181,38 +182,44 @@ run_stage() {
 
   if [ "$code_stage" = true ]; then
     if succeeding && [ "$proceed" = true ]; then step "Install dependencies" install
-    else skip "Install dependencies"; fi
+    else skip_step "Install dependencies"; fi
   fi
 
   if succeeding && [ "$proceed" = true ]; then step "Agent" agent
-  else skip "Agent"; fi
+  else skip_step "Agent"; fi
   status=$(step_output agent status)
 
   if [ "$code_stage" = true ]; then
     if succeeding && [ "$status" = ready ]; then step "Verify" verify
-    else skip "Verify"; fi
+    else skip_step "Verify"; fi
   fi
 
   # The review continues on error: its failure never fails the run.
   if [ "$code_stage" = true ]; then
     if succeeding && [ "$status" = ready ]; then
-      if run_step "$STEPS" review; then echo "Review: success"; else echo "Review: failure (continued)"; fi
-    else skip "Review"; fi
+      if run_step "$STEPS" review; then
+        echo "Review: success"
+        if run_step "$STEPS" fix; then
+          echo "Fix: success"
+          if run_step "$STEPS" verify-fix; then echo "Verify fix: success"; else echo "Verify fix: failure (continued)"; fi
+        else echo "Fix: failure (continued)"; skip_step "Verify fix"; fi
+      else echo "Review: failure (continued)"; skip_step "Fix"; skip_step "Verify fix"; fi
+    else skip_step "Review"; skip_step "Fix"; skip_step "Verify fix"; fi
   fi
 
   if succeeding && [ "$status" = ready ]; then step "Apply" apply
-  else skip "Apply"; fi
+  else skip_step "Apply"; fi
 
   if succeeding && [ -n "$status" ] && [ "$status" != ready ]; then step "Send back" return
-  else skip "Send back"; fi
+  else skip_step "Send back"; fi
 
   step "Record Claude usage" record-claude-usage  # always()
 
   if succeeding || [ $cancelled = 1 ]; then step "Clear progress comment" clear-progress-comment
-  else skip "Clear progress comment"; fi
+  else skip_step "Clear progress comment"; fi
 
   if [ $failed = 1 ]; then step "Report failure" report-failure-on-ticket
-  else skip "Report failure"; fi
+  else skip_step "Report failure"; fi
 
   step "Remove session and credential files" remove-session-and-credential-files  # always()
 }
@@ -242,7 +249,7 @@ run_scenario() {
   shift
   for arg in "$@"; do case "$arg" in --full) full=--full ;; *) overrides+=("$arg") ;; esac; done
   export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" MOCK_FAIL_FROM="" CLAUDE_FIXTURE=none CANCEL_AFTER="" MOCK_LEDGER="" MOCK_LABELS=""
-  export CLAUDE_PASS_FIXTURE="" CLAUDE_PASS_EXIT=0
+  export CLAUDE_PASS_FIXTURE="" CLAUDE_PASS_EXIT=0 CLAUDE_FIX_FIXTURE="" CLAUDE_FIX_EDITS="" CLAUDE_FIX_CHECK_FIXTURE=""
   export CLAUDE_REVIEW_FIXTURE=approve CLAUDE_REVIEW_EXIT=0 CLAUDE_FIXTURE_EDIT="" CLAUDE_REVIEW_FIXTURE_EDIT="" CLAUDE_EDITS=""
   export TICKET_FIXTURE=tickets/ready.json TICKET_LATER_FIXTURE="" CHANGELOG_FIXTURE="" CHANGELOG_PAGE2_FIXTURE="" COMMENTS_FIXTURE="" COMMENTS_LATER_FIXTURE=""
   export MOCK_GH_VISIBILITY=private MOCK_GH_FAIL="" MOCK_GH_PRS_FIXTURE="" MOCK_GH_HISTORY=""
@@ -252,7 +259,7 @@ run_scenario() {
   source "$dir/scenario.env"
   set +a
   for arg in "${overrides[@]}"; do export "${arg?}"; done
-  for var in TICKET_FIXTURE TICKET_LATER_FIXTURE CHANGELOG_FIXTURE CHANGELOG_PAGE2_FIXTURE COMMENTS_FIXTURE COMMENTS_LATER_FIXTURE TRANSITIONS_FIXTURE CLAUDE_FIXTURE ATTACHMENTS_FIXTURE ATTACHMENTS_LATER_FIXTURE ATTACHMENT_CONTENT_FIXTURE CLAUDE_REVIEW_FIXTURE CLAUDE_PASS_FIXTURE CLAUDE_EDITS MOCK_GH_PRS_FIXTURE; do
+  for var in TICKET_FIXTURE TICKET_LATER_FIXTURE CHANGELOG_FIXTURE CHANGELOG_PAGE2_FIXTURE COMMENTS_FIXTURE COMMENTS_LATER_FIXTURE TRANSITIONS_FIXTURE CLAUDE_FIXTURE ATTACHMENTS_FIXTURE ATTACHMENTS_LATER_FIXTURE ATTACHMENT_CONTENT_FIXTURE CLAUDE_REVIEW_FIXTURE CLAUDE_PASS_FIXTURE CLAUDE_FIX_FIXTURE CLAUDE_FIX_EDITS CLAUDE_FIX_CHECK_FIXTURE CLAUDE_EDITS MOCK_GH_PRS_FIXTURE; do
     case "${!var}" in none | approve | "" | /*) ;; *) export "$var=$FIXTURES/${!var}" ;; esac
   done
 

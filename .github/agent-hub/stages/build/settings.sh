@@ -16,6 +16,12 @@ CLAUDE_MAX_BUDGET_USD=$(stage_setting MAX_BUDGET_USD 10.00)
 # The code review: a fresh session on the shared review model
 # (AGENT_HUB_REVIEW_MODEL), with its own budget (stages/build/review.sh).
 BUILD_REVIEW_MAX_BUDGET_USD=$(stage_setting REVIEW_MAX_BUDGET_USD 5.00)
+# The fix pass and its fix check (stages/build/fix.sh): small, targeted
+# passes on a faster model, each with its own budget.
+BUILD_FIX_MODEL=$(stage_setting FIX_MODEL claude-sonnet-5)
+BUILD_FIX_FALLBACK_MODEL=$(stage_setting FIX_FALLBACK_MODEL claude-opus-5-5)
+BUILD_FIX_MAX_BUDGET_USD=$(stage_setting FIX_MAX_BUDGET_USD 3.00)
+BUILD_FIX_CHECK_MAX_BUDGET_USD=$(stage_setting FIX_CHECK_MAX_BUDGET_USD 1.00)
 
 # Not for real tickets yet: the stage runs only where a repository opts in,
 # for development (playground/), with the repository variable

@@ -9,6 +9,8 @@ Install dependencies | id: install | if: inputs.code-stage && steps.start.output
 Agent (draft and review) | id: agent | if: steps.start.outputs.proceed == 'true' | env: ANTHROPIC_API_KEY
 Verify | id: verify | if: inputs.code-stage && steps.agent.outputs.status == 'ready' | env: -
 Review | id: review | if: inputs.code-stage && steps.verify.outcome == 'success' | env: ANTHROPIC_API_KEY
+Fix | id: fix | if: inputs.code-stage && steps.review.outcome == 'success' | env: ANTHROPIC_API_KEY
+Verify fix | id: verify-fix | if: inputs.code-stage && steps.fix.outcome == 'success' | env: -
 Apply to ticket | id: apply | if: steps.agent.outputs.status == 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN,AGENT_HUB_GITHUB_TOKEN
 Send back | id: return | if: steps.agent.outputs.status != '' && steps.agent.outputs.status != 'ready' | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN
 Record Claude usage | id: - | if: always() | env: JIRA_DOMAIN,JIRA_EMAIL,JIRA_API_TOKEN

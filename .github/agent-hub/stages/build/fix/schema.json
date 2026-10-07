@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fixes"],
+  "properties": {
+    "fixes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding", "fixed", "what"],
+        "properties": {
+          "finding": {"type": "integer", "minimum": 1},
+          "fixed": {"type": "boolean"},
+          "what": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

@@ -17,8 +17,10 @@ and how the evals fit in.
   repository and research. The build (a development preview) runs **one
   pass** that edits the checkout and runs the repository's checks in the
   sandbox, then — in its own *Review* step — a **code review**: a fresh,
-  read-only session whose findings become items on the pull request. Those
-  steps are the only points where Claude is used — it counts against the account's plan limits
+  read-only session whose findings become items on the pull request; when
+  it finds serious problems within the plan, the *Fix* step fixes them once
+  and a fresh read-only session checks each fix. Those steps are the only
+  points where Claude is used — it counts against the account's plan limits
   (subscription) or is billed (API), like any other Claude Code session.
 - **Everything else is plain scripts**: fetching the ticket, writing results
   to the ticket, installing the repository's dependencies and re-running its
@@ -76,10 +78,11 @@ docs link here):
 |---|---|---|
 | One work order (draft + review) | $0.30–1.50 | Clear requests cost more (research); a ticket sent back for details costs only its draft (no review), well under $0.50 |
 | One implementation plan (draft + review) | $1.50–7 | Several minutes; scales with the change. Opus costs more than Sonnet |
-| One build (build and code review) | Not measured yet — capped at $10 and $5 | To confirm in the pipeline test ([build.md](workflows/build.md#cost-estimates-to-confirm-in-the-pipeline-test)); scales with the change and the repository's checks |
+| One build (build, code review, and a fix pass when needed) | Not measured yet — capped at $10, $5, and $3 + $1 | To confirm in the pipeline test ([build.md](workflows/build.md#cost-estimates-to-confirm-in-the-pipeline-test)); scales with the change and the repository's checks |
 | One eval case | As one real run of its stage | Each case runs the draft and the review |
 | Work order evals (3 cases) | $1–3 | A few minutes |
 | Implementation plan evals (3 cases) | $3–10 | 20–40 minutes |
+| Build evals (1 case: the review and fix pass) | $2–5 | A few minutes |
 | The sandbox check | About $0.30 | Three short sessions, each capped (under $1.20 together) |
 | Every stage (**all**) | The sum; up to $4–13, over the $10 default cap: raise it for that run | Only after a model or Claude Code change |
 

@@ -25,6 +25,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/dependencies.sh"
 # The code review (after Verify; its findings go to Apply).
 # shellcheck source=stages/build/review.sh
 source "$(dirname "${BASH_SOURCE[0]}")/review.sh"
+# The fix pass and fix check (after the review), and verifying the fix.
+# shellcheck source=stages/build/fix.sh
+source "$(dirname "${BASH_SOURCE[0]}")/fix.sh"
 
 BUILD_CONTEXT="$RUNNER_TEMP/build-context.json"
 BUILD_GIT="$RUNNER_TEMP/build-git"
@@ -483,7 +486,7 @@ _install_dependencies() {
 
 # step_verify: Commit the agent's changes and run the repository's checks on exactly that commit, in the sandbox.
 step_verify() {
-  local base publish message clone rc results folder
+  local base publish message results
   build_git
   base=$(context .base) publish=$(context .publish)
   # A hard link would pull in a file from elsewhere on the runner that the
@@ -507,27 +510,37 @@ step_verify() {
   else message="Build $TICKET_KEY from its approved implementation plan"; fi
   printf '%s\n\nRefs: %s\n' "$message" "$TICKET_KEY" | git commit -q -F -
 
-  # The checks run on a clean copy of exactly that commit — not the checkout,
-  # which something the agent left running could still change — with its
-  # dependencies installed the same way.
   # (The install step rehearsed all of this on the base commit, before the
   # agent ran.)
-  clone="$RUNNER_TEMP/verify"
-  _verify_copy "$(git rev-parse HEAD)" "$clone" || stage_fail "Couldn't make a copy of the build's commit to check, so nothing was pushed." "Git said: $(_git_said)"
+  _check_commit "$base" || stage_fail "$(cat "$RUNNER_TEMP/check-commit-error")"
+  results=$(jq -c '.checks' "$RUNNER_TEMP/check-commit.json")
+  [ "$results" != "[]" ] || echo "The repository declares no checks (no test, lint, typecheck or build script)."
+  cp "$RUNNER_TEMP/check-commit.json" "$RUNNER_TEMP/verify.json"
+  if jq -e 'any(.checks[]; .result != "passed")' "$RUNNER_TEMP/verify.json" > /dev/null; then
+    stage_fail "The repository's checks failed when the hub ran them: $(jq -r '[.checks[] | select(.result != "passed") | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/verify.json"). Nothing was pushed; the output is in the next comment."
+  fi
+}
+
+# _check_commit <base>: the repository's checks on HEAD — a clean copy of
+# exactly that commit (not the checkout, which something the agent left
+# running could still change), its dependencies installed the same way —
+# into check-commit.json ({head, checks}); the checks' output in checks/.
+# Fails, with the reason in check-commit-error, if it can't run them.
+_check_commit() {
+  local clone="$RUNNER_TEMP/verify" folder rc results
+  rm -rf "$clone" "$RUNNER_TEMP/checks"
+  _verify_copy "$(git rev-parse HEAD)" "$clone" \
+    || { echo "Couldn't make a copy of the build's commit to check, so nothing was pushed. Git said: $(_git_said)" > "$RUNNER_TEMP/check-commit-error"; return 1; }
   while IFS= read -r folder; do
     [ -d "$clone/$folder" ] || continue
     rc=0
     _install_dependencies "$clone/$folder" "$RUNNER_TEMP/verify-install.log" > /dev/null || rc=$?
-    [ "$rc" = 0 ] || stage_fail "Installing the dependencies for the checks failed (exit $rc), so nothing was pushed."
-  done < <(build_install_folders "$base")
+    [ "$rc" = 0 ] || { echo "Installing the dependencies for the checks failed (exit $rc), so nothing was pushed." > "$RUNNER_TEMP/check-commit-error"; return 1; }
+  done < <(build_install_folders "$1")
   mkdir -p "$RUNNER_TEMP/checks"
-  _checks "$base" > "$RUNNER_TEMP/checks.tsv" || stage_fail "$(_checks_invalid "nothing was pushed")"
+  _checks "$1" > "$RUNNER_TEMP/checks.tsv" || { _checks_invalid "nothing was pushed" > "$RUNNER_TEMP/check-commit-error"; return 1; }
   results=$(_run_checks "$clone" "$RUNNER_TEMP/checks.tsv" "$RUNNER_TEMP/checks" 1 Check)
-  [ "$results" != "[]" ] || echo "The repository declares no checks (no test, lint, typecheck or build script)."
-  jq -n --argjson checks "$results" --arg head "$(git rev-parse HEAD)" '{head: $head, checks: $checks}' > "$RUNNER_TEMP/verify.json"
-  if jq -e 'any(.checks[]; .result != "passed")' "$RUNNER_TEMP/verify.json" > /dev/null; then
-    stage_fail "The repository's checks failed when the hub ran them: $(jq -r '[.checks[] | select(.result != "passed") | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/verify.json"). Nothing was pushed; the output is in the next comment."
-  fi
+  jq -n --argjson checks "$results" --arg head "$(git rev-parse HEAD)" '{head: $head, checks: $checks}' > "$RUNNER_TEMP/check-commit.json"
 }
 
 # _run_checks <folder> <checks.tsv> <log folder> <tries> <label>: run each check
@@ -623,7 +636,7 @@ stage_failure_details() {
 
 # step_apply: Check and push the verified build, and open its draft pull request.
 step_apply() {
-  local base branch target publish refused findings rc=0 number title url
+  local base branch target publish refused findings rc=0 number title url reviewed
   stage_require_status "$PLAN_APPROVED_STATUS"
   build_git
   _require_same_plan
@@ -633,6 +646,8 @@ step_apply() {
   [ -s "$RUNNER_TEMP/dependencies.json" ] || echo '{}' > "$RUNNER_TEMP/dependencies.json"
   # How the agent reached Claude (agent_access), for the cost line.
   [ -s "$RUNNER_TEMP/agent-access.json" ] || echo '{}' > "$RUNNER_TEMP/agent-access.json"
+  # A fix that didn't finish verifying is dropped first (fix.sh).
+  _settle_fix
   # Only the commit the checks passed on is pushed.
   [ "$(git rev-parse HEAD)" = "$(jq -r '.head' "$RUNNER_TEMP/verify.json" 2> /dev/null)" ] \
     || stage_fail "The build's commit isn't the one the checks passed on, so nothing was pushed."
@@ -667,7 +682,10 @@ step_apply() {
 
   # The code review's result (review.sh). None — the step failed or hit its
   # time limit — or one for another commit is a review that didn't finish.
-  if [ ! -s "$CODE_REVIEW" ] || [ "$(jq -r '.head' "$CODE_REVIEW" 2> /dev/null)" != "$(git rev-parse HEAD)" ]; then
+  # A kept fix sits on top of the commit the review saw.
+  reviewed=$(git rev-parse HEAD)
+  [ "$(jq -r '.status' "$FIX_RESULT")" != kept ] || reviewed=$(jq -r '.before' "$FIX_RESULT")
+  if [ ! -s "$CODE_REVIEW" ] || [ "$(jq -r '.head' "$CODE_REVIEW" 2> /dev/null)" != "$reviewed" ]; then
     # shellcheck disable=SC1112 # curly apostrophe intended
     jq -n --arg head "$(git rev-parse HEAD)" \
       '{status: "incomplete", head: $head, reason: "it didn’t run to the end (an error, or its time limit)", findings: []}' > "$CODE_REVIEW"
@@ -675,6 +693,7 @@ step_apply() {
 
   # The draft pull request: the hub's template, then the state block.
   jq -n --slurpfile context "$BUILD_CONTEXT" --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile review "$CODE_REVIEW" \
+      --slurpfile fix "$FIX_RESULT" \
       --slurpfile contract "$RUNNER_TEMP/contract.json" --arg ticket "$TICKET_KEY" \
       --arg version "$(cat "$HUB_DIR/VERSION")" --arg head "$(git rev-parse HEAD)" -L "$STAGE_DIR" 'include "wording";
     $context[0] as $c | {schema: 1, ticket: $ticket, generation: 1, hub_version: $version,
@@ -682,9 +701,10 @@ step_apply() {
       plan_base: $contract[0].base_commit, heads: [{generation: 1, head: $head, hub_version: $version}],
       risk: $contract[0].governance.risk.level,
       flags: [$contract[0].governance.includes | to_entries[] | select(.value) | .key],
-      items: (review_items($gates[0]; $review[0])
+      items: (review_items($gates[0]; $review[0]; $fix[0])
         + [$contract[0].governance.manual_changes | to_entries[] | {id: "C\(.key + 1)", path: .value.path, status: "open"}]),
       review: ($review[0] | {status, head, cost: (.cost // 0)}),
+      fix: ($fix[0] | {status, before, after}),
       totals: $gates[0].totals}' > "$RUNNER_TEMP/state.json"
   url=""
   [ "$publish" != true ] || url=$TICKET_URL
@@ -692,7 +712,7 @@ step_apply() {
       --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile contract "$RUNNER_TEMP/contract.json" \
       --slurpfile state "$RUNNER_TEMP/state.json" --slurpfile verify "$RUNNER_TEMP/verify.json" \
       --slurpfile deps "$RUNNER_TEMP/dependencies.json" --slurpfile access "$RUNNER_TEMP/agent-access.json" \
-      --slurpfile review "$CODE_REVIEW" --arg ticket "$TICKET_KEY" --arg url "$url" --arg run "$RUN_URL" \
+      --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --arg ticket "$TICKET_KEY" --arg url "$url" --arg run "$RUN_URL" \
     | state_render "$(cat "$RUNNER_TEMP/state.json")" > "$RUNNER_TEMP/pr-body.md"
   title=$(_pr_title "$publish")
   number=$(gh_pr_open_draft "$branch" "$target" "$title" < "$RUNNER_TEMP/pr-body.md") \
@@ -774,10 +794,11 @@ _ticket_report() {
       --slurpfile out "$BUILD_OUTPUT" --slurpfile gates "$RUNNER_TEMP/gates.json" \
       --slurpfile contract "$RUNNER_TEMP/contract.json" --slurpfile verify "$RUNNER_TEMP/verify.json" \
       --slurpfile deps "$RUNNER_TEMP/dependencies.json" --slurpfile access "$RUNNER_TEMP/agent-access.json" \
-      --slurpfile review "$CODE_REVIEW" --slurpfile state "$RUNNER_TEMP/state.json" \
+      --slurpfile review "$CODE_REVIEW" --slurpfile state "$RUNNER_TEMP/state.json" --slurpfile fix "$FIX_RESULT" \
       -L "$STAGE_DIR" 'include "adf"; include "wording";
     $out[0] as $o | $o.structured_output.build as $b | $gates[0] as $g | $contract[0] as $p | $deps[0] as $d
-    | $review[0] as $r | ([$state[0].items[] | select(.source == "review")]) as $ritems
+    | $review[0] as $r | $fix[0] as $x | ([$state[0].items[] | select(.source == "review")]) as $ritems
+    | ([$state[0].items[] | select(.source == "fix-check")]) as $citems
     | def heading($t): para([strong($t)]);
     doc([para([strong("🔨 Draft pull request opened"), text(" — "), link("#\($number)"; $url),
           text(". It’s a draft: the CI gate and the hand-off come in a later version, so a person reviews it, with the automated review’s items below — the steps are in the description, under Testing Instructions. The ticket stays in Implementation Plan Approved until then: once you’ve reviewed it, move it on yourself (the hand-off will do this later). The build’s report:")]),
@@ -810,22 +831,42 @@ _ticket_report() {
         heading("Automated code review"),
         (if $r.status == "incomplete" then para("It didn’t finish (\($r.reason)), so the build is unreviewed: a person reviews it without one.")
          elif ($r.findings | length) == 0 then para("\($r.summary | sentence)")
-         else para("\($r.summary | sentence) Each finding is a decision for a person, fix-eligible (fixed automatically from a later version; a review item until then) or a review item:"),
+         else para("\($r.summary | sentence) Each finding is a decision for a person, fix-eligible (fixed once by the fix pass, below) or a review item:"),
            bullets([$ritems[] | . as $i | ([$r.findings[] | select(.n == $i.finding)] | first) as $f
              | [strong("\(.id) — \($f.title | unstop)"),
-                text(" (\(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))\(if (.id | startswith("D")) then "; a decision" elif .fix_eligible then "; fix-eligible" else "" end))")]
+                text(" (\(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))\(if (.id | startswith("D")) then "; a decision" elif .status == "fixed" then "; fixed" elif .fix_eligible then "; fix-eligible, not fixed" else "" end))")]
                + (if $f.file != "" then [text(" "), code(if $f.line then "\($f.file):\($f.line)" else $f.file end)] else [] end)
                + [text(". \($f.evidence | sentence)")]
                + (if ($f.suggestion // "") != "" then [text(" Suggested: \($f.suggestion | sentence)")] else [] end)])
          end)]
+      + (if $x.status == "kept" or $x.status == "dropped" or $x.status == "failed" then
+          [heading("Fix pass"),
+           para(if $x.status == "kept" then "The fix-eligible findings were fixed once, in a commit after the reviewed one; the hub’s gates and the repository’s checks passed on it, so it was kept. A fresh read-only session checked each fix:"
+                else "A fix pass ran, but its changes weren’t kept: \($x.reason). The findings stay open." end)]
+          + (if ($x.fixes | length) > 0 then
+              [bullets([$x.fixes[] | .finding as $n | ([$ritems[] | select(.finding == $n)] | first) as $item
+                | ([$x.checks[] | select(.finding == $n)] | first) as $c
+                | [strong("\($item.id // "Finding \($n)") — \(if .fixed then "fixed" else "left" end)"), text(": \(.what | sentence)")]
+                  + (if $x.status == "kept" and $c then [text(" Check: "), strong($c.verdict), text(" — \($c.note | sentence)")] else [] end)])]
+             else [] end)
+          + (if ($citems | length) > 0 then
+              [para("New concerns the fixes raised:"),
+               bullets([$citems[] | . as $i | ([$x.new_concerns[] | select(.n == $i.concern)] | first) as $f
+                 | [strong("\(.id) — \($f.title | unstop)"), text(" (\(.severity) \(.kind | gsub("-"; " "))\(if (.id | startswith("D")) then "; a decision" else "" end))")]
+                   + (if $f.file != "" then [text(" "), code(if $f.line then "\($f.file):\($f.line)" else $f.file end)] else [] end)
+                   + [text(". \($f.evidence | sentence)")]
+                   + (if ($f.suggestion // "") != "" then [text(" Suggested: \($f.suggestion | sentence)")] else [] end)])]
+             else [] end)
+         else [] end)
       + (if ([$state[0].items[] | select(.id | startswith("D"))] | length) + ($p.governance.manual_changes | length) > 0 then
           [heading("For a person"),
            bullets([($g.decisions[] | [text("Decision: "), code(if .path == "" then "the whole change" else .path end), text(" — \(.reason)")]),
                     ($state[0].items[] | select(.id | startswith("D")) | select(.source == "hub") | [text("Decision: \(.reason | sentence)")]),
                     ($state[0].items[] | select(.id | startswith("D")) | select(.source == "review") | [text("Decision: review finding \(.id) above")]),
+                    ($state[0].items[] | select(.id | startswith("D")) | select(.source == "fix-check") | [text("Decision: the fix check’s concern \(.id) above")]),
                     ($p.governance.manual_changes[] | [text("Manual change: "), code(.path), text(" — \(.change)")])])]
          else [] end)
-      + [para([em("\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0))), \(($o.duration_ms // 0) / 1000 | floor)s. "),
+      + [para([em("\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0) + ($x.cost // 0))), \(($o.duration_ms // 0) / 1000 | floor)s. "),
                link("Run summary"; $run)])])' \
     | tracker_comment > /dev/null
 }

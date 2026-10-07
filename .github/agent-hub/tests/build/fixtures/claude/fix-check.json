@@ -1,0 +1,6 @@
+{"type": "result", "subtype": "success", "is_error": false, "duration_ms": 20000, "num_turns": 5, "total_cost_usd": 0.15,
+ "modelUsage": {"claude-sonnet-5": {"costUSD": 0.15}},
+ "structured_output": {
+   "checks": [{"finding": 1, "verdict": "resolved", "note": "src/greet.js trims first; the new test passes and covers it."}],
+   "new_concerns": [{"area": "industry-standards", "severity": "low", "kind": "style", "within_plan": true, "file": "src/greet.js", "line": 2,
+     "title": "Optional chaining is new to this file", "evidence": "name?.trim() is the file's only optional chaining.", "suggestion": ""}]}}
