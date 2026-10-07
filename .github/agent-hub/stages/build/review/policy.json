@@ -1,0 +1,7 @@
+{
+  "_doc": "What the hub does with each review finding (docs/workflows/build.md, \"Review (read-only)\"). Severity never decides autonomy on its own: a decision kind is always a person's, whatever the severity. A fix kind at a fix severity, within the approved plan, is fix-eligible; anything else is a review item.",
+  "decision_kinds": ["dependency", "schema-or-migration", "public-api", "auth-or-permissions", "cryptography", "payments-or-billing", "personal-data", "infrastructure-or-deploy", "workflow-or-ci", "licence", "scope", "beyond-plan", "test-removal"],
+  "fix_kinds": ["correctness", "test", "documentation", "performance", "structure"],
+  "fix_severities": ["critical", "high", "medium-high"],
+  "review_kinds": ["style"]
+}

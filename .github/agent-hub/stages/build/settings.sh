@@ -13,6 +13,9 @@ FAILURE_TITLE='❌ Build failed'
 CLAUDE_MODEL=$(stage_setting MODEL claude-opus-5-5)
 CLAUDE_FALLBACK_MODEL=$(stage_setting FALLBACK_MODEL claude-sonnet-5)
 CLAUDE_MAX_BUDGET_USD=$(stage_setting MAX_BUDGET_USD 10.00)
+# The code review: a fresh session on the shared review model
+# (AGENT_HUB_REVIEW_MODEL), with its own budget (stages/build/review.sh).
+BUILD_REVIEW_MAX_BUDGET_USD=$(stage_setting REVIEW_MAX_BUDGET_USD 5.00)
 
 # Not for real tickets yet: the stage runs only where a repository opts in,
 # for development (playground/), with the repository variable

@@ -20,7 +20,7 @@ HUB=.github/agent-hub
 EXT=.github/agent-hub-extensions
 
 changes() {
-  git diff --name-only "$base"...HEAD -- "$HUB/stages/*/prompt.md" "$HUB/stages/*/schema.json" \
+  git diff --name-only "$base"...HEAD -- "$HUB/stages/*/prompt.md" "$HUB/stages/*/schema.json" "$HUB/stages/*/policy.json" \
     "$HUB/stages/*/review.md" "$HUB/lib/*.md" "$HUB/lib/runners/*" "$EXT/*" ":(exclude,glob)$EXT/**/README.md" \
     ":(exclude)$EXT/build/checks.json"
 

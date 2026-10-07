@@ -831,11 +831,11 @@ stops() {
 @test "the cost line says how Claude was reached: a plan's usage counts against its limits, an API key's is billed" {
   run_scenario ready CLAUDE_AUTH=api-key CLAUDE_EDITS=edits/greet.sh
   run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
-  assert_output --partial "Claude, via an API key: 2.41 USD, billed to the API key"
+  assert_output --partial "Claude (build and review), via an API key: 2.81 USD, billed to the API key"
   fresh_repo
   run_scenario ready CLAUDE_AUTH=account CLAUDE_EDITS=edits/greet.sh
   run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
-  assert_output --partial "Claude, via a logged-in Claude account (pro): 2.41 USD API-equivalent, counted against the plan’s usage limits"
+  assert_output --partial "Claude (build and review), via a logged-in Claude account (pro): 2.81 USD API-equivalent, counted against the plan’s usage limits"
   refute_output --partial "private-person@example.com"
 }
 
@@ -850,4 +850,105 @@ stops() {
     assert_output --partial "To try again, move the ticket back to Implementation Plan and approve it again"
     refute_output --partial "/revise"
   done
+}
+
+# The code review (review.sh): a fresh, read-only pass after Verify. Its
+# findings become the pull request's items by the hub's policy; it never
+# changes the code, and a review that can't finish never costs the build.
+@test "review: a fresh session with the review profile, given the plan, the hub's checks and the build's whole diff" {
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Review: success"
+  local args="$RUNNER_TEMP/claude-pass-args.txt"
+  run awk '$0 == "--tools" { getline; print }' "$args"
+  assert_output "Read,Grep,Glob,Bash,Agent,Skill"
+  run awk '$0 == "--disallowedTools" { getline; print }' "$args"
+  assert_output "Write,Edit,NotebookEdit,WebSearch,WebFetch"
+  run awk '$0 == "--max-budget-usd" { getline; print }' "$args"
+  assert_output "5.00"
+  run awk '$0 == "--model" { getline; print }' "$args"
+  assert_output "claude-opus-5-5"
+  run jq -c '.sandbox.filesystem.denyWrite | length' <<< "$(awk '$0 == "--settings" { getline; print }' "$args")"
+  assert_output 1
+  run cat "$RUNNER_TEMP/claude-pass-prompt.txt"
+  assert_output --partial "<ticket>"
+  assert_output --partial "<checks>"
+  assert_output --partial "<diff>"
+  assert_output --partial "+++ b/src/greet.js"
+  # Its commands don't inherit the hub's git metadata.
+  refute_output --partial "GIT_DIR"
+  run cat "$RUNNER_TEMP/claude-pass-env.txt"
+  assert_line "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1"
+}
+
+@test "review: findings sorted by the policy — decisions for a person, fix-eligible and review items; Claude's text only where ticket text may go" {
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh CLAUDE_PASS_FIXTURE=claude/review-findings.json
+  run jq -c '[.items[] | {id, kind, severity, fix_eligible}]' "$RUNNER_TEMP/state.json"
+  assert_output '[{"id":"D1","kind":"dependency","severity":"medium","fix_eligible":null},{"id":"D2","kind":"correctness","severity":"high","fix_eligible":null},{"id":"R1","kind":"correctness","severity":"high","fix_eligible":true},{"id":"R2","kind":"style","severity":"low","fix_eligible":false}]'
+  # The state block holds the hub's fields only, never a finding's text.
+  run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
+  assert_line "- **R1** review item, fix-eligible — high correctness, correctness: A name of only spaces greets as \"Hello,  !\" (\`src/greet.js\`:2)"
+  assert_line "- **D2** decision — high correctness, plan fidelity: SECRET-TICKET-WORDS should also be localised (\`src/greet.js\`:1)"
+  assert_output --partial "1 fix-eligible"
+  run awk '/^<!-- agent-hub:state$/ { getline; print }' <<< "$(jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS")"
+  refute_output --partial "SECRET-TICKET-WORDS"
+  refute_output --partial "greets as"
+  # The ticket gets everything.
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
+  assert_output --partial "R1 — A name of only spaces greets as \"Hello,  !\""
+  assert_output --partial "Trim the name before the check."
+  assert_output --partial "Decision: review finding D2 above"
+  run cat "$RUNNER_TEMP/summary.md"
+  assert_output --partial "**Code review:** 4 finding(s) — 2 decision item(s), 1 fix-eligible, 1 review item(s); \$1.25."
+  refute_output --partial "SECRET-TICKET-WORDS"
+}
+
+@test "review: a public repository's pull request shows only each finding's kind and severity" {
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh CLAUDE_PASS_FIXTURE=claude/review-findings.json MOCK_GH_VISIBILITY=public
+  run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
+  assert_line "- **R1** review item, fix-eligible — high correctness, correctness (details on the ticket)"
+  refute_output --partial "SECRET-TICKET-WORDS"
+  refute_output --partial "greets as"
+  refute_output --partial "src/greet.js\`:"
+  refute_output --partial "with two problems"
+}
+
+@test "review: one that can't finish — no result, its budget cap, a step that fails, a file outside the repository — still pushes the draft, with a decision item" {
+  local variant reason vars=$VARS
+  # shellcheck disable=SC1112 # curly apostrophes intended
+  for variant in "CLAUDE_PASS_FIXTURE=none|Claude returned no usable result" \
+      'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_REVIEW_MAX_BUDGET_USD": "0"}|it didn’t run to the end (an error, or its time limit)'; do
+    reason=${variant#*|}
+    fresh_repo
+    run_scenario ready CLAUDE_EDITS=edits/greet.sh "${variant%%|*}"
+    run cat "$RUNNER_TEMP/trace.txt"
+    assert_line "Apply: success"
+    assert_line "Report failure: skipped"
+    run jq -c '[.items[] | {id, source, reason}]' "$RUNNER_TEMP/state.json"
+    assert_output "$(jq -nc --arg r "the automated code review didn’t finish: $reason" '[{id: "D1", source: "hub", reason: $r}]')"
+  done
+  export VARS=$vars
+  fresh_repo
+  jq '.structured_output.findings[0].file = "../outside.js"' "$FIXTURES/claude/review-findings.json" > "$BATS_TEST_TMPDIR/outside.json"
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh "CLAUDE_PASS_FIXTURE=$BATS_TEST_TMPDIR/outside.json"
+  run jq -r '.items[0].reason' "$RUNNER_TEMP/state.json"
+  assert_output "the automated code review didn’t finish: 1 finding(s) named a file outside the repository"
+}
+
+# The policy file is the only thing that decides what happens to a finding,
+# and the schema can't name a kind the policy doesn't know.
+@test "review policy: decision kinds always a person's, beyond the plan too; fix kinds at fix severities fix-eligible; the rest review items" {
+  run env STAGE_DIR="$HUB_DIR/stages/build" bash -c 'source "$1/stages/build/review.sh"
+    jq -nc "[
+      {kind: \"dependency\", severity: \"low\", within_plan: true},
+      {kind: \"auth-or-permissions\", severity: \"critical\", within_plan: true},
+      {kind: \"correctness\", severity: \"critical\", within_plan: false},
+      {kind: \"correctness\", severity: \"medium-high\", within_plan: true},
+      {kind: \"test\", severity: \"medium\", within_plan: true},
+      {kind: \"style\", severity: \"high\", within_plan: true}]" | review_policy | jq -c "map(.policy)"' _ "$HUB_DIR"
+  assert_output '["decision","decision","decision","fix","review","review"]'
+  run jq -r --slurpfile p "$HUB_DIR/stages/build/review/policy.json" \
+    '(.properties.findings.items.properties.kind.enum | sort) == ($p[0] | .decision_kinds + .fix_kinds + .review_kinds | sort)' \
+    "$HUB_DIR/stages/build/review/schema.json"
+  assert_output true
 }

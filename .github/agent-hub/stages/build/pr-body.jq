@@ -5,15 +5,16 @@
 #   jq -nr -L lib -L stages/build -f pr-body.jq --slurpfile out agent-output.json --slurpfile context build-context.json \
 #     --slurpfile gates gates.json --slurpfile contract contract.json --slurpfile state state.json \
 #     --slurpfile verify verify.json --slurpfile deps dependencies.json \
-#     --slurpfile access agent-access.json \
+#     --slurpfile access agent-access.json --slurpfile review code-review.json \
 #     --arg ticket KEY --arg url "<ticket URL, or empty>" --arg run "<run URL>"
 #
 # The publication policy ("Publication policy"): unless ticket content may be
 # published (a private repository, or the setting), it carries only the
 # ticket key and what the hub itself determined — files, the gates, the
 # checks it ran (from the repository's own files) and each check's result — never Claude's summary, the criteria, the decision log,
-# the review steps or the commands it ran (Claude wrote them, so they could
-# carry ticket text).
+# the review steps, the commands it ran or the code review's findings beyond
+# their kind and severity (Claude wrote them, so they could carry ticket
+# text).
 
 # unstop and plural (adf.jq); the wording shared with the ticket's report.
 include "adf";
@@ -35,14 +36,14 @@ def line_counts: if .added == null then "binary" else "+\(.added) −\(.deleted)
 def duration: (. / 1000 | floor) as $s | if $s < 60 then "\($s)s" else "\($s / 60 | floor) min \($s % 60)s" end;
 
 $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0] as $g
-| $contract[0] as $p | $state[0] as $s | $c.publish as $publish
+| $contract[0] as $p | $state[0] as $s | $c.publish as $publish | $review[0] as $r
 | (if $url != "" then "[\($ticket)](\($url))" else "**\($ticket)**" end) as $ref
 | "Built by the agent hub from the approved implementation plan for \($ref)."
     + (if $publish then ""
        else " This repository is public, so the ticket's details — the request, the acceptance criteria and how each is verified, the commands the checks ran, the steps to review it and the decision log — are on the ticket, not here." end),
   "",
   "> [!NOTE]",
-  "> A draft: automated review and the CI gate come in a later version, so a person reviews this before it's marked ready.",
+  "> A draft: the CI gate and the hand-off come in a later version, so a person reviews this before it's marked ready — with the automated review's items below.",
 
   section("What changed"; (if $publish then [$b.summary | safe, ""] else [] end)
     + ["\(plural($g.totals.files; "file")), \(plural($g.totals.lines; "changed line")):", ""]
@@ -88,8 +89,23 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
     | "- **\(.decision | line)** — \(.why | line)" + (if (.alternatives // []) != [] then " Alternatives: \(.alternatives | map(line) | join("; "))." else "" end)]
     else [] end),
 
-  section("Items for a person"; [$s.items[]
-    | if (.id | startswith("D")) then
+  section("Automated review"; if $r.status == "incomplete" then
+      ["The automated code review didn't finish (\($r.reason)), so this build is unreviewed: a person reviews it without one (a decision item below)."]
+    else
+      [(if $publish then ($r.summary | line) + " " else "" end)
+        + "A fresh, read-only session reviewed this commit against the plan: "
+        + (if ($r.findings | length) == 0 then "no findings."
+           else "\(plural($r.findings | length; "finding")) — \([$r.findings[] | select(.policy == "decision")] | length) for a person to decide, \([$r.findings[] | select(.policy == "fix")] | length) fix-eligible (fixed automatically from a later version; review items until then), \([$r.findings[] | select(.policy == "review")] | length) review item(s)." end)]
+    end),
+
+  section("Items for a person"; [$s.items[] | . as $i
+    | if .source == "review" then
+        ([$r.findings[] | select(.n == $i.finding)] | first) as $f
+        | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" elif .fix_eligible then "review item, fix-eligible" else "review item" end)
+          + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
+          + (if $publish then ": \($f.title | line)" + (if ($f.file // "") != "" then " (\($f.file | code)\(if $f.line then ":\($f.line)" else "" end))" else "" end)
+             else " (details on the ticket)" end)
+      elif (.id | startswith("D")) then
         "- **\(.id)** " + (if .path != "" then "\(.path | code) — " else "" end) + "decision: \(.reason)"
       else .path as $path
         | "- **\(.id)** \(.path | code) — a manual change for a person"
@@ -100,4 +116,4 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
     "- Declared in the plan: " + ([$p.governance.includes | to_entries[] | select(.value) | .key | gsub("_"; " ")] | if length > 0 then join(", ") else "none of the sensitive kinds" end),
     "- Plan: attachment \($c.plan.attachment) on the ticket (sha256 \($c.plan.sha256[0:12]))"]),
 
-  section("Run"; ["\(claude_cost($access[0]; $o.total_cost_usd)), \($o.duration_ms // 0 | duration) · hub \($s.hub_version) · [run summary](\($run))"])
+  section("Run"; ["\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0))), \($o.duration_ms // 0 | duration) · hub \($s.hub_version) · [run summary](\($run))"])

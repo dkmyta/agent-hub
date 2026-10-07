@@ -10,8 +10,10 @@
 > repository's checks on the build's commit itself, pushing nothing if one
 > fails ([Toolchain](#toolchain), [Install](#install), [Verify](#verify)).
 > Since 2.7.0 the plan's dependency changes are applied and checked by the
-> hub before the agent starts ([Dependencies](#dependencies-planned-changes-only)). The review, CI
-> gate and hand-off come in later versions.
+> hub before the agent starts ([Dependencies](#dependencies-planned-changes-only)). Since 2.9.0 a
+> fresh, read-only session reviews every build's commit, and its findings
+> become the pull request's review and decision items ([Review](#review-read-only));
+> the fix pass, CI gate and hand-off come in later versions.
 > The agreed plan, reviewed externally three times. Items marked
 > *provisional* are defaults to revisit after the first full pipeline test.
 > When the stage is complete, this page becomes its workflow doc (in the
@@ -410,8 +412,10 @@ A fresh, read-only Claude session in the same job — independence comes from
 the session, the tools and the inputs, so the exact unpushed change needs no
 transport. It sees the approved plan, the change set, the **whole** diff and
 the verification results, never the build's reasoning, and can read the
-repository and run tests, but not edit. Large diffs are reviewed in file
-groups within the size limits. Every area, every time:
+repository and run tests, but not edit. A diff over 400 KB is replaced by
+its list of files, which the reviewer then reads itself (reviewing in file
+groups is a refinement for later, if real builds need it). Every area, every
+time:
 
 | Area | Checks |
 |---|---|
@@ -453,6 +457,22 @@ permissions — is a decision item, as is any licence conflict. The
 [gates](#gates-deterministic) check this where they can and re-run on every
 fix's diff, so a mislabelled kind is still caught when a fix touches a
 sensitive path.
+
+**As built (2.9.0, `stages/build/review.sh`):** the *Review* step runs
+after Verify, on the commit the checks passed on, with the review profile
+(commands in the sandbox, nothing written to the repository: proven by the
+sandbox check), the shared review model (`AGENT_HUB_REVIEW_MODEL`) and its
+own budget (`AGENT_HUB_BUILD_REVIEW_MAX_BUDGET_USD`, $5). Its inputs are the
+ticket and plan, the hub's check results and the diff the hub computed from
+the git metadata copied before the agent ran — never git in the checkout.
+The hub, not the agent, sorts each finding by `review/policy.json`. Until
+the fix pass (2.10.0), fix-eligible findings are review items marked so.
+The pull request lists every item; a public repository's shows only each
+finding's kind, severity and area (its text is on the ticket, with the
+evidence and suggestion). The review never costs the build: the step
+continues on error, and a review that fails, times out, reaches its budget
+or names a file outside the repository is itself a decision item on the
+draft.
 
 Later rounds focus investigation on what changed but judge the whole pull
 request, including that earlier fixes still hold. The change set records the
@@ -866,7 +886,7 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | `lib/toolchain.sh` | The Node version a repository declares, for the workflow's setup-node step and the fetch step's check |
 | `stages/build/dependencies.sh` | The dependency step: the folders installed, the plan's dependency changes applied and checked, the result for the gates and the report |
 | `lib/sandbox/` | The hub's sandbox for the install and verify steps: `sandbox.sh` (policies, time limit, a clean environment) and the lockfile `srt` is installed from (per job, from npm's download cache in the runner's tool cache, checked against the lockfile every time; Dependabot keeps it current in the hub's repository, and hub releases carry it to others) |
-| `stages/pr-review/` | The review's `prompt.md`, `schema.json` (findings: area, severity, kind, file and line, evidence), `policy.json` (kind × severity → fix pass, `R` or `D`), `settings.sh` |
+| `stages/build/review.sh`, `stages/build/review/` | The code review step (2.9.0), and its `prompt.md`, `schema.json` (findings: area, severity, kind, file and line, evidence) and `policy.json` (kind × severity → fix pass, `R` or `D`), `settings.sh` |
 | `lib/github.sh` | The GitHub interface; one `gh_request` function every call goes through (mocked in tests) |
 | `lib/runners/claude-code.sh` | Tool profiles (`read-only`, `build`, `review`) and the sandbox settings |
 | `agent-hub-relay.yml` | No agent: a review submitted, or a pull request comment `/apply` `/skip` → a numbered acknowledgement; wakes the per-ticket run |
@@ -1112,9 +1132,10 @@ where stated and only with the owner's OK.
    CI-result workflow, the evaluation commit (head and test merge commit both
    covered), conservative classification and CI fixes; hand-off eligibility.
    With it, reconciliation of an existing pull request (moved from 3d).
-   In four parts (decided after the pre-PR 4 review): *4a* (2.8.0) the
-   prerequisites below; *4b* the review, fix pass, fix check and second
-   verify, with its eval case; *4c* an existing pull request — reconciliation,
+   In four parts (decided after the pre-PR 4 review): *4a* (2.8.0, 2.8.1) the
+   prerequisites below; *4b* the review (2.9.0: findings become items, no
+   automatic changes), then the fix pass, fix check and second verify
+   (2.10.0), with its eval case; *4c* an existing pull request — reconciliation,
    sync and drift, review coverage, stale-run checks; *4d* the CI gate (after
    a spike on the CI-result mechanism), CI fixes and the hand-off. The
    preview gate comes off after 4d, once the runner blockers are met.

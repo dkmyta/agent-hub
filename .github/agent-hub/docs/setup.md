@@ -99,7 +99,8 @@ from its lockfile, and the hub runs its checks on every build's commit
 ([extending.md](extending.md#the-builds-checks) to choose them). Its
 settings: `MODEL` (`claude-opus-5-5`), `FALLBACK_MODEL`
 (`claude-sonnet-5`) and `MAX_BUDGET_USD` (`10.00`, one pass: it validates and
-builds), plus:
+builds), and `REVIEW_MAX_BUDGET_USD` (`5.00`, the code review, on the shared
+review model), plus:
 
 | Setting | Default | Purpose |
 |---|---|---|

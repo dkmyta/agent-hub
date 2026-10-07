@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "findings"],
+  "properties": {
+    "summary": {"type": "string", "minLength": 1},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["area", "severity", "kind", "within_plan", "file", "line", "title", "evidence", "suggestion"],
+        "properties": {
+          "area": {"enum": ["plan-fidelity", "correctness", "repository-standards", "structure", "docs", "workflows-and-configuration", "verification", "security", "scalability-efficiency-stability", "simplicity", "industry-standards", "anything-missed"]},
+          "severity": {"enum": ["critical", "high", "medium-high", "medium", "low"]},
+          "kind": {"enum": ["correctness", "test", "documentation", "performance", "structure", "style", "dependency", "schema-or-migration", "public-api", "auth-or-permissions", "cryptography", "payments-or-billing", "personal-data", "infrastructure-or-deploy", "workflow-or-ci", "licence", "scope", "beyond-plan", "test-removal"]},
+          "within_plan": {"type": "boolean"},
+          "file": {"type": "string"},
+          "line": {"type": ["integer", "null"], "minimum": 1},
+          "title": {"type": "string", "minLength": 1},
+          "evidence": {"type": "string", "minLength": 1},
+          "suggestion": {"type": "string"}
+        }
+      }
+    }
+  }
+}

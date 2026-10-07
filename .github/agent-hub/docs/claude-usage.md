@@ -16,8 +16,9 @@ and how the evals fit in.
   [architecture.md](architecture.md#expert-review-every-stage)); both read the
   repository and research. The build (a development preview) runs **one
   pass** that edits the checkout and runs the repository's checks in the
-  sandbox; its review pass comes later. That step is the only point where
-  Claude is used — it counts against the account's plan limits
+  sandbox, then — in its own *Review* step — a **code review**: a fresh,
+  read-only session whose findings become items on the pull request. Those
+  steps are the only points where Claude is used — it counts against the account's plan limits
   (subscription) or is billed (API), like any other Claude Code session.
 - **Everything else is plain scripts**: fetching the ticket, writing results
   to the ticket, installing the repository's dependencies and re-running its
@@ -75,7 +76,7 @@ docs link here):
 |---|---|---|
 | One work order (draft + review) | $0.30–1.50 | Clear requests cost more (research); a ticket sent back for details costs only its draft (no review), well under $0.50 |
 | One implementation plan (draft + review) | $1.50–7 | Several minutes; scales with the change. Opus costs more than Sonnet |
-| One build (one pass) | Not measured yet — capped at $10 | To confirm in the pipeline test ([build.md](workflows/build.md#cost-estimates-to-confirm-in-the-pipeline-test)); scales with the change and the repository's checks |
+| One build (build and code review) | Not measured yet — capped at $10 and $5 | To confirm in the pipeline test ([build.md](workflows/build.md#cost-estimates-to-confirm-in-the-pipeline-test)); scales with the change and the repository's checks |
 | One eval case | As one real run of its stage | Each case runs the draft and the review |
 | Work order evals (3 cases) | $1–3 | A few minutes |
 | Implementation plan evals (3 cases) | $3–10 | 20–40 minutes |

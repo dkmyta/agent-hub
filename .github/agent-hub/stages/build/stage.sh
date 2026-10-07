@@ -22,6 +22,9 @@
 # The dependency step (the plan's dependency changes, before the agent).
 # shellcheck source=stages/build/dependencies.sh
 source "$(dirname "${BASH_SOURCE[0]}")/dependencies.sh"
+# The code review (after Verify; its findings go to Apply).
+# shellcheck source=stages/build/review.sh
+source "$(dirname "${BASH_SOURCE[0]}")/review.sh"
 
 BUILD_CONTEXT="$RUNNER_TEMP/build-context.json"
 BUILD_GIT="$RUNNER_TEMP/build-git"
@@ -662,17 +665,26 @@ step_apply() {
     *) stage_fail "GitHub rejected the push to $branch (it was created meanwhile, or a rule blocks it), so nothing was pushed." ;;
   esac
 
+  # The code review's result (review.sh). None — the step failed or hit its
+  # time limit — or one for another commit is a review that didn't finish.
+  if [ ! -s "$CODE_REVIEW" ] || [ "$(jq -r '.head' "$CODE_REVIEW" 2> /dev/null)" != "$(git rev-parse HEAD)" ]; then
+    # shellcheck disable=SC1112 # curly apostrophe intended
+    jq -n --arg head "$(git rev-parse HEAD)" \
+      '{status: "incomplete", head: $head, reason: "it didn’t run to the end (an error, or its time limit)", findings: []}' > "$CODE_REVIEW"
+  fi
+
   # The draft pull request: the hub's template, then the state block.
-  jq -n --slurpfile context "$BUILD_CONTEXT" --slurpfile gates "$RUNNER_TEMP/gates.json" \
+  jq -n --slurpfile context "$BUILD_CONTEXT" --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile review "$CODE_REVIEW" \
       --slurpfile contract "$RUNNER_TEMP/contract.json" --arg ticket "$TICKET_KEY" \
-      --arg version "$(cat "$HUB_DIR/VERSION")" --arg head "$(git rev-parse HEAD)" '
+      --arg version "$(cat "$HUB_DIR/VERSION")" --arg head "$(git rev-parse HEAD)" -L "$STAGE_DIR" 'include "wording";
     $context[0] as $c | {schema: 1, ticket: $ticket, generation: 1, hub_version: $version,
       plan: ($c.plan | {attachment, uploaded, sha256, approved_at}), target: $c.target, base: $c.base,
       plan_base: $contract[0].base_commit, heads: [{generation: 1, head: $head, hub_version: $version}],
       risk: $contract[0].governance.risk.level,
       flags: [$contract[0].governance.includes | to_entries[] | select(.value) | .key],
-      items: ([$gates[0].decisions | to_entries[] | {id: "D\(.key + 1)", path: .value.path, reason: .value.reason, status: "open"}]
+      items: (review_items($gates[0]; $review[0])
         + [$contract[0].governance.manual_changes | to_entries[] | {id: "C\(.key + 1)", path: .value.path, status: "open"}]),
+      review: ($review[0] | {status, head, cost: (.cost // 0)}),
       totals: $gates[0].totals}' > "$RUNNER_TEMP/state.json"
   url=""
   [ "$publish" != true ] || url=$TICKET_URL
@@ -680,7 +692,7 @@ step_apply() {
       --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile contract "$RUNNER_TEMP/contract.json" \
       --slurpfile state "$RUNNER_TEMP/state.json" --slurpfile verify "$RUNNER_TEMP/verify.json" \
       --slurpfile deps "$RUNNER_TEMP/dependencies.json" --slurpfile access "$RUNNER_TEMP/agent-access.json" \
-      --arg ticket "$TICKET_KEY" --arg url "$url" --arg run "$RUN_URL" \
+      --slurpfile review "$CODE_REVIEW" --arg ticket "$TICKET_KEY" --arg url "$url" --arg run "$RUN_URL" \
     | state_render "$(cat "$RUNNER_TEMP/state.json")" > "$RUNNER_TEMP/pr-body.md"
   title=$(_pr_title "$publish")
   number=$(gh_pr_open_draft "$branch" "$target" "$title" < "$RUNNER_TEMP/pr-body.md") \
@@ -695,7 +707,7 @@ step_apply() {
   url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$number"
   _ticket_report "$number" "$url"
   _ticket_delivery "$number" "$url" "$branch"
-  echo "[$TICKET_KEY]($TICKET_URL): draft pull request #$number opened from $branch, with $(jq '.decisions | length' "$RUNNER_TEMP/gates.json") decision item(s)." >> "$GITHUB_STEP_SUMMARY"
+  echo "[$TICKET_KEY]($TICKET_URL): draft pull request #$number opened from $branch, with $(jq '[.items[] | select(.id | startswith("D"))] | length' "$RUNNER_TEMP/state.json") decision item(s) and $(jq '[.items[] | select(.id | startswith("R"))] | length' "$RUNNER_TEMP/state.json") review item(s)." >> "$GITHUB_STEP_SUMMARY"
   stage_outcome written
 }
 
@@ -762,11 +774,13 @@ _ticket_report() {
       --slurpfile out "$BUILD_OUTPUT" --slurpfile gates "$RUNNER_TEMP/gates.json" \
       --slurpfile contract "$RUNNER_TEMP/contract.json" --slurpfile verify "$RUNNER_TEMP/verify.json" \
       --slurpfile deps "$RUNNER_TEMP/dependencies.json" --slurpfile access "$RUNNER_TEMP/agent-access.json" \
+      --slurpfile review "$CODE_REVIEW" --slurpfile state "$RUNNER_TEMP/state.json" \
       -L "$STAGE_DIR" 'include "adf"; include "wording";
     $out[0] as $o | $o.structured_output.build as $b | $gates[0] as $g | $contract[0] as $p | $deps[0] as $d
+    | $review[0] as $r | ([$state[0].items[] | select(.source == "review")]) as $ritems
     | def heading($t): para([strong($t)]);
     doc([para([strong("🔨 Draft pull request opened"), text(" — "), link("#\($number)"; $url),
-          text(". It’s a draft: automated review and the CI gate come in a later version, so a person reviews it — the steps are in the description, under Testing Instructions. The ticket stays in Implementation Plan Approved until then: once you’ve reviewed it, move it on yourself (the hand-off will do this later). The build’s report:")]),
+          text(". It’s a draft: the CI gate and the hand-off come in a later version, so a person reviews it, with the automated review’s items below — the steps are in the description, under Testing Instructions. The ticket stays in Implementation Plan Approved until then: once you’ve reviewed it, move it on yourself (the hand-off will do this later). The build’s report:")]),
         heading("What changed"), para($b.summary),
         heading("Acceptance criteria — how each is verified"),
         bullets([$b.verification[] | [strong(.criterion), text(" — \(.method): \(.detail)")]]),
@@ -792,13 +806,26 @@ _ticket_report() {
                     else [strong("Not checked by the build"), text(": \(.result)")] end)]),
         heading("Decisions the build made"),
         bullets([$b.decision_log[] | [strong(.decision), text(" — \(.why)"
-          + (if (.alternatives // []) != [] then " Alternatives: \(.alternatives | join("; "))." else "" end))]])]
-      + (if ($g.decisions | length) + ($p.governance.manual_changes | length) > 0 then
+          + (if (.alternatives // []) != [] then " Alternatives: \(.alternatives | join("; "))." else "" end))]]),
+        heading("Automated code review"),
+        (if $r.status == "incomplete" then para("It didn’t finish (\($r.reason)), so the build is unreviewed: a person reviews it without one.")
+         elif ($r.findings | length) == 0 then para("\($r.summary | sentence)")
+         else para("\($r.summary | sentence) Each finding is a decision for a person, fix-eligible (fixed automatically from a later version; a review item until then) or a review item:"),
+           bullets([$ritems[] | . as $i | ([$r.findings[] | select(.n == $i.finding)] | first) as $f
+             | [strong("\(.id) — \($f.title | unstop)"),
+                text(" (\(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))\(if (.id | startswith("D")) then "; a decision" elif .fix_eligible then "; fix-eligible" else "" end))")]
+               + (if $f.file != "" then [text(" "), code(if $f.line then "\($f.file):\($f.line)" else $f.file end)] else [] end)
+               + [text(". \($f.evidence | sentence)")]
+               + (if ($f.suggestion // "") != "" then [text(" Suggested: \($f.suggestion | sentence)")] else [] end)])
+         end)]
+      + (if ([$state[0].items[] | select(.id | startswith("D"))] | length) + ($p.governance.manual_changes | length) > 0 then
           [heading("For a person"),
            bullets([($g.decisions[] | [text("Decision: "), code(if .path == "" then "the whole change" else .path end), text(" — \(.reason)")]),
+                    ($state[0].items[] | select(.id | startswith("D")) | select(.source == "hub") | [text("Decision: \(.reason | sentence)")]),
+                    ($state[0].items[] | select(.id | startswith("D")) | select(.source == "review") | [text("Decision: review finding \(.id) above")]),
                     ($p.governance.manual_changes[] | [text("Manual change: "), code(.path), text(" — \(.change)")])])]
          else [] end)
-      + [para([em("\(claude_cost($access[0]; $o.total_cost_usd)), \(($o.duration_ms // 0) / 1000 | floor)s. "),
+      + [para([em("\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0))), \(($o.duration_ms // 0) / 1000 | floor)s. "),
                link("Run summary"; $run)])])' \
     | tracker_comment > /dev/null
 }

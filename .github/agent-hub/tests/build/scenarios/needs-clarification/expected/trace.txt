@@ -4,6 +4,7 @@ Fetch ticket: success
 Install dependencies: success
 Agent: success
 Verify: skipped
+Review: skipped
 Apply: skipped
 Send back: success
 Record Claude usage: success
