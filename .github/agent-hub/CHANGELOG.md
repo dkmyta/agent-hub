@@ -5,6 +5,43 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.9.0 — 2026-10-07
+
+PR 4's second part, first half (4b-1): an automated code review of every
+build. Its findings become the pull request's items; nothing is changed
+automatically yet (the fix pass is 4b-2, 2.10.0).
+
+- **A new Review step** after Verify (code stages only): a fresh Claude
+  session with the review profile — commands in the sandbox, nothing written
+  to the repository — reviews the build's commit against the plan. It gets
+  the ticket and plan, the hub's own check results and the diff the hub
+  computed from the git metadata copied before the agent ran. Opus on the
+  shared review model setting, capped at $5
+  (`AGENT_HUB_BUILD_REVIEW_MAX_BUDGET_USD`); 30 minutes. Its cost counts
+  towards the ticket's caps.
+- **The hub sorts the findings, not the agent** (`stages/build/review/policy.json`):
+  dependencies, security-sensitive areas, workflows, licences, scope and
+  anything beyond the plan are decision items (`D`) for a person, whatever
+  the severity; serious correctness, test, docs, performance and structure
+  findings within the plan are fix-eligible (review items marked so until
+  2.10.0); the rest are review items (`R`).
+- **On the pull request:** an *Automated review* section and every item
+  under *Items for a person*. A public repository's shows only each
+  finding's kind, severity and area unless ticket content may be published;
+  the state block never holds a finding's text. The ticket's report gets
+  each finding in full, with its evidence and suggestion.
+- **A review never costs the build:** the step continues on error, and a
+  review that returns nothing usable, reaches its budget, fails or times
+  out, or names a file outside the repository is a decision item on the
+  draft instead.
+- **Runner interface:** `agent_pass`, a further independent pass with the
+  profile, model and budget the stage chooses. The *Agent behaviour changed*
+  notice now covers a stage's `policy.json` too.
+- The build workflow's job limit is 170 minutes (was 140) to fit the review.
+
+**Updating:** nothing to do. The build now costs a review on top of each
+build (typically $1.5–4, capped at $5).
+
 ## 2.8.1 — 2026-10-07
 
 The rest of PR 4's prerequisites (4a): the review profile proven read-only,

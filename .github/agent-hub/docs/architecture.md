@@ -58,7 +58,9 @@ runs the agent:
   is used.
 - **Agent runner** (`lib/runners/<runner>.sh`, chosen by `AGENT_HUB_RUNNER`,
   default `claude-code`): the `agent_*` functions — draft, review, check,
-  summarise, and clean up after the job (`agent_cleanup`) — loading the
+  a further independent pass with the profile, model and budget a stage
+  chooses (`agent_pass`: the build's code review), summarise, and clean up
+  after the job (`agent_cleanup`) — loading the
   repository's extensions for the stage ([extending.md](extending.md)). It
   has no tracker credentials and reads nothing but its inputs and the
   repository.

@@ -139,7 +139,7 @@
               },
               {
                 "type": "text",
-                "text": ". It’s a draft: automated review and the CI gate come in a later version, so a person reviews it — the steps are in the description, under Testing Instructions. The ticket stays in Implementation Plan Approved until then: once you’ve reviewed it, move it on yourself (the hand-off will do this later). The build’s report:"
+                "text": ". It’s a draft: the CI gate and the hand-off come in a later version, so a person reviews it, with the automated review’s items below — the steps are in the description, under Testing Instructions. The ticket stays in Implementation Plan Approved until then: once you’ve reviewed it, move it on yourself (the hand-off will do this later). The build’s report:"
               }
             ]
           },
@@ -475,6 +475,29 @@
             "content": [
               {
                 "type": "text",
+                "text": "Automated code review",
+                "marks": [
+                  {
+                    "type": "strong"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "The build matches the plan; no problems found."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
                 "text": "For a person",
                 "marks": [
                   {
@@ -521,7 +544,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "Claude, via a logged-in Claude account (pro): 2.41 USD API-equivalent, counted against the plan’s usage limits, 612s. ",
+                "text": "Claude (build and review), via a logged-in Claude account (pro): 2.81 USD API-equivalent, counted against the plan’s usage limits, 612s. ",
                 "marks": [
                   {
                     "type": "em"
@@ -916,12 +939,12 @@
     "path": "/properties/agent-hub-ledger",
     "body": {
       "runs": 1,
-      "cost_usd": 2.41,
+      "cost_usd": 2.81,
       "estimated": false,
       "stages": {
         "build": {
           "runs": 1,
-          "cost_usd": 2.41
+          "cost_usd": 2.81
         }
       }
     }

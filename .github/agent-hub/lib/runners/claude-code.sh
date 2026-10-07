@@ -528,6 +528,31 @@ agent_review() {
   _fallback_warning "$REVIEW_CLAUDE_MODEL" "$REVIEW_CLAUDE_FALLBACK_MODEL" "$RUNNER_TEMP/agent-review-output.json" review
 }
 
+# agent_pass <profile> <model> <fallback> <budget> <instructions> <schema> <input> > output:
+# one more independent pass after the draft — a fresh session, sharing
+# nothing with it but what the stage passes in — such as the build's code
+# review. The stage chooses the tool profile (e.g. review: commands but no
+# edits), the model and the budget; the instructions get the repository's
+# guidance and review checklists added, as the document stages' reviews do.
+# Prints Claude Code's JSON result (empty if it produced none); never fails
+# itself, beyond the checks before Claude is used.
+agent_pass() {
+  local prompt="$RUNNER_TEMP/pass-prompt.md"
+  _load_extensions
+  CLAUDE_VERSION=$(claude --version 2>/dev/null | head -n 1 | cut -d ' ' -f 1) || CLAUDE_VERSION=""
+  _require_restricted
+  [ -s "$RUNNER_TEMP/agent-access.json" ] || agent_access
+  {
+    cat "$5"
+    _repository_guidance
+    _extension_text review.md "Repository review checklist"
+  } > "$prompt"
+  _require_budget "$4"
+  AGENT_PROFILE=$1 _claude "$2" "$3" "$4" "$prompt" "$(jq -c . "$6")" "$7" > "$RUNNER_TEMP/pass-output.json"
+  _fallback_warning "$2" "$3" "$RUNNER_TEMP/pass-output.json" "$(basename "$5" .md) pass" >&2
+  cat "$RUNNER_TEMP/pass-output.json"
+}
+
 # _fallback_warning <model> <fallback> <output> <pass>: the fallback keeps runs
 # working when a model is overloaded — or not supported by this Claude Code
 # version — so say so rather than hide it.

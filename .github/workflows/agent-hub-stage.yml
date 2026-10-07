@@ -28,6 +28,11 @@ on:
         description: Time limit for the agent step (draft and review)
         required: true
         type: number
+      review-minutes:
+        description: Time limit for a code stage's review step (unused by the document stages)
+        required: false
+        type: number
+        default: 30
       job-minutes:
         description: Time limit for the whole job; the steps' limits together fit within it
         required: true
@@ -189,6 +194,23 @@ jobs:
         run: |
           source "$RUNNER_TEMP/agent-hub/lib/load.sh" sandbox
           step_verify
+
+      # Code stages: an independent review of the build's commit — a fresh
+      # session with the review profile (commands, no edits, no web), and
+      # the API key but no other secret. It changes nothing; its findings
+      # become items on the pull request. A review that fails or times out
+      # mustn't cost the build already made: the job goes on, and Apply
+      # pushes the draft with the review as a decision item.
+      - name: Review
+        id: review
+        if: inputs.code-stage && steps.verify.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: ${{ inputs.review-minutes }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.AGENT_HUB_ANTHROPIC_API_KEY }}
+        run: |
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" agent
+          step_review
 
       - name: Apply to ticket
         id: apply

@@ -34,6 +34,20 @@ change() { # <file> <content>, committed on top of base
   assert_output "$H/stages/work-order/schema.json"
 }
 
+# A stage's further passes keep their prompt, schema and policy in a
+# subfolder (the build's code review: stages/build/review/).
+@test "a further pass's prompt, schema and policy need evals, for its stage" {
+  change $H/stages/build/review/prompt.md "Review it."
+  change $H/stages/build/review/schema.json '{"type":"object"}'
+  change $H/stages/build/review/policy.json '{"fix_kinds":[]}'
+  run "$SCRIPT" main~3
+  assert_line "$H/stages/build/review/prompt.md"
+  assert_line "$H/stages/build/review/schema.json"
+  assert_line "$H/stages/build/review/policy.json"
+  run "$SCRIPT" --stages main~3
+  assert_output build
+}
+
 @test "review standard and checklist changes need evals" {
   change $H/lib/review.md "Be strict."
   change $H/stages/work-order/review.md "Check the criteria."
