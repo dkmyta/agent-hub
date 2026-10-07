@@ -14,10 +14,6 @@ setup() {
   export EXTENSIONS_DIR=.github/agent-hub-extensions BUILD_INSTALL_MINUTES=1
 }
 
-# in_stage <commands>: the commands with the build's sandbox steps loaded
-# (lib/load.sh sandbox), in the repository.
-in_stage() { bash -c "source '$HUB_DIR/lib/load.sh' sandbox; $1"; }
-
 commit() { git add -A && git commit -qm "${1:-change}"; }
 
 # install_command: the install command chosen for the repository (the one

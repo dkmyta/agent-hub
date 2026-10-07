@@ -10,6 +10,9 @@
 #   MOCK_GH_VISIBILITY   public or private (default: private)
 #   MOCK_GH_EDITS_PAGE   edits per page of edit history (default: 100)
 #   MOCK_GH_FAIL         "METHOD path" of a call that should fail
+#   MOCK_GH_HISTORY      a recorded edit-history response to serve for the
+#                        GraphQL query instead of the mock's own (from
+#                        shared/fixtures/github-edit-history)
 #   MOCK_GH_LOST         opening a pull request works, but the first reply is
 #                        lost (a failure, as when a connection breaks after
 #                        GitHub acted)
@@ -85,7 +88,9 @@ gh_request() {
       echo '[]' ;;
     "POST /graphql")
       # The edit-history query: newest first, a page at a time. GitHub keeps
-      # no edit record for a description that was never edited.
+      # no edit record for a description that was never edited. (The shape
+      # recorded from GitHub: shared/fixtures/github-edit-history.)
+      if [ -n "${MOCK_GH_HISTORY:-}" ]; then cat "$MOCK_GH_HISTORY"; return 0; fi
       local n cursor size=${MOCK_GH_EDITS_PAGE:-100}
       n=$(jq -r '.variables.number' <<< "$body"); cursor=$(jq -r '.variables.cursor // 0' <<< "$body")
       jq -c --argjson n "$n" --argjson start "$cursor" --argjson size "$size" '

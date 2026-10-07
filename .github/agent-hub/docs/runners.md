@@ -94,7 +94,7 @@ Things to know:
      run isn't verified yet — the run warns; keep only one.
 3. **Review the stages' budget caps** (`AGENT_HUB_<STAGE>_*_BUDGET_USD`) — they're now real money per run.
 4. **Check it works**: run **Actions → Agent hub: Sandbox check** (type
-   `use-claude`; about $0.20) — every line should be `ok`, and the log's
+   `use-claude`; about $0.30) — every line should be `ok`, and the log's
    "Claude access:" line should say "an API key". Then one real ticket, or
    the evals (Actions → Agent hub: Evals) if the cost is acceptable.
 
@@ -261,8 +261,8 @@ check, on the runner `AGENT_HUB_RUNS_ON` names and with its access to Claude —
 the only way to check a GitHub-hosted runner. Its log says which access it
 used ("Claude access: …").
 
-It asks you to type `use-claude` (it uses Claude: two short sessions, about
-$0.20, capped under $1), works in a throwaway copy of the repository under
+It asks you to type `use-claude` (it uses Claude: three short sessions, about
+$0.30, capped under $1.20), works in a throwaway copy of the repository under
 your home folder, and removes it afterwards. It checks, with the hub's own
 runner code:
 
@@ -278,6 +278,10 @@ runner code:
   see a planted environment secret, or edit `.github/`; they can write the
   repository and a temp folder (outside both the repository and the home
   folder; the check shows which), and use localhost.
+- **Review profile** (the build's review pass, from PR 4): commands still
+  run and can read the repository and write the temp folder, but nothing
+  writes the repository — not a shell redirect, `touch` or a child process —
+  and the file tools are refused.
 - It also says which access to Claude it used ("Claude access: …"), so a
   check proves the setup it ran with.
 

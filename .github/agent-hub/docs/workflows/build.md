@@ -839,7 +839,8 @@ environments with required reviewers).
 Checkouts cleaned (`git clean -ffdx`) and temp folders per job, verified at
 the start of each run · package caches in the job's temp folder · escaping
 symlinks and gitlinks refused · **all actions pinned to full commit SHAs**
-(GitHub-owned too), kept current by Dependabot · **an exact, pinned Claude Code
+(GitHub-owned too), kept current by Dependabot in the hub's repository and
+reaching others with hub releases · **an exact, pinned Claude Code
 version required for the build**, checked against the runner's before any
 Claude usage, and no automatic updates during runs · the sandbox check run by
 hand (it uses Claude) on a new runner, after every Claude Code upgrade and
@@ -864,7 +865,7 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template); later `fix.md`, `fix-check.md`, `ci-fix.md` |
 | `lib/toolchain.sh` | The Node version a repository declares, for the workflow's setup-node step and the fetch step's check |
 | `stages/build/dependencies.sh` | The dependency step: the folders installed, the plan's dependency changes applied and checked, the result for the gates and the report |
-| `lib/sandbox/` | The hub's sandbox for the install and verify steps: `sandbox.sh` (policies, time limit, a clean environment) and the lockfile `srt` is installed from (per job, from npm's download cache in the runner's tool cache, checked against the lockfile every time; Dependabot keeps it current) |
+| `lib/sandbox/` | The hub's sandbox for the install and verify steps: `sandbox.sh` (policies, time limit, a clean environment) and the lockfile `srt` is installed from (per job, from npm's download cache in the runner's tool cache, checked against the lockfile every time; Dependabot keeps it current in the hub's repository, and hub releases carry it to others) |
 | `stages/pr-review/` | The review's `prompt.md`, `schema.json` (findings: area, severity, kind, file and line, evidence), `policy.json` (kind × severity → fix pass, `R` or `D`), `settings.sh` |
 | `lib/github.sh` | The GitHub interface; one `gh_request` function every call goes through (mocked in tests) |
 | `lib/runners/claude-code.sh` | Tool profiles (`read-only`, `build`, `review`) and the sandbox settings |
@@ -918,7 +919,7 @@ only wakes the per-ticket run, which reads the checks itself.
 | Variants | `run_scenario <name> VAR=value` for one-setting differences | No |
 | Gates | A test per class and boundary case (special characters in paths, any letter case, git failing); each fix's test is checked to fail without the fix. An automated mutation check is a later improvement | No |
 | Sandbox probes | `tests/shared/sandbox.bats`: the hub's sandbox (install and verify) against the real runtime — network, home folder, writes, time limit; in CI on Linux, skipped locally without the network | No |
-| Boundary checks | `scripts/check-sandbox.sh`: real Claude Code against hostile settings and sandbox escape attempts, results checked on disk ([runners.md](../runners.md#checking-the-sandbox)) | Yes, about $0.20, confirmed with `use-claude` |
+| Boundary checks | `scripts/check-sandbox.sh`: real Claude Code against hostile settings and sandbox escape attempts, results checked on disk ([runners.md](../runners.md#checking-the-sandbox)) | Yes, about $0.30, confirmed with `use-claude` |
 | Evals | Manual, `use-claude`, capped; one build case on a small fixture repository | Yes |
 | Pipeline test | Real systems, the scenarios under [Building it](#building-it) | Yes |
 
@@ -1119,24 +1120,31 @@ where stated and only with the owner's OK.
    preview gate comes off after 4d, once the runner blockers are met.
    **Prerequisites, before the review pass or reconciliation is enabled**
    (from the 2.5.0 reviews):
-   - *A read-only review profile, proven.* The review profile drops the
-     file-editing tools, but its sandbox doesn't yet deny shell writes to the
-     checkout (Claude Code's default allows the working directory). Deny them
-     explicitly, keep a temp folder writable for test output, and add a
-     review-profile run to the sandbox check (shell redirection, a script or
-     child process writing, the file tools).
+   - *A read-only review profile, proven* (done in 2.8.1). The review profile drops the
+     file-editing tools, but its sandbox didn't deny shell writes to the
+     checkout (Claude Code's default allows the working directory). Since
+     2.8.1 it denies the repository explicitly (a temp folder stays writable
+     for test output: tests that write into the repository fail in the
+     review, which then reports it), and the sandbox check runs the review
+     profile (a shell redirect, `touch`, a child process, the file tools):
+     all held on Claude Code 2.1.285, macOS.
    - *A spend cap per ticket* (done in 2.8.0, 4a). Each run has its own
      budget, but a ticket's runs (retries, revisions, the review and fix
      passes) added up with nothing stopping them. The hub now records each
      run's cost on the ticket and stops before Claude at the caps
      ([claude-usage.md](../claude-usage.md#per-ticket-caps)).
-   - *GitHub's edit-history format, recorded.* `gh_pr_body_versions` reads
-     each `userContentEdit.diff` as the whole description after that edit —
-     confirmed read-only against the API in 2.4.0, but the test mock encodes
-     the same assumption. Record real responses (creation, a person's edit
-     outside the state block, an edit to it, deleted history) as fixtures,
-     and bind the newest version to the description the API returns, before
-     the state block is trusted for reconciliation.
+   - *GitHub's edit-history format, recorded* (done in 2.8.1).
+     `gh_pr_body_versions` reads each `userContentEdit.diff` as the whole
+     description after that edit, and the test mock assumed the same. Real
+     responses recorded from a scratch pull request (creation, an edit
+     outside the state block, an edit to it, a third, and a revision deleted
+     in the web page) confirmed it byte for byte
+     (`tests/shared/fixtures/github-edit-history`), and showed that a deleted
+     revision keeps its entry with its text replaced by `deleted` — now
+     treated as history that can't be checked, so the block isn't trusted.
+     The newest version must equal the description the API returns. Still
+     unrecorded: a machine user's and a person's edits side by side (needs
+     the machine user).
 5. **Review items, `/apply`, PR sync, docs** — the relay; `/apply` and
    `/skip` with the approvers-group condition; item clearing; the paused
    label; PR sync with the conditional post-merge check; superseded builds; a

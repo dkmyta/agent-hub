@@ -210,6 +210,10 @@ run_stage() {
   step "Remove session and credential files" remove-session-and-credential-files  # always()
 }
 
+# in_stage <script>: script runs as a code stage's sandbox steps do (lib/load.sh
+# sandbox: the settings, the sandbox and the stage's steps loaded).
+in_stage() { bash -c "source '$HUB_DIR/lib/load.sh' sandbox; $1"; }
+
 # writes: the run's Jira writes, one "METHOD path" per line.
 writes() { jq -r 'select(.method != "GET") | "\(.method) \(.path)"' "$CALLS"; }
 
@@ -233,7 +237,7 @@ run_scenario() {
   export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" MOCK_FAIL_FROM="" CLAUDE_FIXTURE=none CANCEL_AFTER="" MOCK_LEDGER="" MOCK_LABELS=""
   export CLAUDE_REVIEW_FIXTURE=approve CLAUDE_REVIEW_EXIT=0 CLAUDE_FIXTURE_EDIT="" CLAUDE_REVIEW_FIXTURE_EDIT="" CLAUDE_EDITS=""
   export TICKET_FIXTURE=tickets/ready.json TICKET_LATER_FIXTURE="" CHANGELOG_FIXTURE="" CHANGELOG_PAGE2_FIXTURE="" COMMENTS_FIXTURE="" COMMENTS_LATER_FIXTURE=""
-  export MOCK_GH_VISIBILITY=private MOCK_GH_FAIL="" MOCK_GH_PRS_FIXTURE=""
+  export MOCK_GH_VISIBILITY=private MOCK_GH_FAIL="" MOCK_GH_PRS_FIXTURE="" MOCK_GH_HISTORY=""
   export TRANSITIONS_FIXTURE=transitions.json ATTACHMENTS_FIXTURE="" ATTACHMENTS_LATER_FIXTURE="" ATTACHMENTS_LATER_FROM="" ATTACHMENT_CONTENT_FIXTURE=""
   set -a  # scenario.env overrides the defaults above
   # shellcheck source=/dev/null

@@ -5,6 +5,39 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.8.1 — 2026-10-07
+
+The rest of PR 4's prerequisites (4a): the review profile proven read-only,
+and GitHub's edit-history format recorded and handled.
+
+- **The review profile can't write the repository.** Its sandbox now denies
+  the repository outright (`denyWrite`), not only by leaving it out of the
+  writable folders, since Claude Code otherwise lets commands write the
+  working directory. The sandbox check has a third session for it: a shell
+  redirect, `touch`, a child process and the file tools all failed to write
+  the repository, while reading it and writing the temp folder worked (run on
+  Claude Code 2.1.285, macOS). The check now costs about $0.30.
+- **GitHub's edit history, recorded:** real responses from a scratch pull
+  request are now test fixtures (`tests/shared/fixtures/github-edit-history`).
+  They confirm each edit's `diff` is the whole description after it, as the
+  hub and its mock assumed. They also showed that a revision deleted in
+  GitHub's web page keeps its entry, its text replaced by `deleted`:
+  `gh_pr_body_versions` now marks it (`deleted`, `deleted_by`), and
+  `state_trusted` refuses such a history, naming who deleted it (it was
+  refused before, with a misleading reason). The newest version must also
+  equal the description GitHub returns.
+- **The sandbox check's agents item** names the agent as the plugin lists it
+  (`repository:check-expert`): on 2.1.285 Claude asked a generic subagent
+  instead, although the repository's agent was loaded.
+- **Less duplication:** the build's cost line and dependency summary are
+  written once (`stages/build/wording.jq`) for both the pull request and the
+  ticket report, and the pull request template uses the shared `unstop` and
+  `plural`; a duplicated test helper moved to the shared helpers.
+- Docs: Dependabot's scope in build.md's last two mentions; build.md's
+  prerequisites marked done.
+
+**Updating:** nothing to do.
+
 ## 2.8.0 — 2026-10-07
 
 The first of PR 4's prerequisites (4a): per-ticket caps on Claude usage,

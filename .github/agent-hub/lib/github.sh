@@ -122,10 +122,14 @@ gh_label() {
 }
 
 # gh_pr_body_versions <number>: every version of the pull request's
-# description, oldest first, as [{editor, body}] — from GitHub's edit
-# history, a page of 100 at a time (each edit records the whole description
-# after it), ending with the current one. A description never edited has
-# just one version, by the pull request's author.
+# description, oldest first, as [{editor, body, deleted, deleted_by}] — from
+# GitHub's edit history, a page of 100 at a time, ending with the current
+# one. As recorded from GitHub (tests/shared/fixtures/github-edit-history):
+# once edited, the original is the oldest entry, by the author; each entry's
+# `diff` is the whole description after that edit; a revision someone
+# deleted keeps its entry (deleted: true, body unknown). A description never
+# edited has just one version, by the pull request's author. Fails if the
+# newest version isn't the description GitHub returns now.
 gh_pr_body_versions() {
   local cursor=null page edits='[]' data
   # shellcheck disable=SC2016 # GraphQL variables, not shell
@@ -133,7 +137,7 @@ gh_pr_body_versions() {
     repository(owner: $owner, name: $name) { pullRequest(number: $number) {
       body author { login }
       userContentEdits(first: 100, after: $cursor) {
-        pageInfo { hasNextPage endCursor } nodes { editedAt editor { login } diff } } } } }'
+        pageInfo { hasNextPage endCursor } nodes { editedAt deletedAt deletedBy { login } editor { login } diff } } } } }'
   while :; do
     data=$(gh_graphql "$query" "$(jq -nc --arg owner "$GH_OWNER" --arg name "$GH_NAME" --argjson number "$1" \
       --argjson cursor "$cursor" '{owner: $owner, name: $name, number: $number, cursor: $cursor}')") || return 1
@@ -143,9 +147,15 @@ gh_pr_body_versions() {
     cursor=$(jq -c '.userContentEdits.pageInfo.endCursor' <<< "$page")
   done
   # Edits come newest first; the current description is the last version.
-  jq -c --argjson page "$page" '
-    if length == 0 then [{editor: ($page.author.login // ""), body: ($page.body // "")}]
-    else sort_by(.editedAt) | map({editor: (.editor.login // ""), body: (.diff // "")}) end' <<< "$edits"
+  edits=$(jq -c --argjson page "$page" '
+    if length == 0 then [{editor: ($page.author.login // ""), body: ($page.body // ""), deleted: false, deleted_by: null}]
+    else sort_by(.editedAt) | map({editor: (.editor.login // ""), deleted: (.deletedAt != null),
+      body: (if .deletedAt != null then null else (.diff // "") end), deleted_by: .deletedBy.login}) end' <<< "$edits")
+  if ! jq -e --argjson page "$page" 'last | .deleted or .body == ($page.body // "")' <<< "$edits" > /dev/null; then
+    echo "::error::GitHub's edit history for pull request #$1 doesn't end with its current description." >&2
+    return 1
+  fi
+  printf '%s\n' "$edits"
 }
 
 # Git, for the branch the stage owns. Pushes authenticate through the askpass

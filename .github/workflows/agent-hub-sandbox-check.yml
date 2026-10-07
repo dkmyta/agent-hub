@@ -6,8 +6,8 @@ name: "Agent hub: Sandbox check"
 # secret — so a GitHub-hosted runner, which no one can log in to, can be
 # checked too: .github/agent-hub/scripts/check-sandbox.sh, the same check
 # that's run by hand on a self-hosted one (.github/agent-hub/docs/runners.md,
-# "Checking the sandbox"). Uses Claude (two short sessions, about $0.20,
-# capped under $1), so it only runs when started by hand, with `use-claude`
+# "Checking the sandbox"). Uses Claude (three short sessions, about $0.30,
+# capped under $1.20), so it only runs when started by hand, with `use-claude`
 # typed into the confirmation box, and — once the agent-hub-evals environment
 # has required reviewers — only after a reviewer approves. Never triggered by
 # pull requests: the job can run on a self-hosted runner, and code from forks
@@ -18,7 +18,7 @@ on:
     inputs:
       # Deliberate friction: a mistaken click doesn't run anything.
       confirm:
-        description: This uses Claude (about $0.20). Type use-claude to run
+        description: This uses Claude (about $0.30). Type use-claude to run
         required: true
         type: string
 

@@ -70,6 +70,12 @@ state_trusted() {
   local versions=$1 me=$2 count i editor previous current
   count=$(jq length <<< "$versions")
   [ "$count" -gt 0 ] || { echo "the description has no versions"; return 1; }
+  # A revision deleted from the history can't be checked, so nothing after
+  # it can be either.
+  if jq -e 'any(.[]; .deleted == true)' <<< "$versions" > /dev/null; then
+    echo "a version of the description was deleted from its edit history (by $(jq -r '[.[] | select(.deleted == true) | .deleted_by // "someone"] | unique | join(", ")' <<< "$versions")), so edits to the state block can't be checked"
+    return 1
+  fi
   [ "$(jq -r '.[0].editor' <<< "$versions")" = "$me" ] \
     || { echo "the pull request's first description wasn't written by the hub"; return 1; }
   previous=$(jq -r '.[0].body' <<< "$versions" | state_block) \

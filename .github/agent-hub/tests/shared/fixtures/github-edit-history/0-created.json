@@ -1,0 +1,19 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "body": "Scratch pull request: records GitHub's edit-history format for the agent hub's tests. It will be closed and its branch deleted.\n\n<!-- agent-hub:state\n{\"schema\":1,\"generation\":1}\n-->\n",
+        "author": {
+          "login": "dkmyta"
+        },
+        "userContentEdits": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+          },
+          "nodes": []
+        }
+      }
+    }
+  }
+}

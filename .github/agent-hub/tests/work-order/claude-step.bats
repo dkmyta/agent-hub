@@ -526,8 +526,13 @@ $RUNNER_TEMP/plugins/repository"
   assert_success
   assert_equal "$(arg --tools)" "Read,Grep,Glob,Bash,Agent,Skill"
   assert_equal "$(arg --disallowedTools)" "Write,Edit,NotebookEdit,WebSearch,WebFetch"
-  # Its commands may write only the temp folder: running tests can't change the code.
-  assert_equal "$(jq -c '.sandbox.filesystem.allowWrite' <<< "$(arg --settings)")" "$(jq -nc --arg t "$temp" '[$t]')"
+  # Its commands may write only the temp folder, the repository denied
+  # outright: running tests can't change the code.
+  assert_equal "$(jq -c '.sandbox.filesystem | {allowWrite, denyWrite}' <<< "$(arg --settings)")" \
+    "$(jq -nc --arg t "$temp" --arg r "$repo" '{allowWrite: [$t], denyWrite: [$r]}')"
+  # The build profile has no such deny.
+  AGENT_PROFILE=build claude_step ready.json
+  assert_equal "$(jq -c '.sandbox.filesystem.denyWrite' <<< "$(arg --settings)")" null
 }
 
 @test "profiles: the document stages are read-only with no sandboxed shell; an unknown profile stops the run" {

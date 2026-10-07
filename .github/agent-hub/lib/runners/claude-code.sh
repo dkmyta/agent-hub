@@ -194,8 +194,9 @@ agent_sandbox_dir() { mkdir -p "$RUNNER_TEMP/agent-tmp" && echo "$RUNNER_TEMP/ag
 # review, Claude Code's sandbox for every shell command and what it starts:
 # no reading the home folder (where the runner's credentials live) except the
 # repository, the temp folder and the toolchain; writes only to the
-# repository and the temp folder (review: only the temp folder); network to
-# localhost only; it fails rather than run a command
+# repository and the temp folder (review: only the temp folder, with the
+# repository denied outright — Claude Code otherwise lets commands write the
+# working directory); network to localhost only; it fails rather than run a command
 # unsandboxed, and a --settings file closes these settings to the project.
 agent_settings() {
   local temp toolchain=""
@@ -213,8 +214,9 @@ agent_settings() {
     permissions: {deny: [$denied[] | "Edit(./\(.))", "Write(./\(.))"]},
     sandbox: {
       enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true,
-      filesystem: {denyRead: [$home], allowRead: ([$repo, $temp] + (if $toolchain != "" then [$toolchain] else [] end)),
-        allowWrite: (if $profile == "build" then [$repo, $temp] else [$temp] end)},
+      filesystem: ({denyRead: [$home], allowRead: ([$repo, $temp] + (if $toolchain != "" then [$toolchain] else [] end)),
+        allowWrite: (if $profile == "build" then [$repo, $temp] else [$temp] end)}
+        + (if $profile == "review" then {denyWrite: [$repo]} else {} end)),
       network: {allowedDomains: ["localhost", "127.0.0.1"], allowLocalBinding: true}}}'
 }
 

@@ -27,8 +27,6 @@ setup() {
   echo node_modules/ > .gitignore
 }
 
-in_stage() { bash -c "source '$HUB_DIR/lib/load.sh' sandbox; $1"; }
-
 # explain: on a failure, what npm said — the failure reason (with its
 # ticket-only detail), the step's logs and npm's own debug logs — so a CI
 # failure says why.
