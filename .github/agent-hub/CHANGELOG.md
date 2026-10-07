@@ -5,6 +5,43 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.10.0 — 2026-10-07
+
+PR 4's second part, completed (4b-2): the review's fix-eligible findings are
+fixed once, each fix checked, and the fix kept only if the build still
+passes.
+
+- **A Fix step** after the review, only when it found fix-eligible findings:
+  the fix pass (the build profile; Sonnet, `AGENT_HUB_BUILD_FIX_MODEL`,
+  capped at $3) fixes exactly those findings, once; then a **fix check** — a
+  fresh read-only session ($1) — judges each fix resolved or not from
+  exactly the diff it made, and reports any new concern it raised. No second
+  loop.
+- **A Verify fix step** (no agent) commits the fix on top of the reviewed
+  commit and keeps it only if the gates refuse nothing and the repository's
+  checks pass on it; otherwise the reviewed commit is pushed as it was. A
+  fix the check couldn't judge, or one that changed nothing, isn't kept.
+  Both steps continue on error, and Apply drops a fix that never finished
+  verifying — the fix pass can't cost the build or push an unchecked
+  commit.
+- **On the pull request and ticket:** resolved findings are listed as fixed;
+  unresolved ones, and any when no fix was kept, stay open; the fix check's
+  new concerns become decision or review items by the same policy. The
+  ticket's report has each fix, its check and the concerns; the cost line
+  covers the build, review and fixes.
+- **The build's first eval** (`tests/build/evals`, run by hand: Actions →
+  Agent hub: Evals → build): a build that misses an acceptance criterion
+  its tests don't cover — the review should find it, the fix pass fix it and
+  the fix check confirm it. Only the review and fix passes use Claude (about
+  $2–5).
+- The build workflow's job limit is 240 minutes (the Fix step's 40 and
+  Verify fix's 30 added).
+- Tests: the scenario harness's own `skip` helper no longer replaces bats'
+  `skip` after a scenario runs (renamed `skip_step`).
+
+**Updating:** nothing to do. Builds whose review finds serious problems now
+cost a fix pass too (typically $0.5–2.5).
+
 ## 2.9.0 — 2026-10-07
 
 PR 4's second part, first half (4b-1): an automated code review of every

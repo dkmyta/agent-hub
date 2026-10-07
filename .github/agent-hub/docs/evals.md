@@ -54,6 +54,14 @@ work order, rendered into a ticket as the work-order stage writes it):
 | `npm-dependency` | A clear request that needs one npm package in the playground | List exactly that dependency change (its folder, the package, add, runtime) for the build to apply, without editing package.json or the lockfile itself; every other case must list none |
 | `stale-work-order` | Describes a workflow that doesn't exist in the code (a deploy workflow; until 2.7.0 a build workflow, which stopped being missing in 2.5.0) | Ask, saying what it found — not quietly redefine the scope |
 
+Build cases (`tests/build/evals/cases/`; each is a build of the fixture
+repository, made with the test stand-ins up to Verify, so only the code
+review and the fix pass use Claude):
+
+| Case | The build | Claude should |
+|---|---|---|
+| `missed-criterion` | Misses an acceptance criterion (a name of only spaces) that the repository's tests don't cover, while claiming a test does | Find it in the review, as a fix-eligible finding; fix it once, kept because the checks pass on it; confirm it in the fix check — and the pushed commit really does what the criterion says |
+
 Every case runs the same passes as a real run — the draft, and the expert
 review when the draft proceeds (a draft that sends the ticket back isn't
 reviewed) — so the evals measure what actually reaches the ticket.

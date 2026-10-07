@@ -544,7 +544,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "Claude (build and review), via a logged-in Claude account (pro): 2.81 USD API-equivalent, counted against the plan’s usage limits, 612s. ",
+                "text": "Claude (build, review and fixes), via a logged-in Claude account (pro): 2.81 USD API-equivalent, counted against the plan’s usage limits, 612s. ",
                 "marks": [
                   {
                     "type": "em"

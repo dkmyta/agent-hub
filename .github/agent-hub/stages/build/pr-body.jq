@@ -5,7 +5,7 @@
 #   jq -nr -L lib -L stages/build -f pr-body.jq --slurpfile out agent-output.json --slurpfile context build-context.json \
 #     --slurpfile gates gates.json --slurpfile contract contract.json --slurpfile state state.json \
 #     --slurpfile verify verify.json --slurpfile deps dependencies.json \
-#     --slurpfile access agent-access.json --slurpfile review code-review.json \
+#     --slurpfile access agent-access.json --slurpfile review code-review.json --slurpfile fix fix.json \
 #     --arg ticket KEY --arg url "<ticket URL, or empty>" --arg run "<run URL>"
 #
 # The publication policy ("Publication policy"): unless ticket content may be
@@ -36,7 +36,7 @@ def line_counts: if .added == null then "binary" else "+\(.added) −\(.deleted)
 def duration: (. / 1000 | floor) as $s | if $s < 60 then "\($s)s" else "\($s / 60 | floor) min \($s % 60)s" end;
 
 $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0] as $g
-| $contract[0] as $p | $state[0] as $s | $c.publish as $publish | $review[0] as $r
+| $contract[0] as $p | $state[0] as $s | $c.publish as $publish | $review[0] as $r | $fix[0] as $x
 | (if $url != "" then "[\($ticket)](\($url))" else "**\($ticket)**" end) as $ref
 | "Built by the agent hub from the approved implementation plan for \($ref)."
     + (if $publish then ""
@@ -95,13 +95,26 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
       [(if $publish then ($r.summary | line) + " " else "" end)
         + "A fresh, read-only session reviewed this commit against the plan: "
         + (if ($r.findings | length) == 0 then "no findings."
-           else "\(plural($r.findings | length; "finding")) — \([$r.findings[] | select(.policy == "decision")] | length) for a person to decide, \([$r.findings[] | select(.policy == "fix")] | length) fix-eligible (fixed automatically from a later version; review items until then), \([$r.findings[] | select(.policy == "review")] | length) review item(s)." end)]
+           else "\(plural($r.findings | length; "finding")) — \([$r.findings[] | select(.policy == "decision")] | length) for a person to decide, \([$r.findings[] | select(.policy == "fix")] | length) fix-eligible, \([$r.findings[] | select(.policy == "review")] | length) review item(s)." end)]
+      + (if $x.status == "kept" then
+          ["", "The fix-eligible findings were fixed once, in the commit after the reviewed one, and a fresh read-only session checked each fix: \([$x.checks[] | select(.verdict == "resolved")] | length) resolved, \([$x.checks[] | select(.verdict != "resolved")] | length) not (still open below)"
+             + (if ($x.new_concerns | length) > 0 then ", and \(plural($x.new_concerns | length; "new concern")) the fixes raised (below)" else "" end)
+             + ". The hub's gates and the repository's checks passed on the fix before it was kept."]
+        elif $x.status == "dropped" or $x.status == "failed" then
+          ["", "A fix pass ran, but its changes weren't kept: \($x.reason). The fix-eligible findings stay open below."]
+        else [] end)
     end),
 
   section("Items for a person"; [$s.items[] | . as $i
     | if .source == "review" then
         ([$r.findings[] | select(.n == $i.finding)] | first) as $f
-        | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" elif .fix_eligible then "review item, fix-eligible" else "review item" end)
+        | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" elif .status == "fixed" then "fixed by the fix pass (checked)" elif .fix_eligible then "review item, fix-eligible, not fixed" else "review item" end)
+          + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
+          + (if $publish then ": \($f.title | line)" + (if ($f.file // "") != "" then " (\($f.file | code)\(if $f.line then ":\($f.line)" else "" end))" else "" end)
+             else " (details on the ticket)" end)
+      elif .source == "fix-check" then
+        ([$x.new_concerns[] | select(.n == $i.concern)] | first) as $f
+        | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" else "review item" end) + ", raised by the fix check"
           + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
           + (if $publish then ": \($f.title | line)" + (if ($f.file // "") != "" then " (\($f.file | code)\(if $f.line then ":\($f.line)" else "" end))" else "" end)
              else " (details on the ticket)" end)
@@ -116,4 +129,4 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
     "- Declared in the plan: " + ([$p.governance.includes | to_entries[] | select(.value) | .key | gsub("_"; " ")] | if length > 0 then join(", ") else "none of the sensitive kinds" end),
     "- Plan: attachment \($c.plan.attachment) on the ticket (sha256 \($c.plan.sha256[0:12]))"]),
 
-  section("Run"; ["\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0))), \($o.duration_ms // 0 | duration) · hub \($s.hub_version) · [run summary](\($run))"])
+  section("Run"; ["\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0) + ($x.cost // 0))), \($o.duration_ms // 0 | duration) · hub \($s.hub_version) · [run summary](\($run))"])

@@ -831,11 +831,11 @@ stops() {
 @test "the cost line says how Claude was reached: a plan's usage counts against its limits, an API key's is billed" {
   run_scenario ready CLAUDE_AUTH=api-key CLAUDE_EDITS=edits/greet.sh
   run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
-  assert_output --partial "Claude (build and review), via an API key: 2.81 USD, billed to the API key"
+  assert_output --partial "Claude (build, review and fixes), via an API key: 2.81 USD, billed to the API key"
   fresh_repo
   run_scenario ready CLAUDE_AUTH=account CLAUDE_EDITS=edits/greet.sh
   run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
-  assert_output --partial "Claude (build and review), via a logged-in Claude account (pro): 2.81 USD API-equivalent, counted against the plan’s usage limits"
+  assert_output --partial "Claude (build, review and fixes), via a logged-in Claude account (pro): 2.81 USD API-equivalent, counted against the plan’s usage limits"
   refute_output --partial "private-person@example.com"
 }
 
@@ -887,7 +887,7 @@ stops() {
   assert_output '[{"id":"D1","kind":"dependency","severity":"medium","fix_eligible":null},{"id":"D2","kind":"correctness","severity":"high","fix_eligible":null},{"id":"R1","kind":"correctness","severity":"high","fix_eligible":true},{"id":"R2","kind":"style","severity":"low","fix_eligible":false}]'
   # The state block holds the hub's fields only, never a finding's text.
   run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
-  assert_line "- **R1** review item, fix-eligible — high correctness, correctness: A name of only spaces greets as \"Hello,  !\" (\`src/greet.js\`:2)"
+  assert_line "- **R1** review item, fix-eligible, not fixed — high correctness, correctness: A name of only spaces greets as \"Hello,  !\" (\`src/greet.js\`:2)"
   assert_line "- **D2** decision — high correctness, plan fidelity: SECRET-TICKET-WORDS should also be localised (\`src/greet.js\`:1)"
   assert_output --partial "1 fix-eligible"
   run awk '/^<!-- agent-hub:state$/ { getline; print }' <<< "$(jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS")"
@@ -906,7 +906,7 @@ stops() {
 @test "review: a public repository's pull request shows only each finding's kind and severity" {
   run_scenario ready CLAUDE_EDITS=edits/greet.sh CLAUDE_PASS_FIXTURE=claude/review-findings.json MOCK_GH_VISIBILITY=public
   run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
-  assert_line "- **R1** review item, fix-eligible — high correctness, correctness (details on the ticket)"
+  assert_line "- **R1** review item, fix-eligible, not fixed — high correctness, correctness (details on the ticket)"
   refute_output --partial "SECRET-TICKET-WORDS"
   refute_output --partial "greets as"
   refute_output --partial "src/greet.js\`:"
@@ -951,4 +951,126 @@ stops() {
     '(.properties.findings.items.properties.kind.enum | sort) == ($p[0] | .decision_kinds + .fix_kinds + .review_kinds | sort)' \
     "$HUB_DIR/stages/build/review/schema.json"
   assert_output true
+}
+
+# The fix pass (fix.sh): the review's fix-eligible findings fixed once, each
+# fix checked by a fresh read-only session, and the fix kept only if the
+# gates and the repository's checks pass on it.
+fix_run() { # [VAR=value...]: a build whose review has a fix-eligible finding (1)
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh CLAUDE_PASS_FIXTURE=claude/review-findings.json \
+    CLAUDE_FIX_FIXTURE=claude/fix.json CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json "$@"
+}
+pushed_head_subject() { local remote; remote=$(git -C "$STEP_CWD" remote get-url origin); git --git-dir="${remote#file://}" log -1 --format=%s refs/heads/agent-hub/PROJ-99; }
+
+@test "fix: kept — committed after the reviewed commit, checked, and pushed; the finding fixed, the fix check's concern an item" {
+  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Fix: success"
+  assert_line "Verify fix: success"
+  assert_line "Apply: success"
+  run jq -r '.status' "$RUNNER_TEMP/fix.json"
+  assert_output kept
+  run pushed_head_subject
+  assert_output "Fix the automated review's findings"
+  # The checks passed on exactly the pushed commit; the review covered its parent.
+  assert_equal "$(jq -r '.head' "$RUNNER_TEMP/verify.json")" "$(jq -r '.after' "$RUNNER_TEMP/fix.json")"
+  assert_equal "$(jq -r '.review.head' "$RUNNER_TEMP/state.json")" "$(jq -r '.before' "$RUNNER_TEMP/fix.json")"
+  run jq -c '[.items[] | {id, source, status}]' "$RUNNER_TEMP/state.json"
+  assert_output '[{"id":"D1","source":"review","status":"open"},{"id":"D2","source":"review","status":"open"},{"id":"R1","source":"review","status":"fixed"},{"id":"R2","source":"review","status":"open"},{"id":"R3","source":"fix-check","status":"open"}]'
+  run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
+  assert_line --partial "- **R1** fixed by the fix pass (checked) — high correctness"
+  assert_line --partial "- **R3** review item, raised by the fix check — low style"
+  assert_output --partial "1 resolved, 0 not (still open below), and 1 new concern the fixes raised"
+  assert_output --partial "Claude (build, review and fixes), via a logged-in Claude account (pro): 4.41 USD"
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
+  assert_output --partial "R1 — fixed: src/greet.js trims the name before the check"
+  assert_output --partial "Check: resolved — src/greet.js trims first"
+  assert_output --partial "R3 — Optional chaining is new to this file"
+}
+
+@test "fix: dropped — checks failing on it, or a file the hub never pushes — and the reviewed commit pushed as it was" {
+  local edits reason
+  for edits in "fix-breaks-test.sh|the repository's checks failed on it: test (failed)" "fix-workflow.sh|it changed 1 file(s) the hub never pushes"; do
+    reason=${edits#*|}
+    fresh_repo
+    fix_run "CLAUDE_FIX_EDITS=edits/${edits%%|*}"
+    run cat "$RUNNER_TEMP/trace.txt"
+    assert_line "Verify fix: success"
+    assert_line "Apply: success"
+    run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
+    assert_output "$(jq -nc --arg r "$reason" '{status: "dropped", reason: $r}')"
+    run pushed_head_subject
+    refute_output "Fix the automated review's findings"
+    assert_equal "$(jq -r '.head' "$RUNNER_TEMP/verify.json")" "$(jq -r '.before' "$RUNNER_TEMP/fix.json")"
+    run jq -r '[.items[] | select(.id == "R1") | .status] | first' "$RUNNER_TEMP/state.json"
+    assert_output open
+    run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
+    assert_output --partial "A fix pass ran, but its changes weren't kept: $reason."
+  done
+}
+
+@test "fix: an unusable fix check, a fix pass that changes nothing or one that can't start keeps nothing, and costs nothing of the build" {
+  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh CLAUDE_FIX_CHECK_FIXTURE=none
+  run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
+  assert_output '{"status":"failed","reason":"the fix check returned no usable result, so the fixes weren'"'"'t kept"}'
+  run pushed_head_subject
+  refute_output "Fix the automated review's findings"
+  fresh_repo
+  fix_run
+  run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
+  assert_output '{"status":"failed","reason":"the fix pass changed nothing"}'
+  fresh_repo
+  local vars=$VARS
+  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_FIX_MAX_BUDGET_USD": "0"}'
+  export VARS=$vars
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Fix: failure (continued)"
+  assert_line "Verify fix: skipped"
+  assert_line "Apply: success"
+  run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
+  assert_output '{"status":"none","reason":"it didn'"'"'t run to the end"}'
+}
+
+@test "fix: no fix-eligible findings, no fix pass" {
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
+  assert_output '{"status":"none","reason":"no fix-eligible findings"}'
+  [ ! -e "$RUNNER_TEMP/claude-fix-args.txt" ]
+}
+
+@test "fix: the fix pass edits with the build profile on the fix model and budget; the fix check is read-only and sees exactly the fix" {
+  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh
+  local args="$RUNNER_TEMP/claude-fix-args.txt"
+  run awk '$0 == "--tools" { getline; print }' "$args"
+  assert_output "Read,Grep,Glob,Edit,Write,Bash,Agent,Skill"
+  run awk '$0 == "--model" || $0 == "--max-budget-usd" { getline; print }' "$args"
+  assert_output $'claude-sonnet-5\n3.00'
+  args="$RUNNER_TEMP/claude-fix-check-args.txt"
+  run awk '$0 == "--tools" { getline; print }' "$args"
+  assert_output "Read,Grep,Glob,Bash,Agent,Skill"
+  run awk '$0 == "--max-budget-usd" { getline; print }' "$args"
+  assert_output "1.00"
+  run cat "$RUNNER_TEMP/claude-fix-check-prompt.txt"
+  assert_output --partial "+  const trimmed = name?.trim();"
+  assert_output --partial "The fix pass: fixed — src/greet.js trims"
+  # Only the fix: the build's own change shows as what it replaced, never as added.
+  refute_output --partial '+  return name ?'
+  assert_output --partial '-  return name ?'
+}
+
+@test "fix check: its new concerns are code review findings, the same fields and values" {
+  run jq -e --slurpfile r "$HUB_DIR/stages/build/review/schema.json" '.properties.new_concerns == $r[0].properties.findings' "$HUB_DIR/stages/build/fix-check/schema.json"
+  assert_success
+}
+
+@test "fix: a fix Verify fix didn't settle is dropped by Apply, so only a commit the checks passed on is pushed" {
+  fix_run CLAUDE_FIX_EDITS=edits/fix-then-cut-off.sh
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Verify fix: failure (continued)"
+  assert_line "Apply: success"
+  run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
+  assert_output '{"status":"dropped","reason":"it didn'"'"'t finish verifying"}'
+  run pushed_head_subject
+  refute_output "Fix the automated review's findings"
+  assert_output --partial "greet"
 }

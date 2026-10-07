@@ -40,5 +40,6 @@ jobs:
       code-stage: true
       agent-minutes: 60
       review-minutes: 30
-      job-minutes: 170
+      fix-minutes: 40
+      job-minutes: 240
     secrets: inherit

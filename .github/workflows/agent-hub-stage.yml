@@ -33,6 +33,11 @@ on:
         required: false
         type: number
         default: 30
+      fix-minutes:
+        description: Time limit for a code stage's fix step — the fix pass and its fix check (unused by the document stages)
+        required: false
+        type: number
+        default: 40
       job-minutes:
         description: Time limit for the whole job; the steps' limits together fit within it
         required: true
@@ -211,6 +216,33 @@ jobs:
         run: |
           source "$RUNNER_TEMP/agent-hub/lib/load.sh" agent
           step_review
+
+      # Code stages: the review's fix-eligible findings fixed once (the build
+      # profile), then a fresh read-only fix check of each fix. Like the
+      # review, it never costs the build: on any failure the job goes on.
+      - name: Fix
+        id: fix
+        if: inputs.code-stage && steps.review.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: ${{ inputs.fix-minutes }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.AGENT_HUB_ANTHROPIC_API_KEY }}
+        run: |
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" agent
+          step_fix
+
+      # Code stages: the fix committed on top of the reviewed commit and kept
+      # only if the gates and the repository's checks pass on it (in the
+      # sandbox, no network) — no agent, no secrets. Otherwise the reviewed
+      # commit is pushed as it was; Apply drops a fix this didn't finish.
+      - name: Verify fix
+        id: verify-fix
+        if: inputs.code-stage && steps.fix.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          source "$RUNNER_TEMP/agent-hub/lib/load.sh" sandbox
+          step_verify_fix
 
       - name: Apply to ticket
         id: apply

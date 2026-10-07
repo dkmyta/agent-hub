@@ -18,18 +18,23 @@ def dependency_summary($before):
 # API key's is billed.
 def claude_cost($access; $usd):
   ($usd // 0 | . * 100 | round / 100) as $c
-  | "Claude (build and review), via \($access.label // "unknown access"): \($c) USD"
+  | "Claude (build, review and fixes), via \($access.label // "unknown access"): \($c) USD"
     + ({"api-key": ", billed to the API key", account: " API-equivalent, counted against the plan’s usage limits"}[$access.method // ""]
        // " (API-equivalent)");
-# review_items(gates; review): the pull request's decision (D) and review (R)
-# items from the gates and the code review (review.sh), numbered in that
-# order — hub-written fields only: the state block is in the description,
+# review_items(gates; review; fix): the pull request's decision (D) and
+# review (R) items from the gates, the code review (review.sh) and the fix
+# pass (fix.sh), numbered in that order. A fix-eligible finding a kept fix
+# resolved is listed as fixed; one it didn't, or any finding when no fix was
+# kept, stays open; a kept fix's new concerns are sorted like findings — hub-written fields only: the state block is in the description,
 # which a public repository shows to anyone, so a finding's own text stays
 # with the review's result and the ticket. A review that didn't finish is a
 # decision item itself.
-def review_items($gates; $review):
+def review_items($gates; $review; $fix):
   ($gates.decisions | length) as $gd
   | ($review.findings // []) as $f
+  | (if $fix.status == "kept" then $fix else {checks: [], new_concerns: []} end) as $kept
+  | ([$f[] | select(.policy == "decision")] | length) as $rd
+  | ([$f[] | select(.policy != "decision")] | length) as $rr
   | [$gates.decisions | to_entries[] | {id: "D\(.key + 1)", path: .value.path, reason: .value.reason, status: "open"}]
     + (if $review.status == "incomplete" then
          [{id: "D\($gd + 1)", path: "", source: "hub", reason: "the automated code review didn’t finish: \($review.reason)", status: "open"}]
@@ -38,5 +43,12 @@ def review_items($gates; $review):
           | {id: "D\($gd + .key + 1)", source: "review", finding: .value.n, kind: .value.kind, severity: .value.severity, area: .value.area, status: "open"}]
        end)
     + [[$f[] | select(.policy != "decision")] | to_entries[]
-       | {id: "R\(.key + 1)", source: "review", finding: .value.n, kind: .value.kind, severity: .value.severity, area: .value.area,
-          fix_eligible: (.value.policy == "fix"), status: "open"}];
+       | .value.n as $n
+       | {id: "R\(.key + 1)", source: "review", finding: $n, kind: .value.kind, severity: .value.severity, area: .value.area,
+          fix_eligible: (.value.policy == "fix"),
+          status: (if any($kept.checks[]; .finding == $n and .verdict == "resolved") then "fixed" else "open" end)}]
+    + [[$kept.new_concerns[] | select(.policy == "decision")] | to_entries[]
+       | {id: "D\($gd + $rd + .key + 1)", source: "fix-check", concern: .value.n, kind: .value.kind, severity: .value.severity, area: .value.area, status: "open"}]
+    + [[$kept.new_concerns[] | select(.policy != "decision")] | to_entries[]
+       | {id: "R\($rr + .key + 1)", source: "fix-check", concern: .value.n, kind: .value.kind, severity: .value.severity, area: .value.area,
+          fix_eligible: false, status: "open"}];

@@ -21,6 +21,7 @@ on:
         options:
           - work-order
           - implementation-plan
+          - build
           - all
       cases:
         description: Space-separated case names (blank runs all of the stage's)

@@ -537,7 +537,9 @@ agent_review() {
 # Prints Claude Code's JSON result (empty if it produced none); never fails
 # itself, beyond the checks before Claude is used.
 agent_pass() {
-  local prompt="$RUNNER_TEMP/pass-prompt.md"
+  # Named for the instructions' folder (review-pass-prompt.md, …).
+  local prompt
+  prompt="$RUNNER_TEMP/$(basename "$(dirname "$5")")-pass-prompt.md"
   _load_extensions
   CLAUDE_VERSION=$(claude --version 2>/dev/null | head -n 1 | cut -d ' ' -f 1) || CLAUDE_VERSION=""
   _require_restricted
@@ -549,7 +551,7 @@ agent_pass() {
   } > "$prompt"
   _require_budget "$4"
   AGENT_PROFILE=$1 _claude "$2" "$3" "$4" "$prompt" "$(jq -c . "$6")" "$7" > "$RUNNER_TEMP/pass-output.json"
-  _fallback_warning "$2" "$3" "$RUNNER_TEMP/pass-output.json" "$(basename "$5" .md) pass" >&2
+  _fallback_warning "$2" "$3" "$RUNNER_TEMP/pass-output.json" "$(basename "$(dirname "$5")") pass" >&2
   cat "$RUNNER_TEMP/pass-output.json"
 }
 
