@@ -2,7 +2,7 @@
 # free-form (docs/workflows/build.md, "Content"). The state block is added
 # after it (lib/state.sh).
 #
-#   jq -nr -f pr-body.jq --slurpfile out agent-output.json --slurpfile context build-context.json \
+#   jq -nr -L lib -L stages/build -f pr-body.jq --slurpfile out agent-output.json --slurpfile context build-context.json \
 #     --slurpfile gates gates.json --slurpfile contract contract.json --slurpfile state state.json \
 #     --slurpfile verify verify.json --slurpfile deps dependencies.json \
 #     --slurpfile access agent-access.json \
@@ -15,28 +15,13 @@
 # the review steps or the commands it ran (Claude wrote them, so they could
 # carry ticket text).
 
+# unstop and plural (adf.jq); the wording shared with the ticket's report.
+include "adf";
+include "wording";
+
 # Text from Claude or the ticket: no HTML (which could also forge a state
 # block's marker line), one line where a list item needs it.
 def safe: tostring | gsub("<"; "&lt;");
-def unstop: sub("[.\\s]+$"; "");
-# What the dependency step found in one folder (dependencies.sh), as one
-# line: the lockfile's changes, publication times, signatures, advisories and
-# licences — the same on the pull request and the ticket.
-def dependency_summary($before):
-  "\(.lockfile.added) package\(if .lockfile.added == 1 then "" else "s" end) added, \(.lockfile.changed) changed, \(.lockfile.removed) removed"
-  + (if $before != "" then "; every new version published on or before \($before) (checked against the registry)" else "" end)
-  + "; registry signatures verified for \(.signatures.verified) package\(if .signatures.verified == 1 then "" else "s" end) (\(.signatures.with_provenance) with provenance)"
-  + "; known advisories: \(.advisories.before) before, \(.advisories.after) after"
-  + (if (.advisories.new | length) > 0 then ", new: \(.advisories.new | map("\(.package) (\(.severity))") | join(", "))" else ", none new" end)
-  + (if (.licenses_outside | length) > 0 then "; licences outside the allowed list: \(.licenses_outside | map("\(.name)@\(.version) (\(.license // "not stated"))") | .[:5] | join(", "))" else "; every new package’s licence on the allowed list" end);
-# The run's Claude usage, as the access it used (agent-access.json) makes
-# it: a plan's usage counts against its limits; an API key's is billed.
-def claude_cost($access; $usd):
-  ($usd // 0 | . * 100 | round / 100) as $c
-  | "Claude, via \($access.label // "unknown access"): \($c) USD"
-    + ({"api-key": ", billed to the API key", account: " API-equivalent, counted against the plan’s usage limits"}[$access.method // ""]
-       // " (API-equivalent)");
-def plural($n; $word): "\($n) \($word)" + (if $n == 1 then "" else "s" end);
 # How a criterion is verified, as a phrase: "verified manually", "verified
 # by a new test".
 def verified: if . == "manual" then "verified **manually**"

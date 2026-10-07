@@ -222,6 +222,7 @@ setup() {
   assert_line "ok: the repository's agents and skills are a plugin"
   assert_line "ok: the repository's CLAUDE.md is guidance"
   assert_line "ok: the build profile's sandbox settings"
+  assert_line "ok: the review profile's sandbox settings"
   run ls -A "$BATS_TEST_TMPDIR"
   refute_output --partial ".agent-hub-sandbox-check"
 }

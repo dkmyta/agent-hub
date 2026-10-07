@@ -676,7 +676,7 @@ step_apply() {
       totals: $gates[0].totals}' > "$RUNNER_TEMP/state.json"
   url=""
   [ "$publish" != true ] || url=$TICKET_URL
-  jq -nr -f "$STAGE_DIR/pr-body.jq" --slurpfile out "$BUILD_OUTPUT" --slurpfile context "$BUILD_CONTEXT" \
+  jq -nr -L "$HUB_DIR/lib" -L "$STAGE_DIR" -f "$STAGE_DIR/pr-body.jq" --slurpfile out "$BUILD_OUTPUT" --slurpfile context "$BUILD_CONTEXT" \
       --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile contract "$RUNNER_TEMP/contract.json" \
       --slurpfile state "$RUNNER_TEMP/state.json" --slurpfile verify "$RUNNER_TEMP/verify.json" \
       --slurpfile deps "$RUNNER_TEMP/dependencies.json" --slurpfile access "$RUNNER_TEMP/agent-access.json" \
@@ -761,26 +761,10 @@ _ticket_report() {
   jq -n -L "$HUB_DIR/lib" --arg number "$1" --arg url "$2" --arg run "$RUN_URL" \
       --slurpfile out "$BUILD_OUTPUT" --slurpfile gates "$RUNNER_TEMP/gates.json" \
       --slurpfile contract "$RUNNER_TEMP/contract.json" --slurpfile verify "$RUNNER_TEMP/verify.json" \
-      --slurpfile deps "$RUNNER_TEMP/dependencies.json" --slurpfile access "$RUNNER_TEMP/agent-access.json" 'include "adf";
+      --slurpfile deps "$RUNNER_TEMP/dependencies.json" --slurpfile access "$RUNNER_TEMP/agent-access.json" \
+      -L "$STAGE_DIR" 'include "adf"; include "wording";
     $out[0] as $o | $o.structured_output.build as $b | $gates[0] as $g | $contract[0] as $p | $deps[0] as $d
     | def heading($t): para([strong($t)]);
-    # The run’s Claude usage, as the access it used (agent-access.json) makes
-    # it: usage on a plan counts against its limits; usage on an API key is billed.
-    def claude_cost($access; $usd):
-      ($usd // 0 | . * 100 | round / 100) as $c
-      | "Claude, via \($access.label // "unknown access"): \($c) USD"
-        + ({"api-key": ", billed to the API key", account: " API-equivalent, counted against the plan’s usage limits"}[$access.method // ""]
-           // " (API-equivalent)");
-    # What the dependency step found in one folder (dependencies.sh), as one
-    # line: the changes to the lockfile, publication times, signatures,
-    # advisories and licences — the same on the pull request (pr-body.jq).
-    def dependency_summary($before):
-      "\(.lockfile.added) package\(if .lockfile.added == 1 then "" else "s" end) added, \(.lockfile.changed) changed, \(.lockfile.removed) removed"
-      + (if $before != "" then "; every new version published on or before \($before) (checked against the registry)" else "" end)
-      + "; registry signatures verified for \(.signatures.verified) package\(if .signatures.verified == 1 then "" else "s" end) (\(.signatures.with_provenance) with provenance)"
-      + "; known advisories: \(.advisories.before) before, \(.advisories.after) after"
-      + (if (.advisories.new | length) > 0 then ", new: \(.advisories.new | map("\(.package) (\(.severity))") | join(", "))" else ", none new" end)
-      + (if (.licenses_outside | length) > 0 then "; licences outside the allowed list: \(.licenses_outside | map("\(.name)@\(.version) (\(.license // "not stated"))") | .[:5] | join(", "))" else "; every new package’s licence on the allowed list" end);
     doc([para([strong("🔨 Draft pull request opened"), text(" — "), link("#\($number)"; $url),
           text(". It’s a draft: automated review and the CI gate come in a later version, so a person reviews it — the steps are in the description, under Testing Instructions. The ticket stays in Implementation Plan Approved until then: once you’ve reviewed it, move it on yourself (the hand-off will do this later). The build’s report:")]),
         heading("What changed"), para($b.summary),

@@ -1,0 +1,62 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "body": "Scratch pull request (edited outside the block): records GitHub's edit-history format for the agent hub's tests. It will be closed and its branch deleted.\n\n<!-- agent-hub:state\n{\"schema\":1,\"generation\":2}\n-->\nA third edit, appended.\n",
+        "author": {
+          "login": "dkmyta"
+        },
+        "userContentEdits": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "Y3Vyc29yOnYyOpHO_0ULCQ=="
+          },
+          "nodes": [
+            {
+              "editedAt": "2026-10-07T01:48:22Z",
+              "createdAt": "2026-10-07T01:48:22Z",
+              "deletedAt": null,
+              "deletedBy": null,
+              "editor": {
+                "login": "dkmyta"
+              },
+              "diff": "Scratch pull request (edited outside the block): records GitHub's edit-history format for the agent hub's tests. It will be closed and its branch deleted.\n\n<!-- agent-hub:state\n{\"schema\":1,\"generation\":2}\n-->\nA third edit, appended.\n"
+            },
+            {
+              "editedAt": "2026-10-07T01:48:17Z",
+              "createdAt": "2026-10-07T01:48:17Z",
+              "deletedAt": "2026-10-07T01:50:23Z",
+              "deletedBy": {
+                "login": "dkmyta"
+              },
+              "editor": {
+                "login": "dkmyta"
+              },
+              "diff": "deleted"
+            },
+            {
+              "editedAt": "2026-10-07T01:48:12Z",
+              "createdAt": "2026-10-07T01:48:12Z",
+              "deletedAt": null,
+              "deletedBy": null,
+              "editor": {
+                "login": "dkmyta"
+              },
+              "diff": "Scratch pull request (edited outside the block): records GitHub's edit-history format for the agent hub's tests. It will be closed and its branch deleted.\n\n<!-- agent-hub:state\n{\"schema\":1,\"generation\":1}\n-->\n"
+            },
+            {
+              "editedAt": "2026-10-07T01:48:00Z",
+              "createdAt": "2026-10-07T01:48:12Z",
+              "deletedAt": null,
+              "deletedBy": null,
+              "editor": {
+                "login": "dkmyta"
+              },
+              "diff": "Scratch pull request: records GitHub's edit-history format for the agent hub's tests. It will be closed and its branch deleted.\n\n<!-- agent-hub:state\n{\"schema\":1,\"generation\":1}\n-->\n"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

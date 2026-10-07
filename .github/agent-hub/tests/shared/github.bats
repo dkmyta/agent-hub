@@ -125,6 +125,38 @@ git_remote() {
   assert_equal "${#lines[@]}" 3
 }
 
+# Against GitHub's own responses, recorded (fixtures/github-edit-history):
+# what the mock above assumes is what GitHub does.
+@test "description versions from GitHub's recorded edit history: each one whole, oldest first, ending with the current one" {
+  local history="$BATS_TEST_DIRNAME/fixtures/github-edit-history" step
+  MOCK_GH_HISTORY="$history/0-created.json" run with_github 'gh_pr_body_versions 45 | jq -c "map({editor, deleted, length: (.body | length)})"'
+  assert_output '[{"editor":"dkmyta","deleted":false,"length":182}]'
+  MOCK_GH_HISTORY="$history/3-third-edit.json" run with_github 'gh_pr_body_versions 45 | jq -c "map(.body | length)"'
+  assert_output '[182,209,209,233]'
+  # The block's edit is seen as exactly that: generation 1, then 2.
+  MOCK_GH_HISTORY="$history/3-third-edit.json" run with_github 'gh_pr_body_versions 45 | jq -r ".[].body" | grep -o "\"generation\":[0-9]"'
+  assert_output $'"generation":1\n"generation":1\n"generation":2\n"generation":2'
+  for step in 1-edit-outside 2-edit-block; do
+    MOCK_GH_HISTORY="$history/$step.json" run with_github 'gh_pr_body_versions 45 > /dev/null && echo ok'
+    assert_output ok
+  done
+}
+
+@test "description versions: a revision deleted from the history is marked, and the state can't be trusted" {
+  MOCK_GH_HISTORY="$BATS_TEST_DIRNAME/fixtures/github-edit-history/4-revision-deleted.json" \
+    run with_github 'source "$HUB_DIR/lib/state.sh"; v=$(gh_pr_body_versions 45); jq -c "map({deleted, deleted_by, body: (.body != null)})" <<< "$v"; state_trusted "$v" dkmyta || echo untrusted'
+  assert_line --index 0 '[{"deleted":false,"deleted_by":null,"body":true},{"deleted":false,"deleted_by":null,"body":true},{"deleted":true,"deleted_by":"dkmyta","body":false},{"deleted":false,"deleted_by":null,"body":true}]'
+  assert_line --index 1 "a version of the description was deleted from its edit history (by dkmyta), so edits to the state block can't be checked"
+  assert_line --index 2 untrusted
+}
+
+@test "description versions: a history that doesn't end with the current description is refused" {
+  jq '.data.repository.pullRequest.body = "something else"' "$BATS_TEST_DIRNAME/fixtures/github-edit-history/3-third-edit.json" > "$BATS_TEST_TMPDIR/history.json"
+  MOCK_GH_HISTORY="$BATS_TEST_TMPDIR/history.json" run with_github 'gh_pr_body_versions 45 || echo refused'
+  assert_line "::error::GitHub's edit history for pull request #45 doesn't end with its current description."
+  assert_line refused
+}
+
 @test "branch lifecycle: absent, orphan, open, foreign, merged, closed, deleted" {
   git_remote
   run with_github 'gh_branch_status agent-hub/PROJ-1 agent-hub'
