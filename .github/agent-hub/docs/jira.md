@@ -47,7 +47,8 @@ the same settings live in the workflow scheme and permission scheme.
 | **Implementation Plan** | The plan stage (a revision keeps it here) | Yes |
 | **Implementation Plan Approved** | A person, after reviewing the plan | No — the [Build Requested](#rule-build-requested) rule removes it and starts the build; the build adds it back when its draft pull request needs a person, or when it can't go ahead |
 | **Ready for Review** | The build, when its pull request passes every required check and is handed off (since 2.13.0) | Yes — a person reviews the code |
-| Approved → Done | *Later stages* | — |
+| Approved | A person, after approving the pull request (optional) | — |
+| **Done** | The build, when the hub's pull request it handed off is merged (since 2.15.0) | No — the build removes it |
 
 ## Transitions
 
@@ -64,6 +65,7 @@ the same settings live in the workflow scheme and permission scheme.
 | Implementation Plan → Implementation Plan Approved | People |
 | Implementation Plan Approved → Implementation Plan | Automation (the build has questions, or the plan changed after its approval); people — to revise the plan |
 | Implementation Plan Approved → Ready for Review | Automation — the build's hand-off (since 2.13.0; the status is `AGENT_HUB_READY_FOR_REVIEW_STATUS`) |
+| Ready for Review → Done, Approved → Done | Automation — the build, when the pull request it handed off is merged (since 2.15.0; `AGENT_HUB_DONE_STATUS`) |
 
 In a team-managed project, **"Allow all statuses to transition to this one"**
 on each status is the simplest way to allow these (an "Any status → <status>"

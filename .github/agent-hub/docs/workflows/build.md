@@ -920,8 +920,8 @@ description, and mirrored to the ticket (one comment per review round,
 | Work order revised after a pull request exists | Plan marked out of date (as today); build superseded |
 | `agent-hub-paused` label | The hub doesn't touch the pull request until it's removed |
 | Kill switch off | No hub workflow does anything until it's back on |
-| Pull request closed unmerged | A comment on the ticket; not Done |
-| Merged | Post-merge check, then Done: the pull request was merged (not closed) and its head is the last head the hub recorded. If CI runs on the merge commit, the run waits for it: pass → Done; fail → a comment and `needs-human`, no automatic revert. If none starts within a short window, Done, noting "no post-merge CI". A setting can require post-merge CI |
+| Pull request closed unmerged | A comment on the ticket; never Done. *Built* (2.15.0) |
+| Merged | *Built* (2.15.0, without post-merge CI — after v1): **a ticket reaches Done only from a hub pull request the hub handed off and GitHub reports merged.** Merged after the hand-off → Done (if people pushed after it, still Done, with a note: the person who merged owns those); merged without the hub's hand-off, or with a record that can't be trusted → not Done, a comment and `needs-human`. The no-agent `agent-hub-pr-closed.yml` (`pull_request_target: closed`; no checkout, no repository code) only requests the build (`wake: closed`); the build (`closed.sh`) re-reads GitHub and the ticket. The design: post-merge check, then Done: the pull request was merged (not closed) and its head is the last head the hub recorded. If CI runs on the merge commit, the run waits for it: pass → Done; fail → a comment and `needs-human`, no automatic revert. If none starts within a short window, Done, noting "no post-merge CI". A setting can require post-merge CI |
 
 ## Loops, caps and human gates
 
@@ -1216,6 +1216,7 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | `agent-hub-stage.yml` with `code-stage: true` | The shared stage workflow, as for every stage, plus the full history and the machine user's token for the fetch and apply steps only; the install and dependency steps join it as steps that only code stages run, without the token |
 | `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template), `wording.jq` (wording the pull request and the ticket's report share, and the items); later `ci-fix/` |
 | `stages/build/fix.sh`, `stages/build/fix/`, `stages/build/fix-check/` | The fix pass, the fix check and Verify fix (2.10.0); each pass's `prompt.md` and `schema.json` |
+| `stages/build/closed.sh`, `.github/workflows/agent-hub-pr-closed.yml` | A hub pull request closed (2.15.0): Done only if the hub handed it off and it was merged; otherwise a comment |
 | `stages/build/ci-fix/` | The CI-fix pass's instructions (2.14.0); its schema is the fix pass's |
 | `stages/build/handoff.sh`, `lib/ci.sh` | The CI gate and the hand-off (2.13.0): the required checks for exactly the head, the hand-off rule (`handoff_problems`), reporting to a person once per head |
 | `stages/build/sweep.sh`, `.github/workflows/agent-hub-ci-sweep.yml` | The CI sweep (2.13.0): every 10 minutes, requests the build (CI gate only) for the hub's draft pull requests whose checks have finished |

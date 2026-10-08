@@ -35,6 +35,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/reconcile.sh"
 # The CI gate and the hand-off (4d-1).
 # shellcheck source=stages/build/handoff.sh
 source "$(dirname "${BASH_SOURCE[0]}")/handoff.sh"
+# A closed pull request: Done, or a comment (step 5a).
+# shellcheck source=stages/build/closed.sh
+source "$(dirname "${BASH_SOURCE[0]}")/closed.sh"
 
 BUILD_CONTEXT="$RUNNER_TEMP/build-context.json"
 BUILD_GIT="$RUNNER_TEMP/build-git"
@@ -55,6 +58,9 @@ context() { jq -r "$1" "$BUILD_CONTEXT"; }
 
 # step_fetch: Check the approval, read the plan's contract and the branch, and post the progress comment.
 step_fetch() {
+  # A hub pull request was closed (agent-hub-pr-closed.yml): Done, or a
+  # comment — nothing is built (closed.sh).
+  if [ "${AGENT_HUB_WAKE:-}" = closed ]; then build_closed; exit 0; fi
   stage_fetch "$PLAN_APPROVED_STATUS" || exit 0
   stage_set_mode new
   # Not for real tickets yet (settings.sh): stop before anything else.

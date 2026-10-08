@@ -5,6 +5,32 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.15.0 — 2026-10-08
+
+Step 5, first part (5a): a merged pull request moves its ticket to Done.
+
+- **A ticket reaches Done only from a hub pull request the hub handed off
+  and GitHub reports merged.** Merged after the hand-off → Done, and
+  `needs-human` removed; if people pushed after the hand-off, still Done,
+  with a note (the person who merged owns those commits). Merged without
+  the hub's hand-off, or with a record that can't be trusted → not Done: a
+  comment and `needs-human`, a person moves it. Closed without merging →
+  never Done: a comment.
+- **`agent-hub-pr-closed.yml`** (new): on `pull_request_target: closed`,
+  for the hub's own pull requests, it only requests the build (`wake:
+  closed`) — no checkout, no repository code, nothing from the pull request
+  run; its branch name is only matched against a fixed pattern. The build
+  (`stages/build/closed.sh`) re-reads GitHub and the ticket and does the
+  rest. Nothing is built, no Claude.
+- New settings: `AGENT_HUB_DONE_STATUS` (`Done`) and
+  `AGENT_HUB_APPROVED_STATUS` (`Approved`, a status a person may move the
+  ticket to before merging).
+- Post-merge CI is after v1.
+
+**Updating:** allow the Jira transitions **Ready for Review → Done** and
+**Approved → Done** (or "Allow all statuses to transition to this one" on
+Done). `agent-hub-pr-closed.yml` is installed by the update.
+
 ## 2.14.0 — 2026-10-08
 
 PR 4's last part, second half (4d-2): CI fixes. A required check that fails
