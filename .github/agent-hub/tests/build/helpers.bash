@@ -43,6 +43,29 @@ fresh_repo() {
   export STEP_CWD="$dir/checkout" REMOTE="$dir/remote.git"
 }
 
+# fresh_checkout: a new clean checkout of main from the same remote (its
+# branches kept) — for a second run on a ticket whose pull request exists.
+fresh_checkout() {
+  local dir
+  dir=$(mktemp -d "$BATS_TEST_TMPDIR/checkout.XXXXXX")
+  git clone -q --filter=blob:none --no-checkout "file://$REMOTE" "$dir/checkout"
+  sparse_patterns > "$dir/patterns" || return 1
+  git -C "$dir/checkout" sparse-checkout set --no-cone --stdin < "$dir/patterns" 2> /dev/null
+  git -C "$dir/checkout" checkout -q main
+  export STEP_CWD="$dir/checkout"
+}
+
+# person_pushes <branch> <script>: a person commits to <branch> on the remote —
+# the script runs in a clone of it, as "dana".
+person_pushes() {
+  local dir
+  dir=$(mktemp -d "$BATS_TEST_TMPDIR/person.XXXXXX")
+  git clone -q "file://$REMOTE" "$dir/clone" && git -C "$dir/clone" checkout -q "$1" \
+    && (cd "$dir/clone" && bash -e -c "$2") \
+    && git -C "$dir/clone" add -A && git -C "$dir/clone" -c user.name=dana -c user.email=dana@example.com commit -qm "A person's change" \
+    && git -C "$dir/clone" push -q origin "$1"
+}
+
 # sparse_patterns: the stage workflow's sparse-checkout patterns, one per line.
 sparse_patterns() {
   awk '/sparse-checkout: \|/ { on = 1; next } on && /^ *$/ { exit } on { sub(/^ +/, ""); print }' "$WORKFLOW" | grep . \

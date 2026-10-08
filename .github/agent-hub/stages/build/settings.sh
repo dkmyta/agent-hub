@@ -52,6 +52,9 @@ AGENT_PROFILE=build
 # prefix (agent-hub/<KEY>).
 stage_setting_into BUILD_TARGET_BRANCH TARGET_BRANCH ""
 stage_setting_into BUILD_LABEL LABEL agent-hub
+# A person's way to tell the hub to leave a pull request alone: with this
+# label on it, a run changes nothing (reconcile.sh).
+stage_setting_into BUILD_PAUSED_LABEL PAUSED_LABEL agent-hub-paused
 BUILD_BRANCH_PREFIX=agent-hub/
 
 # The gates' size limits (stages/build/gates.sh).

@@ -81,6 +81,11 @@ gh_request() {
       # MOCK_GH_RACE: a person's description, saved straight after the hub's.
       [ -z "${MOCK_GH_RACE:-}" ] || mock_gh_edit "${path##*/}" dana "$MOCK_GH_RACE"
       echo '{}' ;;
+    "POST $repo/issues/"*/comments)
+      local n=${path#"$repo/issues/"}; n=${n%/comments}
+      mkdir -p "$RUNNER_TEMP/mock-github"
+      jq -nc --argjson n "$n" --argjson req "$body" '{number: $n, body: $req.body}' >> "$RUNNER_TEMP/mock-github/comments.jsonl"
+      echo '{"id": 1}' ;;
     "POST $repo/issues/"*/labels)
       local n=${path#"$repo/issues/"}; n=${n%/labels}
       jq --argjson n "$n" --argjson req "$body" \

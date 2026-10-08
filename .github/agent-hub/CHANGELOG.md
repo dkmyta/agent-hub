@@ -5,6 +5,45 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.11.0 — 2026-10-08
+
+PR 4's third part, first half (4c-1): a build whose pull request already
+exists reconciles it instead of stopping, against the contracts written in
+2.10.2.
+
+- **Reconcile, not stop:** when the hub's pull request for the ticket is
+  open, a build run works out what it needs:
+  - the `agent-hub-paused` label (`AGENT_HUB_BUILD_PAUSED_LABEL`) → nothing;
+  - a record (the state block) someone else edited, or a branch that no
+    longer builds on the hub's last push → stop for a person;
+  - built from an earlier plan than the one approved now → **superseded**:
+    a comment on the pull request and the ticket, `needs-human`, a person
+    decides (closing it builds the new plan); nothing is rebuilt;
+  - nobody pushed since the hub → nothing to do;
+  - **people pushed** → their head is verified, the whole change reviewed
+    again and fixed once where the review allows, under every candidate rule
+    the build has; a kept fix is pushed without force and rejected if anyone
+    pushed meanwhile. No build pass, so a reconcile run is admitted on the
+    review, fix and fix check ($9 by default).
+- **The pull request stays the record:** the state block gains the next
+  generation and each head's provenance (the hub, or people); the
+  description's hub-managed status section — the automated review and the
+  items — is rewritten in place between its markers, with the rest of the
+  description kept and the edit history checked afterwards; a comment on
+  the pull request says what was re-checked; the ticket gets the full
+  report. Items carry over by the contracts: a gate decision still there
+  keeps its id, the previous review's open items close, ids are never
+  reused.
+- **Verify fix compares refused files with the reviewed commit,** as it
+  does decision items: a person's commit on an existing pull request may
+  already have one; only a fix that adds one is dropped.
+- Docs: build.md (status, branch lifecycle, contracts marked built,
+  structure), setup.md, claude-usage.md.
+
+**Updating:** nothing to do. A ticket whose pull request is open no longer
+needs it closed to run a build: the run reconciles it. Syncing with a moved
+target branch (4c-2) comes next.
+
 ## 2.10.3 — 2026-10-08
 
 Tidy-ups from the first real build on 2.10.x (the playground's

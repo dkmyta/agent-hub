@@ -48,6 +48,26 @@ state_read() {
   jq -c . <<< "$block"
 }
 
+# The hub-managed status section of a pull request's description (the
+# automated review and the items: stages/build/wording.jq, status_lines),
+# between its own marker lines — rewritten whole by a reconcile run.
+STATUS_START='<!-- agent-hub:status -->'
+STATUS_END='<!-- /agent-hub:status -->'
+
+# status_render <status Markdown file> < body: the body with its status
+# section (markers included) replaced by the file's lines, or the file's
+# lines added before the state block if there's no section yet. Nothing
+# outside the section changes.
+status_render() {
+  awk -v start="$STATUS_START" -v end="$STATUS_END" -v file="$1" -v state="$STATE_START" '
+    function insert() { while ((getline line < file) > 0) print line; close(file); done = 1 }
+    $0 == start && !done { inside = 1; insert(); next }
+    inside { if ($0 == end) inside = 0; next }
+    $0 == state && !done { insert() }
+    { print }
+    END { if (!done) insert() }'
+}
+
 # state_render <state JSON> < body: the body with its block replaced by this
 # state (or the block added at the end, if there's none).
 state_render() {
@@ -115,15 +135,20 @@ gh_state_read() {
   jq -r '.[-1].body' <<< "$versions" | state_read || { echo "the state block isn't valid (state_read $?)" >&2; return 1; }
 }
 
-# gh_state_write <number> <state JSON>: write the state into the pull
-# request's description as it is now (re-checked first), then verify it.
+# gh_state_write <number> <state JSON> [status Markdown file]: write the
+# state — and the status section, if given — into the pull request's
+# description as it is now (re-checked first), then verify it.
 gh_state_write() {
   local versions reason current intended me after
   me=$(gh_login) || { echo "the machine user couldn't be identified" >&2; return 1; }
   versions=$(gh_pr_body_versions "$1") || { echo "the description's history couldn't be read" >&2; return 1; }
   reason=$(state_trusted "$versions" "$me") || { echo "$reason" >&2; return 1; }
   current=$(jq -r '.[-1].body' <<< "$versions")
-  intended=$(state_render "$2" <<< "$current")
+  if [ -n "${3:-}" ]; then
+    intended=$(status_render "$3" <<< "$current" | state_render "$2")
+  else
+    intended=$(state_render "$2" <<< "$current")
+  fi
   gh_pr_update_body "$1" <<< "$intended" || { echo "the description couldn't be updated" >&2; return 1; }
   after=$(gh_pr_body_versions "$1") || { echo "the description's history couldn't be read back" >&2; return 1; }
   if ! jq -e --arg me "$me" --arg intended "$intended" --arg current "$current" '

@@ -108,6 +108,7 @@ review model), and for the fix pass `FIX_MODEL` (`claude-sonnet-5`),
 |---|---|---|
 | `TARGET_BRANCH` | the repository's default branch | The branch pull requests go into. The build checks it out, so set it only together with the build workflow's checkout (it builds from the branch the run checked out, and stops if that isn't the target's head) |
 | `LABEL` | `agent-hub` | Marks the hub's own pull requests; one from `agent-hub/<KEY>` without it isn't touched |
+| `PAUSED_LABEL` | `agent-hub-paused` | On a hub pull request, tells the hub to leave it alone: a build run for the ticket changes nothing until it's removed |
 | `MAX_FILES`, `MAX_LINES` | `50`, `2000` | Over either, the pull request gets a decision item for a person |
 | `MAX_FILE_LINES` | `1000` | A single file changing more lines than this is a decision item |
 | `INSTALL_MINUTES` | `10` | Time limit for installing the dependencies (each install: in the checkout, and in the verify step's copy); over it, nothing is built |

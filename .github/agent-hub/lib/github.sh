@@ -115,6 +115,12 @@ gh_pr_update_body() {
   jq -Rsc '{body: .}' | HTTP_IDEMPOTENT=1 gh_api PATCH "/repos/$GITHUB_REPOSITORY/pulls/$1" > /dev/null
 }
 
+# gh_pr_comment <number> < body: comment on a pull request (a POST: not
+# repeated after a failure that may have posted it; lib/http.sh).
+gh_pr_comment() {
+  jq -Rsc '{body: .}' | gh_api POST "/repos/$GITHUB_REPOSITORY/issues/$1/comments" > /dev/null
+}
+
 # gh_label <number> <label>: add a label to a pull request (adding one it
 # already has changes nothing, so it's safe to repeat).
 gh_label() {

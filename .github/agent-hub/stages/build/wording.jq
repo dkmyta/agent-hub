@@ -53,3 +53,87 @@ def review_items($gates; $review; $fix):
     + [[$kept.new_concerns[] | select(.policy != "decision")] | to_entries[]
        | {id: "R\($rr + .key + 1)", source: "fix-check", concern: .value.n, kind: .value.kind, severity: .value.severity, area: .value.area,
           fix_eligible: false, status: "open"}];
+
+# Markdown helpers for the pull request: text from Claude or the ticket gets
+# no HTML (which could also forge a marker line), and one line where a list
+# item needs it.
+def safe: tostring | gsub("<"; "&lt;");
+def line: safe | gsub("\\s*\\n\\s*"; " ");
+def code: "`" + (tostring | gsub("`"; "'") | gsub("\\n"; " ")) + "`";
+def section($title; $lines): if ($lines | length) > 0 then "", "## \($title)", "", $lines[] else empty end;
+
+# The markers around the pull request's hub-managed status — the automated
+# review and the items — which a reconcile run rewrites (lib/state.sh,
+# status_render); everything else in the description is left as it is.
+def status_start: "<!-- agent-hub:status -->";
+def status_end: "<!-- /agent-hub:status -->";
+
+# status_lines(state; review; fix; contract; publish; what was reviewed): the
+# hub-managed status, as Markdown lines between its markers. Open items only
+# (and fixed ones); items closed by a later generation aren't listed.
+def status_lines($s; $r; $x; $p; $publish; $what):
+  "", status_start,
+  section("Automated review"; if $r.status == "incomplete" then
+      ["The automated code review didn't finish (\($r.reason)), so this build is unreviewed: a person reviews it without one (a decision item below)."]
+    else
+      [(if $publish then ($r.summary | line) + " " else "" end)
+        + "A fresh, read-only session reviewed \($what) against the plan: "
+        + (if ($r.findings | length) == 0 then "no findings."
+           else "\(plural($r.findings | length; "finding")) — \([$r.findings[] | select(.policy == "decision")] | length) for a person to decide, \([$r.findings[] | select(.policy == "fix")] | length) fix-eligible, \([$r.findings[] | select(.policy == "review")] | length) review item(s)." end)]
+      + (if $x.status == "kept" then
+          ["", "The fix-eligible findings were fixed once, in the commit after the reviewed one, and a fresh read-only session checked each fix: \([$x.checks[] | select(.verdict == "resolved")] | length) resolved, \([$x.checks[] | select(.verdict != "resolved")] | length) not (still open below)"
+             + (if ($x.new_concerns | length) > 0 then ", and \(plural($x.new_concerns | length; "new concern")) the fixes raised (below)" else "" end)
+             + ". The hub's gates and the repository's checks passed on the fix before it was kept."]
+        elif $x.status == "dropped" or $x.status == "failed" then
+          ["", "A fix pass ran, but its changes weren't kept: \($x.reason). The fix-eligible findings stay open below."]
+        else [] end)
+    end),
+
+  section("Items for a person"; [$s.items[] | select(.status != "closed") | . as $i
+    | if .source == "review" then
+        ([$r.findings[] | select(.n == $i.finding)] | first) as $f
+        | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" elif .status == "fixed" then "fixed by the fix pass (checked)" elif .fix_eligible then "review item, fix-eligible, not fixed" else "review item" end)
+          + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
+          + (if $publish then ": \($f.title | line)" + (if ($f.file // "") != "" then " (\($f.file | code)\(if $f.line then ":\($f.line)" else "" end))" else "" end)
+             else " (details on the ticket)" end)
+      elif .source == "fix-check" then
+        ([$x.new_concerns[] | select(.n == $i.concern)] | first) as $f
+        | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" else "review item" end) + ", raised by the fix check"
+          + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
+          + (if $publish then ": \($f.title | line)" + (if ($f.file // "") != "" then " (\($f.file | code)\(if $f.line then ":\($f.line)" else "" end))" else "" end)
+             else " (details on the ticket)" end)
+      elif (.id | startswith("D")) then
+        "- **\(.id)** " + (if .path != "" then "\(.path | code) — " else "" end) + "decision: \(.reason)"
+      else .path as $path
+        | "- **\(.id)** \(.path | code) — a manual change for a person"
+          + (if $publish then ": \([$p.governance.manual_changes[] | select(.path == $path)][0].change // "" | line)" else " (described on the ticket)" end)
+      end]),
+  status_end;
+
+# reconcile_items(previous items; fresh items): a reconcile run's items
+# (docs/workflows/build.md, "Decision items: ownership"). A gate decision
+# still there on the new head keeps its id and status; one that's gone is
+# closed. The new review's and fix check's items replace the previous
+# generation's open ones, which are closed. Manual changes (C) carry over.
+# Ids are never reused: new items continue each prefix's numbering.
+def reconcile_items($prev; $fresh):
+  def num: .id[1:] | tonumber;
+  def gate: (.source // "gate") == "gate" and (.id | startswith("D"));
+  ([$prev[] | select(.id | startswith("D")) | num] | max // 0) as $dmax
+  | ([$prev[] | select(.id | startswith("R")) | num] | max // 0) as $rmax
+  | [$prev[] | select(gate and .status != "closed")] as $open_gates
+  | [$fresh[] | select(gate) | . as $f
+      | ([$open_gates[] | select(.path == $f.path and .reason == $f.reason)] | first) as $m
+      | if $m then $f + {id: $m.id, status: $m.status} else $f + {new: true} end] as $gates
+  | [$fresh[] | select(gate | not)] as $others
+  | (reduce ($gates[], $others[]) as $i ({d: $dmax, r: $rmax, out: []};
+      if ($i.new // false) or ($i | gate | not) then
+        if ($i.id | startswith("D")) then .d += 1 | .out += [$i + {id: "D\(.d)"} | del(.new)]
+        else .r += 1 | .out += [$i + {id: "R\(.r)"}] end
+      else .out += [$i] end)).out as $now
+  | [$prev[] | select(.status == "closed")]
+    + [$open_gates[] | select(.id as $id | $now | any(.id == $id) | not) | .status = "closed"]
+    + [$prev[] | select((gate | not) and (.id | startswith("C") | not) and .status != "closed") | .status = "closed"]
+    + $now
+    + [$prev[] | select(.id | startswith("C"))]
+  | sort_by((.id[0:1] | {D: 0, R: 1, C: 2}[.]), num);

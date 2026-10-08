@@ -29,6 +29,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/review.sh"
 # The fix pass and fix check (after the review), and verifying the fix.
 # shellcheck source=stages/build/fix.sh
 source "$(dirname "${BASH_SOURCE[0]}")/fix.sh"
+# An existing pull request: reconciled rather than built again (4c).
+# shellcheck source=stages/build/reconcile.sh
+source "$(dirname "${BASH_SOURCE[0]}")/reconcile.sh"
 
 BUILD_CONTEXT="$RUNNER_TEMP/build-context.json"
 BUILD_GIT="$RUNNER_TEMP/build-git"
@@ -89,6 +92,11 @@ step_fetch() {
     printf '\nApproved implementation plan (the attached %s):\n\n' "$PLAN_FILE_NAME"
     cat "$RUNNER_TEMP/plan.md"
   } >> "$RUNNER_TEMP/ticket.md"
+  if reconciling; then
+    stage_progress_comment "⏳ Re-checking pull request #$(context .pr)" \
+      " — people pushed to it since the hub's last push, so it's being verified and reviewed again. Refresh the page to see the result. "
+    return
+  fi
   stage_progress_comment "⏳ Building" \
     " — implementing the approved plan; usually takes 10–30 minutes. Refresh the page to see the result. "
 }
@@ -97,6 +105,8 @@ step_fetch() {
 # (lib/stage.sh, stage_run_max_cost): the build, the code review, the fix
 # pass and the fix check, each at its configured maximum.
 stage_max_cost() {
+  # A reconcile run has no build pass.
+  if reconciling; then stage_sum_usd "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return; fi
   stage_sum_usd "$CLAUDE_MAX_BUDGET_USD" "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"
 }
 
@@ -289,8 +299,8 @@ _branch() {
   # again or re-run", which would stop here again — what a person does first.
   case "$status" in
     absent) ;;
-    "open "*) stage_retry "close pull request #${status#open } and delete $branch, then approve the plan again (updating an open one comes in a later version)."
-      stage_fail "$TICKET_KEY already has the hub's pull request #${status#open }, so nothing was built." ;;
+    # The hub's own open pull request: reconciled (reconcile.sh), below.
+    "open "*) ;;
     "foreign "*) stage_retry "a person decides: close pull request #${status#foreign } and delete $branch, then approve the plan again."
       stage_fail "Pull request #${status#foreign } from $branch wasn't opened by the hub (it has no $BUILD_LABEL label), so nothing was built." ;;
     orphan) stage_retry "a person decides: delete $branch, then approve the plan again."
@@ -319,6 +329,7 @@ _branch() {
   jq --arg target "$target" --arg base "$base" --arg branch "$branch" \
     --argjson publish "$publish" '. + {target: $target, base: $base, branch: $branch, publish: $publish}' \
     "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
+  case "$status" in "open "*) _reconcile_start "${status#open }" ;; esac
 }
 
 # _committer: the account the token belongs to (the machine user), for the
@@ -345,6 +356,7 @@ _approved_after_close() {
 
 # step_agent: The agent: validate the plan against the code, then build it.
 step_agent() {
+  if reconciling; then reconcile_agent; return; fi
   agent_run "Build the approved implementation plan for this ticket." build
   agent_check build needs-clarification questions no-change-needed reason blocked reason
 
@@ -363,8 +375,8 @@ step_agent() {
 step_install() {
   local rc folder where log="$RUNNER_TEMP/install.log" allowed unexpected
   # The plan's dependency changes first (dependencies.sh), so the install
-  # below installs them too.
-  build_dependency_step
+  # below installs them too — not when reconciling: the pull request has them.
+  if reconciling; then echo '{}' > "$RUNNER_TEMP/dependencies.json"; else build_dependency_step; fi
   while IFS= read -r folder; do
     [ "$folder" = . ] && where="" || where=" in $folder"
     rc=0
@@ -381,6 +393,9 @@ step_install() {
   # The install changes nothing tracked and leaves nothing untracked — apart
   # from the manifests and lockfiles of the plan's dependency changes: the
   # agent starts from the repository exactly as it is, plus those.
+  # (Through the hub's own copy of the git metadata — whose HEAD, when
+  # reconciling, is the pull request's head the fetch step checked out.)
+  build_git
   allowed=$(jq -r '.governance.dependency_changes // [] | [.[].folder] | unique[]
     | if . == "." then "package.json", "package-lock.json" else "\(.)/package.json", "\(.)/package-lock.json" end' "$RUNNER_TEMP/contract.json")
   unexpected=$(git status --porcelain | while IFS= read -r line; do
@@ -388,7 +403,7 @@ step_install() {
     echo "$line"; done)
   [ -z "$unexpected" ] \
     || stage_fail "Installing the dependencies changed files in the repository (a lockfile rewritten, or installed files not ignored — e.g. node_modules/ missing from .gitignore), so nothing was built."
-  build_dependency_checks
+  reconciling || build_dependency_checks
 
   # A rehearsal of the verify step on the base commit, before Claude runs (and
   # is paid for): the copy, its install, the list of checks and the sandbox
@@ -495,6 +510,7 @@ _install_dependencies() {
 # step_verify: Commit the agent's changes and run the repository's checks on exactly that commit, in the sandbox.
 step_verify() {
   local base publish message results
+  if reconciling; then reconcile_verify; return; fi
   build_git
   base=$(context .base) publish=$(context .publish)
   # A hard link would pull in a file from elsewhere on the runner that the
@@ -645,6 +661,7 @@ stage_failure_details() {
 # step_apply: Check and push the verified build, and open its draft pull request.
 step_apply() {
   local base branch target publish refused findings rc=0 number title url reviewed
+  if reconciling; then reconcile_apply; return; fi
   stage_require_status "$PLAN_APPROVED_STATUS"
   build_git
   _require_same_plan

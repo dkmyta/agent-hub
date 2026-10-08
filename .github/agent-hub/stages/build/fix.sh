@@ -151,7 +151,10 @@ _commit_fix() {
   # limits…) — an automatic fix never puts a person's decision into a
   # pushable commit. Counts only: the paths are the agent's.
   build_gates "$base" "$RUNNER_TEMP/contract.json" > "$RUNNER_TEMP/fix-gates.json" 2> /dev/null || { echo "its changes couldn't be checked"; return 1; }
-  refused=$(jq '.refused | length' "$RUNNER_TEMP/fix-gates.json")
+  # (Compared with the reviewed commit: a person's commit on an existing pull
+  # request may already have one.)
+  refused=$(jq -n --slurpfile before "$RUNNER_TEMP/fix-gates-before.json" --slurpfile after "$RUNNER_TEMP/fix-gates.json" \
+    '[$after[0].refused[] | .path] - [$before[0].refused[] | .path] | length')
   [ "$refused" = 0 ] || { echo "it changed $refused file(s) the hub never pushes"; return 1; }
   added=$(jq -n --slurpfile before "$RUNNER_TEMP/fix-gates-before.json" --slurpfile after "$RUNNER_TEMP/fix-gates.json" \
     '[$after[0].decisions[] | {path, reason}] - [$before[0].decisions[] | {path, reason}] | length')
