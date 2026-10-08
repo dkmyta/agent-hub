@@ -33,6 +33,14 @@ BUILD_SENSITIVE_SCHEMA='(^|/)(migrations?|migrate)/|\.sql$|(^|/)schema\.(prisma|
 BUILD_SENSITIVE_INFRASTRUCTURE='(^|/)(Dockerfile[^/]*|docker-compose[^/]*\.ya?ml|[^/]*\.tf|[^/]*\.tfvars)$|(^|/)(terraform|k8s|kubernetes|helm|deploy)/'
 BUILD_SENSITIVE_WORKFLOW='(^|/)(\.gitlab-ci\.yml|Jenkinsfile|azure-pipelines\.ya?ml|bitbucket-pipelines\.yml)$|(^|/)\.circleci/'
 BUILD_SENSITIVE_CONFIGURATION='(^|/)\.env[^/]*$|(^|/)config/'
+# Drift-sensitive paths (reconcile.sh; docs/workflows/build.md, "Sync with
+# the target branch"): a change to one on the target branch can change what
+# the pull request's code means even when none of its files changed — the
+# sensitive kinds above, compiler and build configuration, shared types, and
+# the hub-managed paths (with the repository's hub extensions).
+BUILD_DRIFT_SENSITIVE="$BUILD_SENSITIVE_DEPENDENCIES|$BUILD_SENSITIVE_SCHEMA|$BUILD_SENSITIVE_INFRASTRUCTURE|$BUILD_SENSITIVE_WORKFLOW|$BUILD_SENSITIVE_CONFIGURATION"
+BUILD_DRIFT_SENSITIVE+='|(^|/)(tsconfig[^/]*\.json|jsconfig\.json|[^/]*\.config\.(js|cjs|mjs|ts|cts|mts|json)|\.babelrc[^/]*|\.swcrc|\.eslintrc[^/]*|\.npmrc|\.yarnrc[^/]*|\.nvmrc|\.node-version|\.tool-versions|Makefile|CODEOWNERS)$'
+BUILD_DRIFT_SENSITIVE+='|\.d\.ts$|(^|/)(types|typings|@types)/|^\.github/|^\.claude/'
 BUILD_GENERATED='(^|/)(dist|build|vendor|node_modules|third_party)/|\.min\.(js|css)$'
 BUILD_INCIDENTAL='(^|/)(tests?|spec|__tests__)/|\.(test|spec)\.[^/]+$|_test\.[^/]+$|(^|/)docs/[^/]+\.md$|(^|/)README[^/]*$|(^|/)CHANGELOG[^/]*$'
 BUILD_MAX_FILES=${BUILD_MAX_FILES:-50}

@@ -85,6 +85,9 @@ step_fetch() {
   fi
   _branch
   _committer
+  # An existing pull request whose target moved: merged in, before anything
+  # else reads the code (reconcile.sh).
+  reconciling && _reconcile_sync
   # The agent gets the work order and the approved plan — not the comments,
   # which nobody approved.
   stage_ticket_markdown
@@ -93,8 +96,7 @@ step_fetch() {
     cat "$RUNNER_TEMP/plan.md"
   } >> "$RUNNER_TEMP/ticket.md"
   if reconciling; then
-    stage_progress_comment "⏳ Re-checking pull request #$(context .pr)" \
-      " — people pushed to it since the hub's last push, so it's being verified and reviewed again. Refresh the page to see the result. "
+    stage_progress_comment "⏳ Re-checking pull request #$(context .pr)" " — $(reconcile_why), so it's being verified$(reconcile_reviews && echo " and reviewed") again. Refresh the page to see the result. "
     return
   fi
   stage_progress_comment "⏳ Building" \
@@ -105,8 +107,12 @@ step_fetch() {
 # (lib/stage.sh, stage_run_max_cost): the build, the code review, the fix
 # pass and the fix check, each at its configured maximum.
 stage_max_cost() {
-  # A reconcile run has no build pass.
-  if reconciling; then stage_sum_usd "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return; fi
+  # A reconcile run has no build pass, and one that only merged a mechanical
+  # drift has no review either: no Claude at all.
+  if reconciling; then
+    reconcile_reviews || { echo 0; return; }
+    stage_sum_usd "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return
+  fi
   stage_sum_usd "$CLAUDE_MAX_BUDGET_USD" "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"
 }
 

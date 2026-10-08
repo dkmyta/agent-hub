@@ -43,6 +43,14 @@ step_review() {
   base=$(context .base)
   [ "$head" = "$(jq -r '.head' "$RUNNER_TEMP/verify.json" 2> /dev/null)" ] \
     || { _review_incomplete "the commit isn't the one the checks passed on" "$head"; return 0; }
+  # Reconciling a merge of mechanical drift only: the earlier review still
+  # applies (reconcile.sh), and no Claude runs.
+  if reconciling && ! reconcile_reviews; then
+    jq -n --arg head "$head" --slurpfile prev "$RECONCILE_STATE" \
+      '{status: "carried", head: $head, reviewed: $prev[0].review.head, cost: 0, duration_ms: 0, findings: []}' > "$CODE_REVIEW"
+    echo "**Code review:** carried over — the merge brought only mechanical drift, so the review of $(jq -r '.review.head[0:7]' "$RECONCILE_STATE") still applies." >> "$GITHUB_STEP_SUMMARY"
+    return 0
+  fi
   (build_git && git diff --no-color --no-ext-diff "$base" "$head") > "$diff" \
     || { _review_incomplete "the build's changes couldn't be listed" "$head"; return 0; }
   if [ "$(wc -c < "$diff" | tr -d ' ')" -gt "$REVIEW_DIFF_MAX_BYTES" ]; then

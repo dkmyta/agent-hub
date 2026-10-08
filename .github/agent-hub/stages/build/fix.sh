@@ -48,10 +48,11 @@ _fix_diff() {
 
 step_fix() {
   local head findings input output="$RUNNER_TEMP/fix-output.json" check="$RUNNER_TEMP/fix-check-output.json" diff
-  if [ "$(jq -r '.status' "$CODE_REVIEW" 2> /dev/null)" != reviewed ]; then
-    _fix_record none "the review didn't finish"
-    return 0
-  fi
+  case "$(jq -r '.status' "$CODE_REVIEW" 2> /dev/null)" in
+    reviewed) ;;
+    carried) _fix_record none "the earlier review was carried over"; return 0 ;;
+    *) _fix_record none "the review didn't finish"; return 0 ;;
+  esac
   findings=$(jq -c '[.findings[] | select(.policy == "fix")]' "$CODE_REVIEW")
   if [ "$findings" = "[]" ]; then
     _fix_record none "no fix-eligible findings"

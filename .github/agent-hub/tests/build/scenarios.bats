@@ -1308,7 +1308,7 @@ pr_state() { pr_body | awk '/^<!-- agent-hub:state$/ { getline; print }'; }
   # Nothing pushed: no fix was needed.
   assert_equal "$(git --git-dir="$REMOTE" rev-parse refs/heads/agent-hub/PROJ-99)" "$head"
   run jq -r '.body' "$RUNNER_TEMP/mock-github/comments.jsonl"
-  assert_output --partial "🔁 Re-checked by the agent hub: 1 commit pushed since its last push"
+  assert_output --partial "🔁 Re-checked by the agent hub: 1 commit pushed since the hub's last push, at "
   run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
   assert_output --partial "⏳ Re-checking pull request #101"
   assert_output --partial "🔁 Pull request re-checked"
@@ -1426,4 +1426,76 @@ SH
   run trace
   assert_line "Agent: skipped"
   assert_line "--- Outcome: blocked"
+}
+
+# 4c-2: the target branch moved since the pull request last met it.
+# main_moves <script>: main gets a commit (the script runs in the checkout),
+# pushed — the next run's checkout is its new head.
+main_moves() { (cd "$STEP_CWD" && bash -e -c "$1") && change_main "Meanwhile on main"; }
+branch_head() { git --git-dir="$REMOTE" rev-parse refs/heads/agent-hub/PROJ-99; }
+
+@test "sync: main moved without touching the pull request — merged and verified, the review kept, no Claude and nothing counted" {
+  built_pr
+  local before review
+  before=$(branch_head) review=$(jq -r '.review.head' <<< "$(pr_state)")
+  main_moves 'mkdir -p docs && printf "# Notes\n" > docs/notes.md'
+  reconcile_run
+  run trace
+  assert_line "Verify: success"
+  assert_line "Review: success"
+  assert_line "Apply: success"
+  assert_line "--- Outcome: revised"
+  [ ! -e "$RUNNER_TEMP/claude-pass-prompt.txt" ] || fail "the review ran"
+  [ ! -e "$RUNNER_TEMP/mock-ledger.json" ] || fail "the run was counted against the caps"
+  # A merge commit on top of the hub's push, with main's head: no rewrite.
+  assert_equal "$(git --git-dir="$REMOTE" rev-parse "$(branch_head)^1")" "$before"
+  assert_equal "$(git --git-dir="$REMOTE" rev-parse "$(branch_head)^2")" "$(git --git-dir="$REMOTE" rev-parse main)"
+  run jq -c --arg review "$review" '{generation, review: (.review.head == $review), last: (.heads[-1] | {by, drift: .sync.drift, target: .sync.target})}' <<< "$(pr_state)"
+  assert_output '{"generation":2,"review":true,"last":{"by":"hub","drift":"mechanical","target":"main"}}'
+  run jq -r '.body' "$RUNNER_TEMP/mock-github/comments.jsonl"
+  assert_output --partial "main moved by 1 commit and the hub merged it in"
+  assert_output --partial "the earlier review still applies, so Claude wasn't used."
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
+  assert_output --partial "⏳ Re-checking pull request #101 — main moved by 1 commit"
+  assert_output --partial "so it's being verified again."
+  assert_output --partial "🔁 Pull request synced"
+}
+
+@test "sync: a drift-sensitive change on main, with a person's commit — merged, verified and reviewed again; the heads say who made each" {
+  built_pr
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  main_moves 'printf "{}\n" > tsconfig.json'
+  reconcile_run
+  run trace
+  assert_line "Review: success"
+  assert_line "--- Outcome: revised"
+  # The review saw the pull request's own changes against main as it is now.
+  run cat "$RUNNER_TEMP/claude-pass-prompt.txt"
+  assert_output --partial "+// Dana."
+  refute_output --partial "tsconfig.json"
+  run jq -c '[.heads[] | [.by // "hub", .sync.drift // null]]' <<< "$(pr_state)"
+  assert_output '[["hub",null],["people",null],["hub","semantic"]]'
+  assert_equal "$(jq -r '.review.head' <<< "$(pr_state)")" "$(branch_head)"
+  run pr_body
+  assert_output --partial "reviewed the pull request's current head (after people's commits and merging main) against the plan"
+  run jq -r '.body' "$RUNNER_TEMP/mock-github/comments.jsonl"
+  assert_output --partial "its changes touch 1 drift-sensitive file"
+}
+
+@test "sync: merging main conflicts — nothing changed, the files listed for a person, no Claude" {
+  built_pr
+  local before
+  before=$(branch_head)
+  main_moves 'printf "export function greet() {\n  return \"Hi!\";\n}\n" > src/greet.js'
+  reconcile_run
+  run trace
+  assert_line "Agent: skipped"
+  assert_line "--- Outcome: blocked"
+  assert_line --partial "⚠️ Merge conflict"
+  assert_line --partial '{"update":{"labels":[{"add":"needs-human"}]}}'
+  assert_equal "$(branch_head)" "$before"
+  assert_equal "$(jq -c '.generation' <<< "$(pr_state)")" 1
+  run jq -r '.body' "$RUNNER_TEMP/mock-github/comments.jsonl"
+  assert_output --partial "merging it in conflicts in 1 file"
+  assert_output --partial '- `src/greet.js`'
 }

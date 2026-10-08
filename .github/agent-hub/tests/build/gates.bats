@@ -180,3 +180,15 @@ b.gen.js")" "decision: a generated, vendored or minified file"
   assert_equal "$(class_of "src/set
 x.js")" "decision: outside the plan's scope"
 }
+
+@test "drift-sensitive paths (a sync with the target): configuration, manifests, shared types and hub paths — not ordinary code or docs" {
+  run bash -c "source '$HUB_DIR/stages/build/gates.sh'; printf '%s\n' \
+    package.json web/pnpm-lock.yaml tsconfig.base.json vite.config.ts .eslintrc.cjs .nvmrc Makefile src/types/user.ts \
+    lib/api.d.ts db/migrations/002.sql Dockerfile .github/workflows/ci.yml .github/agent-hub-extensions/build/checks.json \
+    config/app.json .env.example \
+    src/app.js docs/usage.md README.md test/app.test.js src/configure.js src/typesafe.js | grep -E \"\$BUILD_DRIFT_SENSITIVE\""
+  assert_success
+  assert_output "$(printf '%s\n' package.json web/pnpm-lock.yaml tsconfig.base.json vite.config.ts .eslintrc.cjs .nvmrc Makefile \
+    src/types/user.ts lib/api.d.ts db/migrations/002.sql Dockerfile .github/workflows/ci.yml .github/agent-hub-extensions/build/checks.json \
+    config/app.json .env.example)"
+}
