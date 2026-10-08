@@ -1,7 +1,8 @@
 // Reads a workflow file so tests run its real step scripts.
 //
 //   node workflow.mjs extract <workflow> <dir>   write <dir>/env.sh and <dir>/<step-id>.sh
-//   node workflow.mjs shape <workflow>           step names, ids, conditions and env keys
+//   node workflow.mjs shape <workflow>           step names, ids, conditions, env keys, continue-on-error, time limits
+//   node workflow.mjs continue-on-error <workflow>  ids of the steps that may fail without failing the job
 //   node workflow.mjs timeouts <workflow> [caller] job and step timeout-minutes as JSON, with
 //                                                `${{ inputs.X }}` resolved from the caller's `with`
 //   node workflow.mjs checkout <workflow>        the actions/checkout step's `with` as JSON
@@ -39,7 +40,14 @@ if (command === "extract") {
     // Action versions are left out: Dependabot updates them, and the shape is
     // about the steps and their conditions.
     const name = step.name ?? step.uses.replace(/@.*$/, "");
-    console.log(`${name} | id: ${step.id ?? "-"} | if: ${step.if ?? "-"} | env: ${env}`);
+    // continue-on-error and the time limit too: a step that may fail without
+    // failing the job is a decision the harness has to mirror.
+    console.log(`${name} | id: ${step.id ?? "-"} | if: ${step.if ?? "-"} | env: ${env}`
+      + ` | continue-on-error: ${step["continue-on-error"] ?? false} | timeout: ${step["timeout-minutes"] ?? "-"}`);
+  }
+} else if (command === "continue-on-error") {
+  for (const step of steps.filter((s) => s["continue-on-error"] !== undefined && s["continue-on-error"] !== false)) {
+    console.log(`${step.id ?? step.name}: ${step["continue-on-error"]}`);
   }
 } else if (command === "checkout" || command === "excludes") {
   const checkout = steps.find((s) => s.uses?.startsWith("actions/checkout@"));

@@ -49,7 +49,7 @@ use_run_env() {
   # and the repository extensions (none unless a test adds them).
   if [ "${RUN_EVALS:-}" != 1 ]; then
     export CLAUDE_TEMP_ROOT=$1/claude-temp CLAUDE_PROJECTS_ROOT=$1/claude-projects
-    export EXTENSIONS_DIR=$1/extensions
+    export EXTENSIONS_DIR=${TEST_EXTENSIONS_DIR:-$1/extensions}
   fi
   export JIRA_DOMAIN=example.atlassian.net JIRA_EMAIL=bot@example.com JIRA_API_TOKEN=test-token
   export GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=example/repo GITHUB_RUN_ID=1000
@@ -154,7 +154,8 @@ extract_stage() {
 # conditions, printing each step's result. shared/stage-workflow-shape.txt
 # snapshots those conditions, so a change to them fails a test until this is
 # updated to match. CANCEL_AFTER=<step id> simulates the run being cancelled
-# after that step.
+# after that step; FAIL_STEP=<step id> that step failing without running (as
+# when its time limit ends it before it starts writing anything).
 run_stage() {
   local failed=0 cancelled=0 proceed status
   step() {
@@ -197,11 +198,11 @@ run_stage() {
   # The review continues on error: its failure never fails the run.
   if [ "$code_stage" = true ]; then
     if succeeding && [ "$status" = ready ]; then
-      if run_step "$STEPS" review; then
+      if [ "${FAIL_STEP:-}" != review ] && run_step "$STEPS" review; then
         echo "Review: success"
-        if run_step "$STEPS" fix; then
+        if [ "${FAIL_STEP:-}" != fix ] && run_step "$STEPS" fix; then
           echo "Fix: success"
-          if run_step "$STEPS" verify-fix; then echo "Verify fix: success"; else echo "Verify fix: failure (continued)"; fi
+          if [ "${FAIL_STEP:-}" != verify-fix ] && run_step "$STEPS" verify-fix; then echo "Verify fix: success"; else echo "Verify fix: failure (continued)"; fi
         else echo "Fix: failure (continued)"; skip_step "Verify fix"; fi
       else echo "Review: failure (continued)"; skip_step "Fix"; skip_step "Verify fix"; fi
     else skip_step "Review"; skip_step "Fix"; skip_step "Verify fix"; fi
@@ -248,7 +249,7 @@ run_scenario() {
   local full="" dir="$SUITE_DIR/scenarios/$1" var overrides=() arg
   shift
   for arg in "$@"; do case "$arg" in --full) full=--full ;; *) overrides+=("$arg") ;; esac; done
-  export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" MOCK_FAIL_FROM="" CLAUDE_FIXTURE=none CANCEL_AFTER="" MOCK_LEDGER="" MOCK_LABELS=""
+  export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" MOCK_FAIL_FROM="" CLAUDE_FIXTURE=none CANCEL_AFTER="" FAIL_STEP="" MOCK_LEDGER="" MOCK_LABELS=""
   export CLAUDE_PASS_FIXTURE="" CLAUDE_PASS_EXIT=0 CLAUDE_FIX_FIXTURE="" CLAUDE_FIX_EDITS="" CLAUDE_FIX_CHECK_FIXTURE=""
   export CLAUDE_REVIEW_FIXTURE=approve CLAUDE_REVIEW_EXIT=0 CLAUDE_FIXTURE_EDIT="" CLAUDE_REVIEW_FIXTURE_EDIT="" CLAUDE_EDITS=""
   export TICKET_FIXTURE=tickets/ready.json TICKET_LATER_FIXTURE="" CHANGELOG_FIXTURE="" CHANGELOG_PAGE2_FIXTURE="" COMMENTS_FIXTURE="" COMMENTS_LATER_FIXTURE=""
@@ -303,6 +304,9 @@ run_scenario() {
         else "" end)' "$GH_CALLS"
     } >> "$RUNNER_TEMP/trace.txt"
   fi
+  # How the run ended — the shared outcome name (stage_outcome) — so every
+  # scenario's snapshot checks it.
+  echo "--- Outcome: $(sed -n 's/^\*\*Outcome:\*\* //p' "$RUNNER_TEMP/summary.md" 2> /dev/null | tail -1)" >> "$RUNNER_TEMP/trace.txt"
   [ "${#overrides[@]}" -gt 0 ] || assert_snapshot "$dir/expected/trace.txt" "$RUNNER_TEMP/trace.txt"
 
   if [ "$full" = --full ]; then

@@ -375,6 +375,33 @@ SH
   assert_output --partial "src/linked.js"
   run grep -c "linked.js" "$RUNNER_TEMP/log.txt"
   assert_output 0
+  # A name that looks like an option is still a file name: refused the same.
+  fresh_repo
+  cat > "$BATS_TEST_TMPDIR/link.sh" <<SH
+bash -e "$FIXTURES/edits/greet.sh"
+echo canary-outside-4417 > "\$RUNNER_TEMP/outside.txt"
+ln "\$RUNNER_TEMP/outside.txt" ./-quit
+SH
+  run_scenario ready CLAUDE_EDITS="$BATS_TEST_TMPDIR/link.sh"
+  run trace
+  assert_line "Verify: failure"
+  assert_equal "$(remote_branches)" "main"
+  run failure_notice
+  assert_output --partial "Files: -quit."
+}
+
+# Verify and Verify fix share one hard-link check (build_hard_linked_files),
+# which gives paths to stat only after `--`: nothing hands a file name to
+# find, or to anything else that reads options.
+@test "one hard-link check, safe for any file name: no file names given to find" {
+  run grep -rn -- '-links' "$HUB_DIR/stages" "$HUB_DIR/lib"
+  assert_output ""
+  run grep -rn 'stat -c %h' "$HUB_DIR/stages" "$HUB_DIR/lib"
+  assert_equal "${#lines[@]}" 1
+  assert_output --partial "stages/build/stage.sh"
+  run grep -rn 'build_hard_linked_files' "$HUB_DIR/stages/build/stage.sh" "$HUB_DIR/stages/build/fix.sh"
+  assert_line --partial "stages/build/fix.sh"
+  assert_line --partial "stages/build/stage.sh"
 }
 
 @test "a size limit that isn't a whole number stops the build before Claude, GitHub or the plan" {
@@ -913,11 +940,11 @@ stops() {
   refute_output --partial "with two problems"
 }
 
-@test "review: one that can't finish — no result, its budget cap, a step that fails, a file outside the repository — still pushes the draft, with a decision item" {
+@test "review: one that can't finish — no result, a step that fails or times out, a file outside the repository — still pushes the draft, with a decision item" {
   local variant reason vars=$VARS
   # shellcheck disable=SC1112 # curly apostrophes intended
   for variant in "CLAUDE_PASS_FIXTURE=none|Claude returned no usable result" \
-      'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_REVIEW_MAX_BUDGET_USD": "0"}|it didn’t run to the end (an error, or its time limit)'; do
+      'FAIL_STEP=review|it didn’t run to the end (an error, or its time limit)'; do
     reason=${variant#*|}
     fresh_repo
     run_scenario ready CLAUDE_EDITS=edits/greet.sh "${variant%%|*}"
@@ -1020,9 +1047,7 @@ pushed_head_subject() { local remote; remote=$(git -C "$STEP_CWD" remote get-url
   run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
   assert_output '{"status":"failed","reason":"the fix pass changed nothing"}'
   fresh_repo
-  local vars=$VARS
-  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_FIX_MAX_BUDGET_USD": "0"}'
-  export VARS=$vars
+  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh FAIL_STEP=fix
   run cat "$RUNNER_TEMP/trace.txt"
   assert_line "Fix: failure (continued)"
   assert_line "Verify fix: skipped"
@@ -1073,4 +1098,170 @@ pushed_head_subject() { local remote; remote=$(git -C "$STEP_CWD" remote get-url
   run pushed_head_subject
   refute_output "Fix the automated review's findings"
   assert_output --partial "greet"
+}
+
+# F2: an automatic fix never puts a person's decision into a pushable
+# commit. Kept only if it adds nothing for a person compared with the
+# reviewed commit; otherwise the whole candidate is discarded — fully.
+# assert_fully_discarded <reason>: the fix dropped for <reason>, and nothing
+# of it reached the push, the gates, the items or the scratch files.
+assert_fully_discarded() {
+  run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
+  assert_output "$(jq -nc --arg r "$1" '{status: "dropped", reason: $r}')"
+  local remote reviewed
+  remote=$(git -C "$STEP_CWD" remote get-url origin)
+  reviewed=$(jq -r '.before' "$RUNNER_TEMP/fix.json")
+  # The pushed tree is exactly the reviewed commit's.
+  assert_equal "$(git --git-dir="${remote#file://}" rev-parse "refs/heads/agent-hub/PROJ-99^{tree}")" \
+    "$(git --git-dir="${remote#file://}" rev-parse "$reviewed^{tree}")"
+  # The gates and the items come from the reviewed commit alone.
+  run jq -r '.files[].path' "$RUNNER_TEMP/gates.json"
+  refute_output --partial "README.md"
+  refute_output --partial "src/extra.js"
+  run jq -c '[.items[] | select(.source == "fix-check")]' "$RUNNER_TEMP/state.json"
+  assert_output "[]"
+  run jq -r '[.items[] | select(.fix_eligible) | .status] | unique | join(",")' "$RUNNER_TEMP/state.json"
+  assert_output open
+  # And the candidate's scratch files are gone.
+  local file
+  for file in fix-gates.json fix-gates-before.json check-commit.json verify checks; do
+    [ ! -e "$RUNNER_TEMP/$file" ] || fail "$file left behind"
+  done
+}
+
+@test "fix matrix: a clean fix is kept" {
+  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh
+  assert_equal "$(jq -r '.status' "$RUNNER_TEMP/fix.json")" kept
+}
+
+@test "fix matrix: a new out-of-scope file, or a must-not-touch area changed alongside a good fix — the whole candidate discarded" {
+  fix_run CLAUDE_FIX_EDITS=edits/fix-extra-file.sh
+  assert_fully_discarded "it would add 1 decision item(s) for a person"
+  fresh_repo
+  fix_run CLAUDE_FIX_EDITS=edits/fix-readme.sh
+  assert_fully_discarded "it would add 1 decision item(s) for a person"
+}
+
+@test "fix matrix: an out-of-scope file the reviewed commit already had doesn't stop a clean fix" {
+  fix_run CLAUDE_EDITS=edits/greet-out-of-scope.sh CLAUDE_FIX_EDITS=edits/fix-trim.sh
+  assert_equal "$(jq -r '.status' "$RUNNER_TEMP/fix.json")" kept
+  run jq -r '[.items[] | select(.path == "src/extra.js") | .id] | length' "$RUNNER_TEMP/state.json"
+  assert_output 1
+}
+
+@test "fix matrix: a refused path, a dependency file, the size limits, a hard link named like an option — discarded" {
+  fix_run CLAUDE_FIX_EDITS=edits/fix-workflow.sh
+  assert_fully_discarded "it changed 1 file(s) the hub never pushes"
+  fresh_repo
+  fix_run CLAUDE_FIX_EDITS=edits/fix-package.sh
+  assert_fully_discarded "it would add 1 decision item(s) for a person"
+  fresh_repo
+  local vars=$VARS
+  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MAX_LINES": "10"}'
+  export VARS=$vars
+  assert_fully_discarded "it would add 1 decision item(s) for a person"
+  fresh_repo
+  fix_run CLAUDE_FIX_EDITS=edits/fix-hard-link.sh
+  assert_fully_discarded "it left a hard-linked file"
+  local remote
+  remote=$(git -C "$STEP_CWD" remote get-url origin)
+  run git --git-dir="${remote#file://}" ls-tree -r --name-only refs/heads/agent-hub/PROJ-99
+  refute_line -- "-quit"
+}
+
+# The build's run maximum is every pass it may run, each at its configured
+# maximum: build $10 + review $5 + fix $3 + fix check $1 = $19.
+@test "caps: a build is admitted only with room for all its passes (19 dollars by default)" {
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh 'MOCK_LEDGER={"runs":1,"cost_usd":41}'
+  run trace
+  assert_line "Agent: success"
+  fresh_repo
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh 'MOCK_LEDGER={"runs":1,"cost_usd":41.01}'
+  run trace
+  assert_line "Agent: skipped"
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
+  assert_output --partial "A run of this stage can cost up to \$19, so it stopped before using Claude."
+}
+
+# The agent passes (docs/architecture.md, "Agent passes") are one table the
+# docs link to; this keeps it true. For each build pass: its prompt holds
+# exactly the extensions the table lists — present and absent — under the
+# maintainers' framing; and every setting the table names exists.
+pass_row() { # <pass name>: that row's cells, one per line
+  awk -F'|' -v name="$1" '$2 == " " name " " { for (i = 2; i < NF; i++) { gsub(/^ +| +$/, "", $i); print $i } }' "$HUB_DIR/docs/architecture.md"
+}
+
+@test "agent passes: each build pass gets exactly the extensions the architecture table lists, and every setting it names exists" {
+  export TEST_EXTENSIONS_DIR="$BATS_TEST_TMPDIR/extensions"
+  mkdir -p "$TEST_EXTENSIONS_DIR/build"
+  echo "GUIDANCE-MARKER-7" > "$TEST_EXTENSIONS_DIR/build/guidance.md"
+  echo "REVIEW-MARKER-9" > "$TEST_EXTENSIONS_DIR/build/review.md"
+  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh
+  unset TEST_EXTENSIONS_DIR
+  # With extensions present, the review and the fix still return their
+  # result (the extensions' log lines go to the log, not into it).
+  assert_equal "$(jq -r '.status' "$RUNNER_TEMP/code-review.json")" reviewed
+  assert_equal "$(jq -r '.status' "$RUNNER_TEMP/fix.json")" kept
+  local pass file extensions
+  for pass in "Build:draft-prompt.md" "Code review:review-pass-prompt.md" "Fix:fix-pass-prompt.md" "Fix check:fix-check-pass-prompt.md"; do
+    file="$RUNNER_TEMP/${pass#*:}"
+    extensions=$(pass_row "${pass%%:*}" | sed -n 7p)
+    [ -n "$extensions" ] || fail "no row for ${pass%%:*} in the architecture table"
+    if [[ "$extensions" == *guidance.md* ]]; then grep -q GUIDANCE-MARKER-7 "$file" || fail "${pass%%:*}: guidance.md missing"
+    else ! grep -q GUIDANCE-MARKER-7 "$file" || fail "${pass%%:*}: guidance.md not in the table, but given"; fi
+    if [[ "$extensions" == *review.md* ]]; then grep -q REVIEW-MARKER-9 "$file" || fail "${pass%%:*}: review.md missing"
+    else ! grep -q REVIEW-MARKER-9 "$file" || fail "${pass%%:*}: review.md not in the table, but given"; fi
+    grep -q "Follow it wherever it doesn't conflict with the instructions above" "$file" || fail "${pass%%:*}: the maintainers' framing is missing"
+  done
+  # Every setting named in the table exists in the settings files.
+  local var short
+  for var in $(awk -F'|' '/^\| (Draft|Expert review|Build|Code review|Fix|Fix check) \|/ { print $5, $6 }' "$HUB_DIR/docs/architecture.md" | grep -o 'AGENT_HUB_[A-Z_<>]*' | sort -u); do
+    case "$var" in
+      AGENT_HUB_\<STAGE\>_*) short=${var#AGENT_HUB_<STAGE>_}; grep -q "stage_setting $short " "$HUB_DIR"/stages/work-order/settings.sh || fail "$var: no stage setting $short" ;;
+      AGENT_HUB_BUILD_*) short=${var#AGENT_HUB_BUILD_}; grep -q "stage_setting $short " "$HUB_DIR/stages/build/settings.sh" || fail "$var: not a build setting" ;;
+      *) grep -q "setting $var " "$HUB_DIR/lib/settings.sh" || fail "$var: not a shared setting" ;;
+    esac
+  done
+}
+
+# The publication policy for everything the review and fix pass write: on a
+# public repository (ticket content not published), no Claude-written field
+# reaches the pull request or a commit message — whether the fix was kept,
+# dropped or failed. Each field carries a unique canary; the ticket, which
+# is private, gets them (so they really were there to leak).
+@test "public repository: no Claude-written review or fix text on the pull request or in a commit, whatever the fix's outcome" {
+  local outcome remote
+  for outcome in "fix-trim.sh|claude/fix-check-canaries.json|kept" "fix-breaks-test.sh|claude/fix-check-canaries.json|dropped" "fix-trim.sh|none|failed"; do
+    IFS='|' read -r edits check expected <<< "$outcome"
+    fresh_repo
+    run_scenario ready CLAUDE_EDITS=edits/greet.sh MOCK_GH_VISIBILITY=public \
+      'CLAUDE_FIXTURE_EDIT=.structured_output.build.summary += " CANARY-BUILD-SUMMARY"' \
+      CLAUDE_PASS_FIXTURE=claude/review-canaries.json CLAUDE_FIX_FIXTURE=claude/fix-canaries.json \
+      "CLAUDE_FIX_CHECK_FIXTURE=$check" "CLAUDE_FIX_EDITS=edits/$edits"
+    assert_equal "$(jq -r '.status' "$RUNNER_TEMP/fix.json")" "$expected"
+    run jq -r 'select(.path | endswith("/pulls")) | .body.title, .body.body' "$GH_CALLS"
+    refute_output --partial CANARY
+    remote=$(git -C "$STEP_CWD" remote get-url origin)
+    run git --git-dir="${remote#file://}" log --format='%B' main..refs/heads/agent-hub/PROJ-99
+    refute_output --partial CANARY
+    run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
+    assert_output --partial CANARY-FINDING-EVIDENCE
+    # (A fix the check couldn't judge records no fixes to describe.)
+    [ "$expected" = failed ] || assert_output --partial CANARY-FIX-WHAT
+  done
+}
+
+# A pass budget that isn't a positive number can't be part of a run's
+# maximum, so the run stops at the start — before any Claude use — rather
+# than finding out at that pass.
+@test "caps: a review or fix budget that isn't a positive number stops the build before Claude" {
+  local var
+  for var in REVIEW_MAX_BUDGET_USD FIX_MAX_BUDGET_USD FIX_CHECK_MAX_BUDGET_USD; do
+    fresh_repo
+    run_scenario ready CLAUDE_EDITS=edits/greet.sh "VARS={\"AGENT_HUB_BUILD_PREVIEW\": \"true\", \"AGENT_HUB_CLAUDE_CODE_VERSION\": \"9.9.9\", \"AGENT_HUB_BUILD_$var\": \"0\"}"
+    run trace
+    assert_line "Agent: skipped"
+    run cat "$RUNNER_TEMP/failure-reason"
+    assert_output --partial "must be positive numbers of dollars, so Claude wasn't used."
+  done
 }

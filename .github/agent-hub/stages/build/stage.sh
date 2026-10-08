@@ -7,12 +7,13 @@
 #
 # This version: start (the exact plan approved, its contract, the branch,
 # the declared Node version), the dependencies installed from the lockfile
-# (install), validate and build in one agent pass, the commit and the
-# repository's own checks run on it by the hub (verify), then the gates, the
+# and the plan's dependency changes applied (install; dependencies.sh),
+# validate and build in one agent pass, the commit and the repository's own
+# checks run on it by the hub (verify), the code review (review.sh), the fix
+# pass and its check, and verifying the fix (fix.sh), then the gates, the
 # secret scan and the draft pull request with its state block (apply). The
-# install step also applies the plan's dependency changes (dependencies.sh).
-# The review, CI and hand-off come in later versions; until then a person
-# reviews the draft.
+# CI gate and hand-off come in later versions; until then a person takes the
+# draft from there.
 #
 # The agent can change anything in the checkout — .git included — so no
 # later step trusts it: each loads the hub from the workflow's copy, and git
@@ -90,6 +91,13 @@ step_fetch() {
   } >> "$RUNNER_TEMP/ticket.md"
   stage_progress_comment "⏳ Building" \
     " — implementing the approved plan; usually takes 10–30 minutes. Refresh the page to see the result. "
+}
+
+# stage_max_cost: the most one build run's Claude passes can cost together
+# (lib/stage.sh, stage_run_max_cost): the build, the code review, the fix
+# pass and the fix check, each at its configured maximum.
+stage_max_cost() {
+  stage_sum_usd "$CLAUDE_MAX_BUDGET_USD" "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"
 }
 
 # _require_limits: the size and time limits (settings.sh) are whole numbers —
@@ -734,14 +742,23 @@ step_apply() {
 # _refuse_hard_links: stop if any file git would commit has more than one
 # hard link (the paths go only on the ticket).
 _refuse_hard_links() {
-  local path links linked=""
+  local linked
+  linked=$(build_hard_linked_files | paste -sd ',' - | sed 's/,/, /g')
+  [ -z "$linked" ] \
+    || stage_fail "The build left files that are hard links to other files on the runner, so nothing was committed or pushed." "Files: $linked."
+}
+
+# build_hard_linked_files: the changed files in the checkout (modified or
+# new, not ignored) that are hard links — one per line. The one check Verify
+# and Verify fix both use: paths come from git, NUL-separated, and reach
+# stat only after `--`, so no file name is ever read as an option.
+build_hard_linked_files() {
+  local path links
   while IFS= read -r -d '' path; do
     [ -f "$path" ] && [ ! -L "$path" ] || continue
     links=$(stat -c %h -- "$path" 2> /dev/null || stat -f %l -- "$path")
-    [ "$links" -le 1 ] || linked="$linked${linked:+, }$path"
+    [ "$links" -le 1 ] || printf '%s\n' "$path"
   done < <(git ls-files -z --modified --others --exclude-standard)
-  [ -z "$linked" ] \
-    || stage_fail "The build left files that are hard links to other files on the runner, so nothing was committed or pushed." "Files: $linked."
 }
 
 # _require_same_plan: stop, changing nothing, unless the approval the run

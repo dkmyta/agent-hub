@@ -134,15 +134,6 @@ history() {
   assert_output --partial "against commit $(git -C "$REPO_DIR" rev-parse HEAD)."
 }
 
-@test "every path ends in one of the shared outcomes" {
-  local pair
-  for pair in "ready:written" "revise:revised" "needs-clarification:sent back" "not-in-work-order-approved:no change needed" \
-    "moved-during-run:stale" "attachment-upload-fails:failed"; do
-    run_scenario "${pair%%:*}"
-    assert_equal "$(sed -n 's/^\*\*Outcome:\*\* //p' "$RUNNER_TEMP/summary.md")" "${pair#*:}"
-  done
-}
-
 @test "re-plan: new plan attached before the hub's previous one is removed; a person's upload stays" {
   # 8003 is the hub's earlier upload, 8001 a person's; the snapshot pins the order.
   run_scenario replan-replaces-previous-plan

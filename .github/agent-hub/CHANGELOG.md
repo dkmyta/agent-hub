@@ -5,6 +5,65 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.10.1 — 2026-10-07
+
+Fixes from the review after 4b, each validated by reproducing it first (and
+reviewed externally), plus whole-run budget admission.
+
+- **Hard links can't slip through the fix pass** (was: a hard link named
+  like an option, `-quit`, to a file outside the repository was committed
+  and pushed — reproduced). Verify and Verify fix now share one check,
+  which gives file names to `stat` only after `--`; nothing passes file
+  names to `find`. A test proves the exact case refused in both paths, and
+  that there's only the one check.
+- **An automatic fix never puts a person's decision into a pushable commit**
+  (was: a fix that also changed a must-not-touch file was kept and pushed,
+  with a decision item — reproduced). Verify fix keeps a fix only if,
+  compared with the reviewed commit, it adds no refused file and no decision
+  item (out of scope, must-not-touch, a dependency file, the size limits),
+  and every check passes; otherwise the whole candidate is discarded — the
+  commit, its gate results, its checks' copy and output — and the reviewed
+  commit is pushed exactly as it was. Tested case by case, including a good
+  fix mixed with a bad change.
+- **The code review and fix pass work in repositories with extensions**
+  (was: the extensions' log line went into the pass's result, so with any
+  `build/` extension every review came back "didn't finish" and the fix pass
+  never ran). Found by the new pass-table test.
+- **Each pass gets the repository's guidance it needs:** `guidance.md` for
+  every pass that writes or judges code (the code review, fix pass and fix
+  check now too), `review.md` for the review-type passes only. One table,
+  *Agent passes* in architecture.md, says which pass gets what; a test
+  checks every build pass's real prompt and every setting against it.
+- **Budget admission for the whole run:** a run may use Claude only if the
+  ticket's spend so far plus the most the run can cost — the sum of every
+  pass's configured maximum ($19 for a build: build, review, fix, fix
+  check; $4 for a work order, $10 for a plan, less when revising) — fits
+  within the cap; otherwise it's blocked, before Claude, as at the cap. A
+  cap smaller than one run's maximum is a settings error. With each pass's
+  own `--max-budget-usd`, that's three limits in a row.
+- **`continue-on-error` is pinned:** exactly the build's Review, Fix and
+  Verify fix steps may fail without failing the job (a test reads the
+  workflows by step id); the workflow-shape snapshot now records it and
+  every time limit.
+- **The evals workflow installs the Linux sandbox tools** on GitHub-hosted
+  runners, as the stage workflow does, so the build eval can run there
+  (without them Claude Code refuses to run — the sandbox is never optional).
+- **The sandbox check** also tries to hard-link a file from outside the
+  repository into it.
+- **Tests:** unique canaries in every Claude-written review and fix field
+  never reach a public repository's pull request or commits, whether the
+  fix was kept, dropped or failed; every scenario's snapshot now records its
+  outcome, which replaces the two slowest tests (≈150 s each).
+- **Docs:** the review and fix pass are no longer described as future work
+  (build.md, the README, setup.md, runners.md, extending.md, the build
+  stage's comments); setup.md lists every step's time limit; evals.md says
+  what the build eval covers.
+
+**Updating:** nothing to do. A ticket now needs room for a whole run's
+maximum under its cap before a run starts (by default $60 holds three
+builds' maximums); raise `AGENT_HUB_TICKET_MAX_COST_USD` if that stops
+runs too early.
+
 ## 2.10.0 — 2026-10-07
 
 PR 4's second part, completed (4b-2): the review's fix-eligible findings are

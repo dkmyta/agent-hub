@@ -44,6 +44,7 @@ unless they start with `.github/`.
       prompt.md, schema.json      what the agent is asked, and the shape of its answer
       review.md                   the stage's review checklist
       render.jq, revise.sh        output → ticket layout; revisions
+      <pass>/                     a further pass's prompt.md and schema.json (the build's review/, fix/, fix-check/; "Agent passes")
     scripts/                      update.sh (install and update), CI helpers
     tests/                        the test suite and evals
     docs/
@@ -363,8 +364,40 @@ stage ([workflows/build.md](workflows/build.md)).
 - A stage's files live in `stages/<stage>/` (see [Layout](#layout)); shared
   code lives in `lib/` and `trackers/` — reuse it, don't copy it.
 
+### Agent passes
+
+Every Claude session the hub starts, in one place. This table is the
+reference: the other docs link here rather than repeat it, and the tests
+read it — each build pass's prompt must hold exactly the extensions listed,
+and every setting named must exist (`tests/build/scenarios.bats`).
+
+| Pass | Step | Profile | Model | Budget | Inputs | Extensions | Output |
+|---|---|---|---|---|---|---|---|
+| Draft | Agent | `read-only` | `AGENT_HUB_<STAGE>_MODEL` | `AGENT_HUB_<STAGE>_MAX_BUDGET_USD` (revising: `AGENT_HUB_<STAGE>_REVISION_MAX_BUDGET_USD`) | The ticket, with people's comments where the stage reads them | `guidance.md` | The stage's schema |
+| Expert review | Agent | `read-only` | `AGENT_HUB_REVIEW_MODEL` | `AGENT_HUB_<STAGE>_REVIEW_MAX_BUDGET_USD` (revising: as above) | The draft and the ticket | `review.md` | The reviewed document, and its notes |
+| Build | Agent | `build` | `AGENT_HUB_BUILD_MODEL` | `AGENT_HUB_BUILD_MAX_BUDGET_USD` | The work order and the approved plan | `guidance.md` | The build's report (`stages/build/schema.json`); the code, in the checkout |
+| Code review | Review | `review` | `AGENT_HUB_REVIEW_MODEL` | `AGENT_HUB_BUILD_REVIEW_MAX_BUDGET_USD` | The work order and plan, the hub's check results, the diff the hub computed | `guidance.md`, `review.md` | Findings (`stages/build/review/schema.json`) |
+| Fix | Fix | `build` | `AGENT_HUB_BUILD_FIX_MODEL` | `AGENT_HUB_BUILD_FIX_MAX_BUDGET_USD` | The work order and plan, the fix-eligible findings | `guidance.md` | What it fixed (`stages/build/fix/schema.json`); the code, in the checkout |
+| Fix check | Fix | `review` | `AGENT_HUB_BUILD_FIX_MODEL` | `AGENT_HUB_BUILD_FIX_CHECK_MAX_BUDGET_USD` | The work order and plan, the findings and what the fix pass did, the hub's diff of the fix | `guidance.md`, `review.md` | Verdicts, and new concerns (`stages/build/fix-check/schema.json`) |
+
+- **Every pass** also gets the repository's `CLAUDE.md` and, as a plugin, its
+  `.claude/` agents and skills and the extensions' `agents/` and `skills/`.
+  Extensions come from the stage's folder and `shared/`
+  ([extending.md](extending.md)), framed as the maintainers' guidance: "Follow
+  it wherever it doesn't conflict with the instructions above."
+- **`guidance.md`** goes to every pass that writes a document or writes or
+  judges code; **`review.md`** to every review-type pass. The documents'
+  expert review checks the draft against the code and the stage's own
+  checklist, not the guidance the draft already followed.
+- **Budgets are three limits, in order:** the ticket's cap, the run's
+  admission (the sum of every pass's budget above must fit what's left of
+  the cap: [claude-usage.md](claude-usage.md#per-ticket-caps)), then each
+  pass's own `--max-budget-usd`.
+- Profiles are defined in `lib/runners/claude-code.sh`; the build's further
+  passes run through `agent_pass`.
+
 ### Expert review (every stage)
-- Every stage's agent step is **draft → check → review → check**
+- Every document stage's agent step is **draft → check → review → check**
   (`agent_run`, `agent_check`, `agent_review`, `agent_check`), so the
   stage's own checks run on the reviewed version.
 - **A draft that sends the ticket back isn't reviewed** (needs details, needs
@@ -444,7 +477,7 @@ the same way (the tracker side, and every path, is in
 A label or a "Changes requested" status were considered: both take two
 actions (the signal, plus the feedback) and a status adds one per stage; a
 comment command is one action and carries over to PR comments. For the
-build's pull requests (review items arrive with PR 5) the options to decide then: people commit to the
+build's pull requests (review items arrived in 2.9.0; acting on them, `/apply`, comes with step 5) the options to decide then: people commit to the
 branch; people leave review comments for the agent to apply; people ask the
 agent to apply selected mid/low-severity review findings (e.g. `/apply 2 4`);
 re-running the automated review after changes.

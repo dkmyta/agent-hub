@@ -532,22 +532,27 @@ agent_review() {
 # one more independent pass after the draft — a fresh session, sharing
 # nothing with it but what the stage passes in — such as the build's code
 # review. The stage chooses the tool profile (e.g. review: commands but no
-# edits), the model and the budget; the instructions get the repository's
-# guidance and review checklists added, as the document stages' reviews do.
+# edits), the model and the budget. The instructions get the repository's
+# CLAUDE.md and its guidance (guidance.md) — every such pass writes or
+# judges code — and, for a review-type pass (the review profile), its review
+# checklists (review.md); see docs/architecture.md, "Agent passes".
 # Prints Claude Code's JSON result (empty if it produced none); never fails
 # itself, beyond the checks before Claude is used.
 agent_pass() {
   # Named for the instructions' folder (review-pass-prompt.md, …).
   local prompt
   prompt="$RUNNER_TEMP/$(basename "$(dirname "$5")")-pass-prompt.md"
-  _load_extensions
+  # Its standard output is the pass's JSON result, so what these log goes to
+  # the run log (standard error) instead.
+  _load_extensions >&2
   CLAUDE_VERSION=$(claude --version 2>/dev/null | head -n 1 | cut -d ' ' -f 1) || CLAUDE_VERSION=""
-  _require_restricted
-  [ -s "$RUNNER_TEMP/agent-access.json" ] || agent_access
+  _require_restricted >&2
+  [ -s "$RUNNER_TEMP/agent-access.json" ] || agent_access >&2
   {
     cat "$5"
     _repository_guidance
-    _extension_text review.md "Repository review checklist"
+    _extension_text guidance.md "Repository guidance"
+    if [ "$1" = review ]; then _extension_text review.md "Repository review checklist"; fi
   } > "$prompt"
   _require_budget "$4"
   AGENT_PROFILE=$1 _claude "$2" "$3" "$4" "$prompt" "$(jq -c . "$6")" "$7" > "$RUNNER_TEMP/pass-output.json"

@@ -169,7 +169,7 @@ uuid='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
 @test "the session cleanup step runs whatever happened, without tracker credentials" {
   run node "$TESTS_DIR/lib/workflow.mjs" shape "$WORKFLOW"
-  assert_line "Remove session and credential files | id: - | if: always() | env: -"
+  assert_line "Remove session and credential files | id: - | if: always() | env: - | continue-on-error: false | timeout: 1"
 }
 
 @test "the cleanup step removes credential files a step couldn't (one killed by its time limit)" {

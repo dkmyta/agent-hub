@@ -3,8 +3,8 @@
 # fresh session with the review profile — commands, no edits, no web — reads
 # the approved plan, the build's whole diff and the checks' results, and
 # reports findings. The hub sorts each one by its policy (review/policy.json):
-# a decision item for a person, fix-eligible (fixed by the fix pass, from
-# 2.10.0; until then a review item marked so) or a review item. The review
+# a decision item for a person, fix-eligible (fixed once by the fix pass:
+# fix.sh) or a review item. The review
 # changes nothing, and one that can't finish never costs the build: Apply
 # pushes the draft with the review as a decision item.
 #
