@@ -5,6 +5,37 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.10.2 — 2026-10-07
+
+The build stage's contracts, written down before 4c and 4d are built, and
+faster step start-up.
+
+- **Contracts** (build.md, "Contracts"): the rules every part of the build,
+  built or planned, must keep — fail before Claude; agents propose, gates
+  decide, only verified candidates are published; the publication policy;
+  people merge; budget as three limits (the cap, run admission, each pass's
+  maximum); **freshness**, separating what a pass works from from what must
+  hold when anything is published, per pass; **candidate eligibility** for
+  every automatic change (the build, the fix pass and, in 4d, CI fixes
+  through the same path); review coverage and the hand-off provenance rule;
+  CI semantics case by case; decision-item ownership; `/apply` freshness;
+  and the failure classes. Each is marked built (with its version) or
+  planned (4c, 4d, step 5); 4c, 4d and step 5 are reviewed against them.
+- **Settings without subshells:** every setting was read in a subshell of
+  its own, and a stage's settings ran `tr` each time, which was most of a
+  step's start-up on macOS. Settings are now assigned directly
+  (`setting_into`, `stage_setting_into`), and a stage's variable prefix is
+  worked out once. Loading the hub for a step takes 0.1–0.2 s instead of
+  0.4–0.5 s, so every run starts its steps faster and the test suite runs
+  in less time and with less load.
+- The sandbox check after 2.10.1 passed every item (31 of 31, Claude Code
+  2.1.285, macOS): Claude Code's sandbox itself stops a hard link to a file
+  outside the repository, so the hub's own check is a second line.
+
+**Updating:** nothing to do. A repository's own extensions are unaffected;
+anything that sourced `lib/settings.sh` and called `setting` or
+`stage_setting` still can (both remain).
+
 ## 2.10.1 — 2026-10-07
 
 Fixes from the review after 4b, each validated by reproducing it first (and

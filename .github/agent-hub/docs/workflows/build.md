@@ -15,7 +15,8 @@
 > become the pull request's review and decision items ([Review](#review-read-only));
 > since 2.10.0 the serious ones within the plan are fixed once, checked, and
 > kept only if the build still passes ([Fix and fix check](#fix-and-fix-check)).
-> The CI gate and hand-off come in later versions (4c, 4d).
+> The CI gate and hand-off come in later versions (4c, 4d), built against the
+> [Contracts](#contracts) (2.10.2).
 > The agreed plan, reviewed externally three times. Items marked
 > *provisional* are defaults to revisit after the first full pipeline test.
 > When the stage is complete, this page becomes its workflow doc (in the
@@ -818,6 +819,173 @@ review · every `/apply` · every decision item · anything past a cap or a size
 limit · the merge (branch protection; a bot can't approve its own pull
 request) · `agent-hub-paused` · the kill switch.
 
+## Contracts
+
+The rules every part of the build — built or planned — must keep, written
+down before 4c and 4d are built so they're built and reviewed against them
+(agreed after the 2.10.0 review, with an external review). Each says whether
+it's **built** (and since when) or **planned** (and for which part). Where a
+section above describes the same thing at more length, this is the summary
+that wins.
+
+### Rules that hold everywhere
+
+1. **Fail before Claude.** Anything deterministic that can be established
+   before Claude runs is established before Claude runs, and stops the run
+   if it fails (*built*, 2.1.0–2.10.1): the kill switch and preview gate; settings (sizes, times,
+   budgets, caps); the pinned Claude Code version; the approval (the exact
+   plan file, approved by a person, the work order unchanged since); the
+   plan's contract; the branch and pull request state; the declared
+   toolchain; the dependencies and the plan's dependency changes with their
+   supply-chain checks; a rehearsal of Verify; the baseline; budget
+   admission. Every new check that can run before Claude goes here.
+2. **Agents propose; deterministic gates decide; only verified candidates are
+   published.** No agent output reaches a push, a pull request or a ticket
+   except through the hub's checks: Verify, the gates, the secret scan, the
+   publication policy. *Built.*
+3. **Publication policy.** A public repository's pull requests and commits
+   carry only hub-derived facts and publication-safe fields (ids, kinds,
+   severities, counts, paths the hub computed, the hub's own reason texts),
+   never Claude-written text, unless ticket content may be published.
+   *Built* (2.5.0; the review's and fix pass's fields 2.9.0–2.10.0,
+   canary-tested since 2.10.1).
+4. **People merge.** The hub never approves or merges; it observes the
+   merge (D3). *Built* as a rule; observing the merge is step 5.
+5. **Budget: three limits, in order** — the ticket's cap; **run admission**:
+   a run may invoke Claude only if `ticket_spend_to_date + run_max_budget <=
+   cap`, where `run_max_budget` is the sum of the configured maximum of
+   every pass the run may execute (a build: build + review + fix + fix check
+   = $19 by default); then each pass's own `--max-budget-usd`. A run that
+   isn't admitted is **blocked** (`agent-hub-over-cap`, `needs-human`), not
+   failed; a person lifts the cap; nothing resumes automatically.
+   *Built* (2.8.0; admission 2.10.1). A CI fix (4d) and an `/apply` run
+   (step 5) are runs like any other: each is admitted with its own maximum.
+
+### Freshness
+
+Two kinds, never confused: **input freshness** — what a pass works from —
+and **publication freshness** — what must still be true at the moment
+anything is written. A pass may work from an earlier commit (the review
+works from the verified commit, the fix check from the fix's diff); nothing
+is ever *published* from anything but the exact commit the hub verified.
+
+| Pass | Works from (input) | Publishes only if (publication) | |
+|---|---|---|---|
+| Build | The approved plan file (exact checksum), the approval (Jira's history), the work order unchanged since; the target branch's head at the start (the base) | Apply: the same plan and approval still stand, the ticket is still in Implementation Plan Approved, the branch is absent (a new build) | *Built* |
+| Review | The verified commit, and the hub's diff and check results for it | Its findings apply to that commit only; Apply uses them only for the pushed commit or a kept fix's parent | *Built* (2.9.0) |
+| Fix | The reviewed commit and that review's fix-eligible findings | Its candidate is kept only once verified (below); pushed only as the exact commit verified | *Built* (2.10.0) |
+| Fix check | The hub's diff of exactly the fix | — (no output of its own is published) | *Built* (2.10.0) |
+| Apply (push) | The verified commit | That commit is `HEAD` and the one the checks passed on; the plan and approval re-checked; the push is never forced, and a new branch must not exist (an existing one must still be at the head the run recorded — 4c) | *Built*; existing branches 4c |
+| Sync | The target branch's current head and the pull request's head the run recorded | The remote branch still at the recorded head (lease); merges only, never a force-push. **A sync is a code change:** it resets review and verification freshness (below) | *Planned* (4c) |
+| CI fix | The CI failure for the current evaluation commit (which must be the current head) | As Fix, on the current head; the head unchanged since the failure was read | *Planned* (4d) |
+| Hand-off | The current pull request head | The head is the last head the hub verified; required checks green for exactly that evaluation commit; the provenance rule holds; no open decision items; the plan and approval still stand | *Planned* (4d) |
+| `/apply` | The current pull request head and its current items | As a revision build: admitted, verified, gated; only items still valid on the current head are applied (below) | *Planned* (step 5) |
+
+**What invalidates freshness** (planned with 4c, from the state block's
+recorded heads): any commit after the last head the hub verified — a
+person's push, a sync merge — makes that head's review and verification
+stale for hand-off. A sync merge whose target changes touch nothing the
+plan or the pull request touches, and no drift-sensitive path, keeps the
+review but still needs Verify (and CI) on the merged commit; anything else
+needs the next run to review again. The hub never concludes "the target
+changed, we merged it, so we're fine".
+
+### Candidate eligibility (any automatic change)
+
+One contract for every commit an agent's work becomes — the build's, the
+fix pass's (*built*, 2.10.0–2.10.1), and a CI fix's (*planned*, 4d, through
+the same code path as the fix pass, no more and no less permissive). A
+candidate is pushed only if:
+
+- it contains no hard link (one check: `build_hard_linked_files`) and no
+  file the gates refuse;
+- for a fix or CI fix: it adds **no decision item** compared with the
+  commit it was made on (scope, must-not-touch, dependency files, size) —
+  an automatic fix never puts a person's decision into a pushable commit;
+- every repository check passes on exactly that commit, in a clean copy;
+- the secret scan, over exactly the commits the push sends, finds nothing.
+
+Otherwise the candidate is **discarded entirely** — the commit, its gate
+results, its checks' copy and output — and the previous verified commit is
+what's pushed (for the build itself: nothing is pushed).
+
+### Review coverage and provenance
+
+- The state block records the last head that received a **full review**
+  and every later commit with its provenance. *Planned* (4c; the review's
+  own head is recorded since 2.9.0).
+- **Hand-off rule:** every commit after the last full review is a
+  hub-generated commit with a passing fix check (a fix or CI fix).
+  Otherwise — a person's commit, a sync that changed relevant code — the
+  pull request shows what the review covered and isn't handed off until a
+  run reviews the current head. *Planned* (4c/4d).
+
+### CI semantics
+
+Only GitHub's own result counts, for the exact commit being handed off.
+*Planned* (4d; the mechanism by a spike).
+
+| Situation | Result |
+|---|---|
+| Every check GitHub marks required (`isRequired`) succeeded on the evaluation commit (the test merge commit if it has statuses, else the head) | Green |
+| A required check succeeded on an older head or an obsolete merge commit | Doesn't count |
+| Pending | Wait; past a time limit, a person (noting a path-filtered required workflow may never run) |
+| Required check never appears | As pending |
+| Failure | The CI-fix path (2 per hand-off, each a full candidate as above), then a person |
+| Timed out, cancelled | A person (or a re-run where the repository allows it); never a CI fix on its own |
+| Skipped, neutral | Acceptable only where GitHub itself treats them as passing for a required check |
+| Action required | A person |
+| GitHub's API fails | Retried (2.7.3), then the run stops without deciding; the next wake-up reads current state |
+| Branch protection or rulesets change while waiting | Each wake-up re-reads what's required now; nothing is cached |
+
+### Decision items: ownership
+
+| Item | Created by | Belongs to | Closed by |
+|---|---|---|---|
+| Gate decision (`D`) | The gates, on a generation's head | The (path, reason) on that head | The change no longer having it on a later head, or a person accepting it (`/apply D3` or a resolution); an accepted one stays accepted unless that path changes again |
+| Review or fix-check decision (`D`) | The review or fix check of a generation | That finding | A person (`/apply` by id, or dismissing it) |
+| "Review didn't finish" (`D`) | The hub | That generation | A later run that reviews the current head |
+| Manual change (`C`, from the plan) | The approved plan | The plan | A person making the change (the branch contains it) or `/skip` |
+| Review items (`R`, `M`) | The review, fix check, people's review comments | Their finding or comment | `/apply` or `/skip`; resolved items never return |
+
+Ids are never reused. An item from an older generation is carried forward
+only if it still holds on the current head (marked "since generation N"),
+otherwise closed as resolved by a change — an old unresolved item never
+silently disappears, and a resolved one never blocks. Hand-off needs no open
+`D` items (manual changes excepted: the hand-off says they're outstanding).
+*Built:* items and their ids (2.5.0, review items 2.9.0); *planned:*
+carrying across generations and closing (4c), `/apply` and `/skip` (step 5).
+
+### `/apply` freshness
+
+An `/apply` is valid only against the pull request's **current head** and
+the item list derived for it. A run started by `/apply` first re-derives the
+items on the current head (a person may have pushed since), then applies
+only the requested items that still hold there; any that don't get a reply
+("no longer applies at <commit>") and nothing else changes. It never applies
+an old finding blindly to newer code. *Planned* (step 5).
+
+### Failure classes
+
+Every stop names its class — in the outcome, the failure comment's "To try
+again" line and the run summary — so the way forward fits the cause.
+
+| Class | Examples | Outcome | The way forward |
+|---|---|---|---|
+| Transient | An API failing after its retries, a runner problem | failed | Retry the run |
+| Setup or settings | A missing tool, the Claude Code version, the sandbox unavailable, an invalid setting | failed, before Claude | Fix the runner or setting, then retry |
+| Base already broken | The repository's checks fail on the target (baseline) | failed, before Claude | Fix the repository first |
+| Plan or approval changed | A plan uploaded or the work order edited after approval | stale (sent back) | Revise and approve again |
+| A person must decide | Questions; decision items | sent back; items on the pull request | Answer or resolve, then approve or apply |
+| The agent couldn't finish | No usable result, a pass's budget cap, a criterion not covered | failed | Retry; raise that pass's budget if it recurs |
+| The build's checks failed | The repository's checks on the build's commit | failed (output on the ticket) | Retry, or revise the plan |
+| Supply chain or security | A dependency too new, unsigned, vulnerable or unlicensed; a secret found; a hard link; a refused file | failed | **Investigate** — don't simply retry |
+| Budget exhausted | Run admission | blocked | A person lifts the cap |
+| Existing branch or pull request | A previous build's branch or pull request | failed (exact instructions) | As the comment says |
+
+*Built:* the outcomes and per-reason instructions (2.7.2, blocked 2.8.0).
+*Planned:* the class named explicitly in the comment and summary (4c).
+
 ## Safety
 
 ### Who can do what
@@ -1168,6 +1336,10 @@ where stated and only with the owner's OK.
    sync and drift, review coverage, stale-run checks; *4d* the CI gate (after
    a spike on the CI-result mechanism), CI fixes and the hand-off. The
    preview gate comes off after 4d, once the runner blockers are met.
+   2.10.1 fixed the post-4b review's findings; 2.10.2 wrote down the
+   [Contracts](#contracts) 4c, 4d and step 5 are built and reviewed against —
+   each of their pull requests says which contracts it implements, and adds
+   tests for them.
    **Prerequisites, before the review pass or reconciliation is enabled**
    (from the 2.5.0 reviews):
    - *A read-only review profile, proven* (done in 2.8.1). The review profile drops the

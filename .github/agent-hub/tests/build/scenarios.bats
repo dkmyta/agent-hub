@@ -1217,9 +1217,9 @@ pass_row() { # <pass name>: that row's cells, one per line
   local var short
   for var in $(awk -F'|' '/^\| (Draft|Expert review|Build|Code review|Fix|Fix check) \|/ { print $5, $6 }' "$HUB_DIR/docs/architecture.md" | grep -o 'AGENT_HUB_[A-Z_<>]*' | sort -u); do
     case "$var" in
-      AGENT_HUB_\<STAGE\>_*) short=${var#AGENT_HUB_<STAGE>_}; grep -q "stage_setting $short " "$HUB_DIR"/stages/work-order/settings.sh || fail "$var: no stage setting $short" ;;
-      AGENT_HUB_BUILD_*) short=${var#AGENT_HUB_BUILD_}; grep -q "stage_setting $short " "$HUB_DIR/stages/build/settings.sh" || fail "$var: not a build setting" ;;
-      *) grep -q "setting $var " "$HUB_DIR/lib/settings.sh" || fail "$var: not a shared setting" ;;
+      AGENT_HUB_\<STAGE\>_*) short=${var#AGENT_HUB_<STAGE>_}; grep -qE "stage_setting_into [A-Z_]+ $short " "$HUB_DIR"/stages/work-order/settings.sh || fail "$var: no stage setting $short" ;;
+      AGENT_HUB_BUILD_*) short=${var#AGENT_HUB_BUILD_}; grep -qE "stage_setting_into [A-Z_]+ $short " "$HUB_DIR/stages/build/settings.sh" || fail "$var: not a build setting" ;;
+      *) grep -qE "setting_into [A-Z_]+ $var " "$HUB_DIR/lib/settings.sh" || fail "$var: not a shared setting" ;;
     esac
   done
 }
