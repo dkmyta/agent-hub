@@ -352,7 +352,7 @@ stage ([workflows/build.md](workflows/build.md)).
 - Everything a repository might need to change (runner labels, Claude model
   and limits, tracker status and label names) is a **repository variable**, read
   with its default by `setting NAME default` in `lib/settings.sh` if it's
-  shared, or by `stage_setting NAME default` (`AGENT_HUB_<STAGE>_<NAME>`) in
+  shared, or by `stage_setting_into VARIABLE NAME default` (`AGENT_HUB_<STAGE>_<NAME>`) in
   the stage's `settings.sh` — so installing in a new repository needs no
   edits. Text that must match a tracker rule's comment is fixed there too.
 - `runs-on` comes from `AGENT_HUB_RUNS_ON`; a `runner.environment == 'github-hosted'`
