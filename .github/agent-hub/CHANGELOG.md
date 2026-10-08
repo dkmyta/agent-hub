@@ -5,6 +5,41 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.12.0 — 2026-10-08
+
+PR 4's third part, second half (4c-2): an existing pull request is synced
+with a target branch that moved, against the contracts written in 2.10.2.
+
+- **Sync:** when the target branch has moved past where the hub's open pull
+  request last met it, a run merges it in — as the machine user, a merge
+  commit, never a rebase or a force-push — in the fetch step, before
+  anything reads the code or Claude runs. A move is now a reason to run on
+  its own, even when nobody pushed.
+- **Drift, from paths alone:**
+  - **mechanical** — the target changed no file the pull request or its
+    plan touch, and no drift-sensitive path: the merge is verified and the
+    earlier review still applies. No Claude runs, so the run isn't admitted
+    against the ticket's caps or counted;
+  - **semantic** — otherwise: the merge is verified and the whole change is
+    reviewed again on the merged commit, and fixed once where allowed;
+  - **a conflict** — nothing is pushed; the conflicting files go on the pull
+    request and the ticket, with `needs-human`, and a person merges the
+    target (outcome blocked).
+  Drift-sensitive paths (`BUILD_DRIFT_SENSITIVE`, gates.sh): the gates'
+  sensitive kinds plus compiler and build configuration, shared types and
+  the hub-managed paths.
+- **Provenance:** the state block records the merge as the hub's, with its
+  target and drift; the hand-off rule (4d) accepts a mechanical sync after
+  the last full review. The gates and the review compare with the target's
+  new head, so they see the pull request's own changes only.
+- A push the build token can't make because the merge brings in workflow
+  changes says so (the token has no Workflows permission, by design): a
+  person merges the target.
+- Docs: build.md (Sync with the target branch, contracts marked built, the
+  hand-off rule), claude-usage.md.
+
+**Updating:** Nothing.
+
 ## 2.11.0 — 2026-10-08
 
 PR 4's third part, first half (4c-1): a build whose pull request already

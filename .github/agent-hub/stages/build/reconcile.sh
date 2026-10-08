@@ -8,8 +8,19 @@
 #   branch was rewritten                   → stop for a person (failed)
 #   the approved plan isn't the one it was
 #   built from                             → superseded: a person decides (blocked)
-#   nobody pushed since the hub's last push → nothing to do (no change needed)
-#   people pushed commits                  → their head is verified, reviewed and,
+#   nobody pushed since the hub's last push,
+#   and the target branch hasn't moved     → nothing to do (no change needed)
+#   the target branch moved                → merged in (never a rebase or a force-
+#                                            push); a conflict stops for a person
+#                                            (blocked). Mechanical drift — the
+#                                            target changed nothing the pull request
+#                                            or its plan touches, and no drift-
+#                                            sensitive path — keeps the earlier
+#                                            review: the merge is verified, with no
+#                                            Claude. Anything else is semantic drift:
+#                                            reviewed again, as below
+#   people pushed commits (or semantic
+#   drift)                                 → the head is verified, reviewed and,
 #                                            if the review allows, fixed once —
 #                                            the same steps and rules as a build,
 #                                            without the build pass
@@ -29,8 +40,8 @@ reconciling() { [ "$(jq -r '.mode // "build"' "$BUILD_CONTEXT" 2> /dev/null)" = 
 # do or a person must decide; otherwise checks out the pull request's head
 # and records the mode for the later steps.
 _reconcile_start() {
-  local number=$1 branch pr state head last base people
-  branch=$(context .branch)
+  local number=$1 branch pr state head last base people target_head
+  branch=$(context .branch) target_head=$(context .base)
   pr=$(gh_pr_find "$branch") || stage_fail "Couldn't read pull request #$number from GitHub, so nothing was changed."
   if jq -e --arg label "$BUILD_PAUSED_LABEL" 'any(.labels[]?; .name == $label)' <<< "$pr" > /dev/null; then
     echo "::notice::Pull request #$number has the $BUILD_PAUSED_LABEL label, so the hub leaves it alone."
@@ -58,24 +69,102 @@ _reconcile_start() {
     stage_retry "a person checks $branch: its history no longer contains the hub's last push. Restore it, or close the pull request and approve the plan again."
     stage_fail "$branch was rewritten since the hub's last push (it no longer builds on it), so its earlier review and checks don't apply and nothing was changed."
   fi
-  if [ "$head" = "$last" ]; then
-    echo "Pull request #$number is at the head the hub last pushed and checked: nothing to do."
-    echo "[$TICKET_KEY]($TICKET_URL): pull request #$number is up to date with the hub's last push; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+  # Where the pull request last met the target branch — the target's head
+  # (the checkout) when it hasn't moved since.
+  base=$(git merge-base "$target_head" "$head") || stage_fail "Couldn't find where $branch started from the target branch, so nothing was changed."
+  if [ "$head" = "$last" ] && [ "$base" = "$target_head" ]; then
+    echo "Pull request #$number is at the head the hub last pushed and checked, and up to date with $(context .target): nothing to do."
+    echo "[$TICKET_KEY]($TICKET_URL): pull request #$number is up to date with the hub's last push and its target branch; nothing to do." >> "$GITHUB_STEP_SUMMARY"
     echo "proceed=false" >> "$GITHUB_OUTPUT"
     stage_outcome "no change needed"
     exit 0
   fi
-  # People's commits since: check the pull request's head out, and compare
-  # with the plan's base as the build did (the common ancestor with the
-  # target branch — syncing with a moved target is 4c-2).
+  # People's commits, a moved target, or both: check the pull request's head
+  # out; _reconcile_sync merges the target in, once the committer is known.
   people=$(git rev-list --count "$last..$head")
   git checkout -q --detach "$head" || stage_fail "Couldn't check out pull request #$number's head, so nothing was changed."
-  base=$(git merge-base "$(context .base)" "$head") || stage_fail "Couldn't find where $branch started from the target branch, so nothing was changed."
-  jq --argjson number "$number" --arg head "$head" --arg last "$last" --arg base "$base" --argjson people "$people" \
-    '. + {mode: "reconcile", pr: $number, start_head: $head, previous_head: $last, base: $base, people_commits: $people}' \
+  jq --argjson number "$number" --arg head "$head" --arg last "$last" --arg base "$base" --arg target_head "$target_head" --argjson people "$people" \
+    '. + {mode: "reconcile", pr: $number, start_head: $head, previous_head: $last, base: $base, target_head: $target_head, people_commits: $people, sync: null}' \
     "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
   echo "Pull request #$number: $people commit(s) by people since the hub's last push; reconciling."
 }
+
+# reconcile_why: why this run re-checks the pull request, in hub facts only
+# (wording.jq).
+reconcile_why() { jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_cause(.)' "$BUILD_CONTEXT"; }
+
+# reconcile_reviews: whether this reconcile run reviews the head again —
+# people pushed, or the target's changes were semantic drift. (Mechanical
+# drift alone keeps the earlier review.)
+reconcile_reviews() { jq -e '.people_commits > 0 or .sync.drift == "semantic"' "$BUILD_CONTEXT" > /dev/null; }
+
+# _reconcile_sync: in the fetch step, once the committer is known — when the
+# target branch has moved past where the pull request last met it, it's
+# merged into the checked-out head as the machine user (a merge commit:
+# never a rebase or a force-push; Apply pushes it like any hub commit). The
+# drift is classified first, from paths alone. A conflict is left to a
+# person (_reconcile_conflict). The base becomes the target's head, so the
+# gates and the review see the pull request's own changes only.
+_reconcile_sync() {
+  local from target target_head branch commits changed theirs overlap sensitive drift conflicts
+  from=$(context .base) target=$(context .target) target_head=$(context .target_head) branch=$(context .branch)
+  [ "$from" != "$target_head" ] || return 0
+  # shellcheck source=stages/build/gates.sh
+  source "$STAGE_DIR/gates.sh"
+  commits=$(git rev-list --count "$from..$target_head")
+  # Paths, both sides of a rename: what the target changed, and what the pull
+  # request (as it is now) and its plan touch.
+  changed=$(git diff --name-only --no-renames -z "$from" "$target_head" | jq -Rsc 'split("\u0000") | map(select(length > 0))') \
+    && theirs=$(git diff --name-only --no-renames -z "$from" HEAD | jq -Rsc --slurpfile contract "$RUNNER_TEMP/contract.json" \
+      'split("\u0000") | map(select(length > 0)) + [$contract[0].changes[].path] | unique') \
+    || stage_fail "Couldn't compare $target's new commits with pull request #$(context .pr), so nothing was changed."
+  overlap=$(jq -rn --argjson a "$changed" --argjson b "$theirs" '[$a[] | select(IN($b[]))] | length')
+  sensitive=$(jq -r '.[]' <<< "$changed" | grep -cE "$BUILD_DRIFT_SENSITIVE" || true)
+  if [ "$overlap" = 0 ] && [ "$sensitive" = 0 ]; then drift=mechanical; else drift=semantic; fi
+
+  printf 'Merge %s into %s\n\nSynced by the agent hub.\n\nRefs: %s\n' "$target" "$branch" "$TICKET_KEY" > "$RUNNER_TEMP/merge-message"
+  if ! GIT_AUTHOR_NAME=$(context .committer.name) GIT_AUTHOR_EMAIL=$(context .committer.email) \
+      GIT_COMMITTER_NAME=$(context .committer.name) GIT_COMMITTER_EMAIL=$(context .committer.email) \
+      git merge -q --no-ff -F "$RUNNER_TEMP/merge-message" "$target_head" > "$RUNNER_TEMP/merge.log" 2>&1; then
+    conflicts=$(git diff --name-only --diff-filter=U)
+    git merge --abort 2> /dev/null || true
+    [ -n "$conflicts" ] || stage_fail "Couldn't merge $target into $branch, so nothing was changed." \
+      "Git said: $(grep -E '^(fatal|error):' "$RUNNER_TEMP/merge.log" | tail -n 3 | cut -c1-300 | paste -sd ' ' - || true)"
+    _reconcile_conflict "$commits" "$conflicts"
+  fi
+  jq --arg base "$target_head" --arg from "$from" --arg head "$(git rev-parse HEAD)" --arg drift "$drift" \
+    --argjson commits "$commits" --argjson overlap "$overlap" --argjson sensitive "$sensitive" \
+    '. + {base: $base, sync: {from: $from, target_head: $base, head: $head, commits: $commits, drift: $drift, overlap: $overlap, sensitive: $sensitive}}' \
+    "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
+  echo "Merged $target ($commits new commit(s)) into $branch: $drift drift ($overlap path(s) the pull request or its plan touches, $sensitive drift-sensitive)."
+}
+
+# _reconcile_conflict <commits> <paths>: merging the target conflicts. The hub
+# doesn't resolve conflicts (a later item): a person merges the target into
+# the branch, and the next run re-checks what they pushed. The paths (the
+# repository's own) go on the pull request and the ticket; the log gets the
+# count. Ends the run.
+_reconcile_conflict() {
+  local number target branch count
+  number=$(context .pr) target=$(context .target) branch=$(context .branch)
+  count=$(grep -c . <<< "$2")
+  printf '%s moved by %s since this pull request last met it, and merging it in conflicts in %s, so the hub has stopped updating this pull request. A person merges %s into %s and resolves the conflicts, then re-runs the build: it re-checks what was pushed.\n\nConflicting files:\n%s\n' \
+      "$target" "$(_plural "$1" commit)" "$(_plural "$count" file)" "$target" "$branch" "$(sed 's/^/- `/; s/$/`/' <<< "$2")" \
+    | gh_pr_comment "$number" || echo "::warning::Couldn't comment on pull request #$number."
+  jq -n -L "$HUB_DIR/lib" --arg number "$number" --arg target "$target" --arg branch "$branch" --arg paths "$2" --arg run "$RUN_URL" 'include "adf";
+    doc([para([strong("⚠️ Merge conflict"), text(" — \($target) moved since pull request #\($number) last met it, and merging it in conflicts, so the hub has stopped updating the pull request. A person merges \($target) into \($branch) and resolves the conflicts, then re-runs the build. "),
+        link("Run details"; $run)]),
+      para("Conflicting files:"), bullets([$paths | split("\n")[] | select(length > 0) | [code(.)]])])' | tracker_comment > /dev/null
+  tracker_labels "+$NEEDS_HUMAN_LABEL" > /dev/null
+  echo "::notice::Merging $target into pull request #$number conflicts in $count file(s): a person resolves them."
+  echo "[$TICKET_KEY]($TICKET_URL): merging $target into pull request #$number conflicts; a person resolves it." >> "$GITHUB_STEP_SUMMARY"
+  echo "proceed=false" >> "$GITHUB_OUTPUT"
+  stage_outcome blocked
+  exit 0
+}
+
+# _plural <n> <word>: "1 commit", "2 commits".
+_plural() { if [ "$1" = 1 ]; then echo "1 $2"; else echo "$1 ${2}s"; fi; }
 
 # _reconcile_superseded <number>: the plan approved now isn't the one the pull
 # request was built from. Nothing is rebuilt automatically: a person closes
@@ -104,25 +193,27 @@ reconcile_agent() {
 }
 
 # reconcile_verify: the repository's checks on the pull request's current
-# head, exactly as Verify runs them on a build's commit.
+# head — or the merge with its target, when synced — exactly as Verify runs
+# them on a build's commit.
 reconcile_verify() {
   build_git
-  [ "$(git rev-parse HEAD)" = "$(context .start_head)" ] \
+  [ "$(git rev-parse HEAD)" = "$(context '.sync.head // .start_head')" ] \
     || stage_fail "The checkout isn't pull request #$(context .pr)'s head, so nothing was changed."
   _check_commit "$(context .base)" || stage_fail "$(cat "$RUNNER_TEMP/check-commit-error")"
   cp "$RUNNER_TEMP/check-commit.json" "$RUNNER_TEMP/verify.json"
   if jq -e 'any(.checks[]; .result != "passed")' "$RUNNER_TEMP/verify.json" > /dev/null; then
     stage_retry "people fix the checks on $(context .branch), then approve the plan again or re-run the build."
-    stage_fail "The repository's checks fail on pull request #$(context .pr)'s current head, after people's commits: $(jq -r '[.checks[] | select(.result != "passed") | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/verify.json"). Nothing was changed; the output is in the next comment."
+    stage_fail "The repository's checks fail on pull request #$(context .pr)'s current head, after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT"): $(jq -r '[.checks[] | select(.result != "passed") | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/verify.json"). Nothing was changed; the output is in the next comment."
   fi
 }
 
-# reconcile_apply: what changed goes to the pull request — the fix commit, if
-# one was kept, pushed without force (rejected if anyone pushed meanwhile);
+# reconcile_apply: what changed goes to the pull request — the sync's merge
+# and the fix commit, if any, pushed without force (rejected if anyone pushed
+# meanwhile);
 # the state block and the hub-managed status section rewritten and verified;
 # a comment saying what was re-checked — and the full report to the ticket.
 reconcile_apply() {
-  local base branch target number start reviewed rc=0 findings status_file publish
+  local base branch target number start reviewed rc=0 findings status_file="" publish
   stage_require_status "$PLAN_APPROVED_STATUS"
   build_git
   _require_same_plan
@@ -151,57 +242,75 @@ reconcile_apply() {
   jq '.decisions += [.refused[] | {path, reason: "changed by a person in a path the hub never pushes (\(.reason))"}]' \
     "$RUNNER_TEMP/gates.json" > "$RUNNER_TEMP/gates.json.new" && mv "$RUNNER_TEMP/gates.json.new" "$RUNNER_TEMP/gates.json"
 
-  # The fix commit, if one was kept: scanned and pushed, never forced.
+  # The sync's merge and the fix commit, if any: scanned and pushed, never
+  # forced.
   if [ "$(git rev-parse HEAD)" != "$start" ]; then
     findings=$(gh_push "$branch" "$target" 2> "$RUNNER_TEMP/push-error") || rc=$?
     case "$rc" in
       0) ;;
-      1) stage_fail "The secret scan found what look like secrets in the fix, so nothing was pushed." "Found: $(paste -sd ',' - <<< "$findings" | sed 's/,/, /g')." ;;
+      1) stage_fail "The secret scan found what look like secrets in the commits to push, so nothing was pushed." "Found: $(paste -sd ',' - <<< "$findings" | sed 's/,/, /g')." ;;
       2) stage_fail "The secret scan couldn't run ($(head -n 1 "$RUNNER_TEMP/push-error")), so nothing was pushed." ;;
-      *) stage_retry "re-run the build: it starts from the new commits."
-         stage_fail "GitHub rejected the push to $branch — someone pushed to it during this run — so the fix wasn't pushed." ;;
+      *) if grep -qi 'workflow' "$RUNNER_TEMP/push-error" 2> /dev/null; then
+           stage_retry "a person merges $target into $branch, then re-runs the build."
+           stage_fail "GitHub rejected the push to $branch: the merge of $target brings in changes to its workflows, which the build token can't push (it has no Workflows permission, by design). Nothing was pushed."
+         fi
+         stage_retry "re-run the build: it starts from the new commits."
+         stage_fail "GitHub rejected the push to $branch — someone pushed to it during this run — so nothing was pushed." ;;
     esac
   fi
 
   # The new state: the next generation, the heads with who made them, the
   # review and fix, and the items carried, closed or added.
+  # A carried review (mechanical drift only) keeps the earlier review and
+  # items: the pull request's own changes are exactly as they were. The sync's
+  # merge is recorded as the hub's, with its drift — a commit after the last
+  # full review that hand-off accepts only for mechanical drift.
   jq -n -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile prev "$RECONCILE_STATE" --slurpfile gates "$RUNNER_TEMP/gates.json" \
       --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --arg version "$(cat "$HUB_DIR/VERSION")" \
-      --arg start "$start" --arg head "$(git rev-parse HEAD)" 'include "wording";
-    $prev[0] as $p | ($p.generation + 1) as $g
+      --slurpfile ctx "$BUILD_CONTEXT" --arg head "$(git rev-parse HEAD)" 'include "wording";
+    $prev[0] as $p | ($p.generation + 1) as $g | $ctx[0] as $c | ($c.sync.head // $c.start_head) as $checked
     | $p + {generation: $g, hub_version: $version,
-        heads: ($p.heads + [{generation: $g, head: $start, by: "people"}]
-          + (if $head != $start then [{generation: $g, head: $head, hub_version: $version, by: "hub"}] else [] end)),
-        review: ($review[0] | {status, head, cost: (.cost // 0)}),
+        heads: ($p.heads
+          + (if $c.people_commits > 0 then [{generation: $g, head: $c.start_head, by: "people"}] else [] end)
+          + (if $c.sync then [{generation: $g, head: $c.sync.head, hub_version: $version, by: "hub",
+               sync: {target: $c.target, target_head: $c.sync.target_head, drift: $c.sync.drift}}] else [] end)
+          + (if $head != $checked then [{generation: $g, head: $head, hub_version: $version, by: "hub"}] else [] end)),
+        review: (if $review[0].status == "carried" then $p.review else $review[0] | {status, head, cost: (.cost // 0)} end),
         fix: ($fix[0] | {status, before, after}),
-        items: reconcile_items($p.items; review_items($gates[0]; $review[0]; $fix[0])),
+        items: (if $review[0].status == "carried" then $p.items else reconcile_items($p.items; review_items($gates[0]; $review[0]; $fix[0])) end),
         totals: $gates[0].totals}' > "$RUNNER_TEMP/state.json"
-  status_file="$RUNNER_TEMP/status.md"
-  jq -nr -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile state "$RUNNER_TEMP/state.json" --slurpfile review "$CODE_REVIEW" \
-      --slurpfile fix "$FIX_RESULT" --slurpfile contract "$RUNNER_TEMP/contract.json" --argjson publish "$publish" \
-      'include "wording"; status_lines($state[0]; $review[0]; $fix[0]; $contract[0]; $publish; "the pull request'"'"'s current head (after people'"'"'s commits)")' \
-    | sed '1{/^$/d;}' > "$status_file"
-  gh_state_write "$number" "$(cat "$RUNNER_TEMP/state.json")" "$status_file" 2> "$RUNNER_TEMP/state-error" \
-    || stage_fail "Pull request #$number's description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error"))$( [ "$(git rev-parse HEAD)" = "$start" ] || echo ", though the fix was pushed"). A person checks it."
+  # The description's status section: rewritten for a new review; a carried
+  # one leaves it as it was.
+  if [ "$(jq -r '.status' "$CODE_REVIEW")" != carried ]; then
+    status_file="$RUNNER_TEMP/status.md"
+    jq -nr -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile state "$RUNNER_TEMP/state.json" --slurpfile review "$CODE_REVIEW" \
+        --slurpfile fix "$FIX_RESULT" --slurpfile contract "$RUNNER_TEMP/contract.json" --argjson publish "$publish" --slurpfile ctx "$BUILD_CONTEXT" \
+        'include "wording"; status_lines($state[0]; $review[0]; $fix[0]; $contract[0]; $publish; "the pull request'"'"'s current head (after \(reconcile_after($ctx[0])))")' \
+      | sed '1{/^$/d;}' > "$status_file"
+  fi
+  gh_state_write "$number" "$(cat "$RUNNER_TEMP/state.json")" ${status_file:+"$status_file"} 2> "$RUNNER_TEMP/state-error" \
+    || stage_fail "Pull request #$number's description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error"))$( [ "$(git rev-parse HEAD)" = "$start" ] || echo ", though its commits were pushed"). A person checks it."
   _reconcile_comment "$number"
   _reconcile_report "$number"
-  echo "[$TICKET_KEY]($TICKET_URL): pull request #$number re-checked after $(context .people_commits) commit(s) by people — generation $(jq -r '.generation' "$RUNNER_TEMP/state.json")." >> "$GITHUB_STEP_SUMMARY"
+  echo "[$TICKET_KEY]($TICKET_URL): pull request #$number re-checked after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT") — generation $(jq -r '.generation' "$RUNNER_TEMP/state.json")." >> "$GITHUB_STEP_SUMMARY"
   stage_outcome revised
 }
 
 # _reconcile_comment <number>: what this run did, on the pull request —
 # counts and hub facts only (the publication policy).
 _reconcile_comment() {
-  jq -nr -L "$HUB_DIR/lib" --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --slurpfile state "$RUNNER_TEMP/state.json" \
-      --arg start "$(context .start_head)" --arg head "$(git rev-parse HEAD)" --argjson people "$(context .people_commits)" 'include "adf";
+  jq -nr -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --slurpfile state "$RUNNER_TEMP/state.json" \
+      --slurpfile ctx "$BUILD_CONTEXT" --arg head "$(git rev-parse HEAD)" 'include "adf"; include "wording";
     $review[0] as $r | $fix[0] as $x
-    | "🔁 Re-checked by the agent hub: \(plural($people; "commit")) pushed since its last push, at \($start[0:7]), passed the repository'"'"'s checks and "
-      + (if $r.status == "incomplete" then "couldn'"'"'t be reviewed (\($r.reason)), which is a decision item now."
-         else "were reviewed with the whole change: \(plural($r.findings | length; "finding"))." end)
+    | "🔁 Re-checked by the agent hub: \(reconcile_cause($ctx[0])). The head passed the repository'"'"'s checks and "
+      + (if $r.status == "carried" then "the earlier review still applies, so Claude wasn'"'"'t used."
+         elif $r.status == "incomplete" then "couldn'"'"'t be reviewed (\($r.reason)), which is a decision item now."
+         else "was reviewed with the whole change: \(plural($r.findings | length; "finding"))." end)
       + (if $x.status == "kept" then " The fix-eligible ones were fixed once, in \($head[0:7]), and checked."
          elif $x.status == "dropped" or $x.status == "failed" then " A fix pass ran but wasn'"'"'t kept: \($x.reason)."
          else "" end)
-      + " The description'"'"'s Automated review and Items are updated (generation \($state[0].generation))."' \
+      + (if $r.status == "carried" then " The hub'"'"'s record is updated (generation \($state[0].generation))."
+         else " The description'"'"'s Automated review and Items are updated (generation \($state[0].generation))." end)' \
     | gh_pr_comment "$1" || echo "::warning::Couldn't comment on pull request #$1."
 }
 
@@ -211,11 +320,16 @@ _reconcile_report() {
   # shellcheck disable=SC1112 # curly apostrophes intended
   jq -n -L "$HUB_DIR/lib" -L "$STAGE_DIR" --arg number "$1" --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$1" --arg run "$RUN_URL" \
       --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --slurpfile state "$RUNNER_TEMP/state.json" \
-      --slurpfile access "$RUNNER_TEMP/agent-access.json" --argjson people "$(context .people_commits)" 'include "adf"; include "wording";
+      --slurpfile access "$RUNNER_TEMP/agent-access.json" --slurpfile ctx "$BUILD_CONTEXT" 'include "adf"; include "wording";
     $review[0] as $r | $fix[0] as $x
     | ([$state[0].items[] | select(.source == "review" and .status != "closed")]) as $ritems
-    | doc([para([strong("🔁 Pull request re-checked"), text(" — "), link("#\($number)"; $url),
-          text(": \(plural($people; "commit")) by people since the hub’s last push passed the repository’s checks, and the whole change was reviewed again.")])]
+    | if $r.status == "carried" then
+        doc([para([strong("🔁 Pull request synced"), text(" — "), link("#\($number)"; $url),
+          text(": \(reconcile_cause($ctx[0]) | sub("'"'"'"; "’"; "g")). The merged head passed the repository’s checks, and the earlier review still applies: Claude wasn’t used. "),
+          link("Run summary"; $run)])])
+      else
+      doc([para([strong("🔁 Pull request re-checked"), text(" — "), link("#\($number)"; $url),
+          text(": \(reconcile_cause($ctx[0]) | sub("'"'"'"; "’"; "g")). The head passed the repository’s checks, and the whole change was reviewed again.")])]
       + (if $r.status == "incomplete" then [para("The review didn’t finish (\($r.reason)): a decision item for a person.")]
          elif ($r.findings | length) == 0 then [para($r.summary | sentence)]
          else [para("\($r.summary | sentence) The findings:"),
@@ -229,6 +343,7 @@ _reconcile_report() {
          elif $x.status == "dropped" or $x.status == "failed" then [para("A fix pass ran, but its changes weren’t kept: \($x.reason).")]
          else [] end)
       + [para([em("\(claude_cost($access[0]; ($r.cost // 0) + ($x.cost // 0))) · \((($r.duration_ms // 0) + ($x.duration_ms // 0)) | duration) of Claude time. "),
-               link("Run summary"; $run)])])' \
+               link("Run summary"; $run)])])
+      end' \
     | tracker_comment > /dev/null
 }

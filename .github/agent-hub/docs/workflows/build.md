@@ -18,8 +18,10 @@
 > Since 2.11.0 a build whose pull request already exists **reconciles** it
 > instead of stopping: people's commits are verified, reviewed and, where
 > the review allows, fixed once ([Branch lifecycle](#branch-lifecycle)).
-> Syncing with a moved target (4c-2), the CI gate and the hand-off (4d)
-> come in later versions, built against the [Contracts](#contracts) (2.10.2).
+> Since 2.12.0 it also **syncs** with a target branch that moved: merged in,
+> verified, and reviewed again unless the drift is mechanical; a conflict
+> goes to a person ([Sync with the target branch](#sync-with-the-target-branch)).
+> The CI gate and the hand-off (4d) come in later versions, built against the [Contracts](#contracts) (2.10.2).
 > The agreed plan, reviewed externally three times. Items marked
 > *provisional* are defaults to revisit after the first full pipeline test.
 > When the stage is complete, this page becomes its workflow doc (in the
@@ -555,19 +557,43 @@ plan:
 
 ### Sync with the target branch
 
-Before the push, and at the start of every revision:
+*Built* (2.12.0, `_reconcile_sync` in `stages/build/reconcile.sh`) for a
+pull request that already exists: when the target branch has moved past
+where the pull request last met it, a run merges it in — in the fetch step,
+before anything reads the code or Claude runs. The drift is classified first,
+from paths alone (the target's changes since that point, both sides of a
+rename):
 
-- **Mechanical drift** — the target moved, but not in files the pull request
-  or plan touch, nor in drift-sensitive paths: update and continue. A merge
-  conflict is a critical finding: **2 attempts**, then a person.
-- **Semantic drift** — the target changed files the pull request or plan
-  touch, or **drift-sensitive paths** (from repository guidance, with
-  defaults: manifests, lockfiles, schemas, compiler and build configuration,
-  CI configuration, shared types), or the plan's base commit is far behind:
-  the plan is **re-validated once**. Still valid: continue. Not: a person
-  decides.
+- **Mechanical drift** — the target changed no file the pull request or the
+  plan's Changes by File touch, and no drift-sensitive path: the merge is
+  verified (install, the repository's checks on exactly the merge commit)
+  and the **earlier review still applies** — no Claude, so the run isn't
+  admitted against the caps or counted. The status section is left as it
+  was; the record and a comment say what happened.
+- **Semantic drift** — the target changed a file the pull request or plan
+  touch, or a **drift-sensitive path** (`BUILD_DRIFT_SENSITIVE` in
+  `gates.sh`: the gates' sensitive kinds — manifests and lockfiles, schemas,
+  infrastructure, CI, configuration — plus compiler and build configuration,
+  shared types and the hub-managed paths): the merge is verified and the
+  **whole change is reviewed again** on the merged commit, and fixed once
+  where the review allows — as for people's commits. (Decided 2026-10-08:
+  re-checked by the code review, not a separate plan re-validation pass.)
+- **A merge conflict** — the merge is abandoned and nothing is pushed: a
+  comment on the pull request and the ticket lists the conflicting files,
+  the ticket gets `needs-human`, and a person merges the target and
+  resolves them (outcome *blocked*). The next run re-checks what they
+  pushed. (Decided 2026-10-08: a person, not an agent — a later item.)
 
-Updates are merges (or rebases of hub-only commits) — **never a force-push**.
+The merge is the machine user's (`Merge <target> into <branch>`), and the
+base the gates and the review compare with becomes the target's head, so
+they see the pull request's own changes only. Updates are merges — **never
+a rebase or a force-push**; the push is rejected if anyone pushed meanwhile.
+A merge that brings in changes to `.github/workflows/` can't be pushed with
+the build token (no Workflows permission, by design): the run says so and a
+person merges it. Not built: repository guidance adding drift-sensitive
+paths, and treating a base that's far behind as semantic on its own; a new
+build always starts from the target's head, and the sync runs for existing
+pull requests (a revision, step 5, will reuse it).
 
 ### CI gate
 
@@ -738,7 +764,7 @@ and the next revision reviews the whole pull request.
 
 | Situation | What happens |
 |---|---|
-| The hub's pull request is open (2.11.0, `stages/build/reconcile.sh`) | **Reconciled:** with the `agent-hub-paused` label, nothing; a record (state block) someone else edited, or a branch that no longer builds on the hub's last push, stops for a person; built from an earlier plan than the one approved now, superseded — a comment on the pull request and the ticket, `needs-human`, a person decides; nobody pushed since the hub, nothing to do; otherwise people's commits are verified, the whole change reviewed again and fixed once where allowed, the fix pushed without force (rejected if anyone pushed meanwhile), and the description's status section and record rewritten — the rest of it kept — with a comment on the pull request and the full report on the ticket. No build pass: admitted on the review, fix and fix check ($9 by default) |
+| The hub's pull request is open (2.11.0, `stages/build/reconcile.sh`) | **Reconciled:** with the `agent-hub-paused` label, nothing; a record (state block) someone else edited, or a branch that no longer builds on the hub's last push, stops for a person; built from an earlier plan than the one approved now, superseded — a comment on the pull request and the ticket, `needs-human`, a person decides; nobody pushed since the hub and the target hasn't moved, nothing to do; a target that moved is merged in (2.12.0: mechanical drift keeps the review and uses no Claude, semantic drift is reviewed again, a conflict goes to a person — [Sync](#sync-with-the-target-branch)); otherwise people's commits are verified, the whole change reviewed again and fixed once where allowed, the fix pushed without force (rejected if anyone pushed meanwhile), and the description's status section and record rewritten — the rest of it kept — with a comment on the pull request and the full report on the ticket. No build pass: admitted on the review, fix and fix check ($9 by default) |
 | `agent-hub/<KEY>` exists with no hub pull request (e.g. a failed earlier build) | Stop; a person decides |
 | Non-descendant history or a force-push | Earlier generation and review provenance invalid; stop; a person |
 | Branch deleted | Stop; a person |
@@ -880,13 +906,13 @@ is ever *published* from anything but the exact commit the hub verified.
 | Fix | The reviewed commit and that review's fix-eligible findings | Its candidate is kept only once verified (below); pushed only as the exact commit verified | *Built* (2.10.0) |
 | Fix check | The hub's diff of exactly the fix | — (no output of its own is published) | *Built* (2.10.0) |
 | Apply (push) | The verified commit | That commit is `HEAD` and the one the checks passed on; the plan and approval re-checked; the push is never forced, and a new branch must not exist; an existing one must still be at the head the run started from (a push that isn't a fast-forward is rejected) | *Built* (existing branches 2.11.0) |
-| Sync | The target branch's current head and the pull request's head the run recorded | The remote branch still at the recorded head (lease); merges only, never a force-push. **A sync is a code change:** it resets review and verification freshness (below) | *Planned* (4c) |
+| Sync | The target branch's current head and the pull request's head the run recorded | The remote branch still at the recorded head (a push that isn't a fast-forward is rejected); merges only, never a force-push. **A sync is a code change:** it resets verification freshness, and review freshness unless the drift is mechanical (below) | *Built* (2.12.0) |
 | CI fix | The CI failure for the current evaluation commit (which must be the current head) | As Fix, on the current head; the head unchanged since the failure was read | *Planned* (4d) |
 | Hand-off | The current pull request head | The head is the last head the hub verified; required checks green for exactly that evaluation commit; the provenance rule holds; no open decision items; the plan and approval still stand | *Planned* (4d) |
 | `/apply` | The current pull request head and its current items | As a revision build: admitted, verified, gated; only items still valid on the current head are applied (below) | *Planned* (step 5) |
 
-**What invalidates freshness** (planned with 4c, from the state block's
-recorded heads): any commit after the last head the hub verified — a
+**What invalidates freshness** (from the state block's recorded heads;
+*built* 2.11.0–2.12.0): any commit after the last head the hub verified — a
 person's push, a sync merge — makes that head's review and verification
 stale for hand-off. A sync merge whose target changes touch nothing the
 plan or the pull request touches, and no drift-sensitive path, keeps the
@@ -917,9 +943,11 @@ what's pushed (for the build itself: nothing is pushed).
 
 - The state block records the last head that received a **full review**
   (`review.head`) and every later head with its provenance (`heads[].by`:
-  the hub, or people). *Built* (2.11.0).
+  the hub, or people; a sync's merge also records `sync: {target,
+  target_head, drift}`). *Built* (2.11.0, syncs 2.12.0).
 - **Hand-off rule:** every commit after the last full review is a
-  hub-generated commit with a passing fix check (a fix or CI fix).
+  hub-generated commit with a passing fix check (a fix or CI fix), or a
+  sync merge whose drift was mechanical and which passed Verify.
   Otherwise — a person's commit, a sync that changed relevant code — the
   pull request shows what the review covered and isn't handed off until a
   run reviews the current head. *Planned* (4c/4d).
@@ -1084,7 +1112,7 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | `agent-hub-stage.yml` with `code-stage: true` | The shared stage workflow, as for every stage, plus the full history and the machine user's token for the fetch and apply steps only; the install and dependency steps join it as steps that only code stages run, without the token |
 | `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template), `wording.jq` (wording the pull request and the ticket's report share, and the items); later `ci-fix/` |
 | `stages/build/fix.sh`, `stages/build/fix/`, `stages/build/fix-check/` | The fix pass, the fix check and Verify fix (2.10.0); each pass's `prompt.md` and `schema.json` |
-| `stages/build/reconcile.sh` | Reconciling an existing pull request (2.11.0): integrity, superseded, people's commits, the state and status rewrite |
+| `stages/build/reconcile.sh` | Reconciling an existing pull request (2.11.0): integrity, superseded, people's commits, the state and status rewrite; syncing with a moved target (2.12.0): the merge, drift, conflicts |
 | `lib/toolchain.sh` | The Node version a repository declares, for the workflow's setup-node step and the fetch step's check |
 | `stages/build/dependencies.sh` | The dependency step: the folders installed, the plan's dependency changes applied and checked, the result for the gates and the report |
 | `lib/sandbox/` | The hub's sandbox for the install and verify steps: `sandbox.sh` (policies, time limit, a clean environment) and the lockfile `srt` is installed from (per job, from npm's download cache in the runner's tool cache, checked against the lockfile every time; Dependabot keeps it current in the hub's repository, and hub releases carry it to others) |
@@ -1342,7 +1370,7 @@ where stated and only with the owner's OK.
    automatic changes), then the fix pass, fix check and second verify, with
    its eval case (2.10.0); *4c* an existing pull request — reconciliation,
    integrity, superseded builds, people's commits and review coverage
-   (4c-1, 2.11.0), then syncing with a moved target and drift (4c-2); *4d* the CI gate (after
+   (4c-1, 2.11.0), then syncing with a moved target and drift (4c-2, 2.12.0); *4d* the CI gate (after
    a spike on the CI-result mechanism), CI fixes and the hand-off. The
    preview gate comes off after 4d, once the runner blockers are met.
    2.10.1 fixed the post-4b review's findings; 2.10.2 wrote down the

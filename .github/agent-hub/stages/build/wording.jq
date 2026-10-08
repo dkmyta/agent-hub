@@ -137,3 +137,18 @@ def reconcile_items($prev; $fresh):
     + $now
     + [$prev[] | select(.id | startswith("C"))]
   | sort_by((.id[0:1] | {D: 0, R: 1, C: 2}[.]), num);
+
+# reconcile_cause(build context): why a reconcile run re-checked the pull
+# request — people's commits, a merge of the moved target, or both — in hub
+# facts only (counts, commits, the branch's name).
+def reconcile_cause($c):
+  [if $c.people_commits > 0 then "\(plural($c.people_commits; "commit")) pushed since the hub's last push, at \($c.start_head[0:7])" else empty end,
+   if $c.sync then "\($c.target) moved by \(plural($c.sync.commits; "commit")) and the hub merged it in, at \($c.sync.head[0:7]) — "
+     + (if $c.sync.drift == "mechanical" then "its changes touch nothing this pull request or its plan touches, and no drift-sensitive path"
+        else "its changes touch " + ([if $c.sync.overlap > 0 then plural($c.sync.overlap; "file") + " this pull request or its plan touches" else empty end,
+            if $c.sync.sensitive > 0 then plural($c.sync.sensitive; "drift-sensitive file") else empty end] | join(" and ")) end)
+   else empty end] | join("; and ");
+
+# reconcile_after(build context): what the re-checked head comes after.
+def reconcile_after($c):
+  [if $c.people_commits > 0 then "people's commits" else empty end, if $c.sync then "merging \($c.target)" else empty end] | join(" and ");

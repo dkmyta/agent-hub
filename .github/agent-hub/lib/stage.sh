@@ -184,6 +184,9 @@ stage_check_caps() {
     || stage_fail "This stage's Claude budgets (the repository variables AGENT_HUB_$(printf '%s' "$STAGE" | tr 'a-z-' 'A-Z_')_*MAX_BUDGET_USD) must be positive numbers of dollars, so Claude wasn't used."
   jq -ne --argjson max "$run_max" --arg cap "$TICKET_MAX_COST_USD" '$max <= ($cap | tonumber)' > /dev/null \
     || stage_fail "One run of this stage can cost up to \$$run_max (its passes' budgets together), more than the ticket cap AGENT_HUB_TICKET_MAX_COST_USD (\$$TICKET_MAX_COST_USD), so no run could ever start. Raise the cap or lower the budgets; Claude wasn't used."
+  # A run that uses no Claude (a build's sync with only mechanical drift)
+  # isn't admitted against the caps, and isn't counted.
+  [ "$run_max" != 0 ] || return 0
   ledger=$(tracker_ledger) || stage_fail "Couldn't read $TICKET_KEY's Claude usage from $TRACKER_NAME, so Claude wasn't used."
   if jq -e '.over_cap == true' <<< "$ledger" > /dev/null; then
     labels=$(tracker_ticket_labels) || stage_fail "Couldn't read $TICKET_KEY's labels from $TRACKER_NAME, so Claude wasn't used."
