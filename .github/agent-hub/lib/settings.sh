@@ -25,10 +25,22 @@ setting() {
   printf '%s' "${!var:-$2}"
 }
 
-# stage_setting <name> <default>: the stage's own setting, from the repository
-# variable AGENT_HUB_<STAGE>_<name> (e.g. AGENT_HUB_WORK_ORDER_MODEL), so every
+# setting_into <name> <variable> <default>: the same, assigned to <name> —
+# without a subshell: every step loads every setting, and on macOS a
+# subshell per setting was most of a step's start-up time.
+setting_into() {
+  local _var="_VAR_$2"
+  printf -v "$1" '%s' "${!_var:-$3}"
+}
+
+# The stage's own settings come from repository variables
+# AGENT_HUB_<STAGE>_<name> (e.g. AGENT_HUB_WORK_ORDER_MODEL), so every
 # stage's settings are named the same way.
-stage_setting() { setting "AGENT_HUB_$(printf '%s' "$STAGE" | tr 'a-z-' 'A-Z_')_$1" "$2"; }
+_STAGE_VAR_PREFIX="AGENT_HUB_$(printf '%s' "${STAGE:-}" | tr 'a-z-' 'A-Z_')_"
+# stage_setting <name> <default>: the stage's setting.
+stage_setting() { setting "$_STAGE_VAR_PREFIX$1" "$2"; }
+# stage_setting_into <name> <setting> <default>: the same, assigned to <name>.
+stage_setting_into() { setting_into "$1" "$_STAGE_VAR_PREFIX$2" "$3"; }
 
 set -a
 HUB_DIR=${HUB_DIR:-.github/agent-hub}
@@ -39,45 +51,45 @@ EXTENSIONS_DIR=${EXTENSIONS_DIR:-.github/agent-hub-extensions}
 
 # Where tickets live: trackers/<tracker>/tracker.sh. Jira is the only one so far
 # (GitHub Projects is planned).
-TRACKER=$(setting AGENT_HUB_TRACKER jira)
+setting_into TRACKER AGENT_HUB_TRACKER jira
 # What runs the agent: lib/runners/<runner>.sh. Claude Code is the only one so far.
-AGENT_RUNNER=$(setting AGENT_HUB_RUNNER claude-code)
+setting_into AGENT_RUNNER AGENT_HUB_RUNNER claude-code
 
 # Expert review of every draft that goes ahead (docs/architecture.md): a
 # strong model reviewing a draft catches what the drafter missed.
-REVIEW_CLAUDE_MODEL=$(setting AGENT_HUB_REVIEW_MODEL claude-opus-5-5)
-REVIEW_CLAUDE_FALLBACK_MODEL=$(setting AGENT_HUB_REVIEW_FALLBACK_MODEL claude-sonnet-5)
+setting_into REVIEW_CLAUDE_MODEL AGENT_HUB_REVIEW_MODEL claude-opus-5-5
+setting_into REVIEW_CLAUDE_FALLBACK_MODEL AGENT_HUB_REVIEW_FALLBACK_MODEL claude-sonnet-5
 
 # The only sites Claude may fetch pages from (web search is unrestricted), so
 # a malicious ticket can't get repository content sent to an arbitrary URL.
 # Space-separated.
-CLAUDE_FETCH_DOMAINS=$(setting AGENT_HUB_CLAUDE_FETCH_DOMAINS 'docs.github.com developer.atlassian.com support.atlassian.com docs.anthropic.com docs.claude.com developer.mozilla.org nodejs.org docs.npmjs.com')
+setting_into CLAUDE_FETCH_DOMAINS AGENT_HUB_CLAUDE_FETCH_DOMAINS 'docs.github.com developer.atlassian.com support.atlassian.com docs.anthropic.com docs.claude.com developer.mozilla.org nodejs.org docs.npmjs.com'
 
 # The tracker's statuses and labels the stages depend on; they must match the
 # tracker's setup (docs/jira.md, docs/github-projects.md).
-INTAKE_STATUS=$(setting AGENT_HUB_INTAKE_STATUS Intake)
-WORK_ORDER_STATUS=$(setting AGENT_HUB_WORK_ORDER_STATUS 'Work Order')
-WORK_ORDER_APPROVED_STATUS=$(setting AGENT_HUB_WORK_ORDER_APPROVED_STATUS 'Work Order Approved')
-PLAN_STATUS=$(setting AGENT_HUB_IMPLEMENTATION_PLAN_STATUS 'Implementation Plan')
-PLAN_APPROVED_STATUS=$(setting AGENT_HUB_IMPLEMENTATION_PLAN_APPROVED_STATUS 'Implementation Plan Approved')
-NEEDS_DETAILS_LABEL=$(setting AGENT_HUB_NEEDS_DETAILS_LABEL needs-details)
+setting_into INTAKE_STATUS AGENT_HUB_INTAKE_STATUS Intake
+setting_into WORK_ORDER_STATUS AGENT_HUB_WORK_ORDER_STATUS 'Work Order'
+setting_into WORK_ORDER_APPROVED_STATUS AGENT_HUB_WORK_ORDER_APPROVED_STATUS 'Work Order Approved'
+setting_into PLAN_STATUS AGENT_HUB_IMPLEMENTATION_PLAN_STATUS 'Implementation Plan'
+setting_into PLAN_APPROVED_STATUS AGENT_HUB_IMPLEMENTATION_PLAN_APPROVED_STATUS 'Implementation Plan Approved'
+setting_into NEEDS_DETAILS_LABEL AGENT_HUB_NEEDS_DETAILS_LABEL needs-details
 # Marks tickets waiting for a person; approving (the tracker's "…Approved"
 # rules) removes it.
-NEEDS_HUMAN_LABEL=$(setting AGENT_HUB_NEEDS_HUMAN_LABEL needs-human)
-NEEDS_CLARIFICATION_LABEL=$(setting AGENT_HUB_NEEDS_CLARIFICATION_LABEL needs-clarification)
+setting_into NEEDS_HUMAN_LABEL AGENT_HUB_NEEDS_HUMAN_LABEL needs-human
+setting_into NEEDS_CLARIFICATION_LABEL AGENT_HUB_NEEDS_CLARIFICATION_LABEL needs-clarification
 
 # A ticket's total Claude usage, across every stage: the runs that used
 # Claude and their API-equivalent cost. Past either cap nothing more uses
 # Claude for the ticket until a person removes the over-cap label, which
 # allows one more cap's worth (docs/claude-usage.md, "Per-ticket caps").
-TICKET_MAX_RUNS=$(setting AGENT_HUB_TICKET_MAX_RUNS 10)
-TICKET_MAX_COST_USD=$(setting AGENT_HUB_TICKET_MAX_COST_USD 60.00)
-OVER_CAP_LABEL=$(setting AGENT_HUB_OVER_CAP_LABEL agent-hub-over-cap)
+setting_into TICKET_MAX_RUNS AGENT_HUB_TICKET_MAX_RUNS 10
+setting_into TICKET_MAX_COST_USD AGENT_HUB_TICKET_MAX_COST_USD 60.00
+setting_into OVER_CAP_LABEL AGENT_HUB_OVER_CAP_LABEL agent-hub-over-cap
 
 # Comments starting with this are change requests (or retries); the tracker's
 # "Revision Requested" rule starts a run for them, and the run marks them
 # resolved once handled.
-REVISE_COMMAND=$(setting AGENT_HUB_REVISE_COMMAND /revise)
+setting_into REVISE_COMMAND AGENT_HUB_REVISE_COMMAND /revise
 
 # Comment titles that flag a ticket, and are recognised to resolve the flags
 # later. The Needs details one must match the tracker's intake check comment.
@@ -100,7 +112,7 @@ DESCRIPTION_MAX_CHARS=32000
 
 # Jira only: "false" suppresses watcher notifications for description
 # updates (needs Jira admin permission for the API user).
-JIRA_NOTIFY_USERS=$(setting AGENT_HUB_JIRA_NOTIFY_USERS true)
+setting_into JIRA_NOTIFY_USERS AGENT_HUB_JIRA_NOTIFY_USERS true
 
 # shellcheck source=/dev/null
 source "$STAGE_DIR/settings.sh"

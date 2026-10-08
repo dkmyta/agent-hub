@@ -10,18 +10,18 @@ FAILURE_TITLE='❌ Build failed'
 
 # Writing code needs the strongest model and the largest budget
 # (API-equivalent dollars; docs/claude-usage.md).
-CLAUDE_MODEL=$(stage_setting MODEL claude-opus-5-5)
-CLAUDE_FALLBACK_MODEL=$(stage_setting FALLBACK_MODEL claude-sonnet-5)
-CLAUDE_MAX_BUDGET_USD=$(stage_setting MAX_BUDGET_USD 10.00)
+stage_setting_into CLAUDE_MODEL MODEL claude-opus-5-5
+stage_setting_into CLAUDE_FALLBACK_MODEL FALLBACK_MODEL claude-sonnet-5
+stage_setting_into CLAUDE_MAX_BUDGET_USD MAX_BUDGET_USD 10.00
 # The code review: a fresh session on the shared review model
 # (AGENT_HUB_REVIEW_MODEL), with its own budget (stages/build/review.sh).
-BUILD_REVIEW_MAX_BUDGET_USD=$(stage_setting REVIEW_MAX_BUDGET_USD 5.00)
+stage_setting_into BUILD_REVIEW_MAX_BUDGET_USD REVIEW_MAX_BUDGET_USD 5.00
 # The fix pass and its fix check (stages/build/fix.sh): small, targeted
 # passes on a faster model, each with its own budget.
-BUILD_FIX_MODEL=$(stage_setting FIX_MODEL claude-sonnet-5)
-BUILD_FIX_FALLBACK_MODEL=$(stage_setting FIX_FALLBACK_MODEL claude-opus-5-5)
-BUILD_FIX_MAX_BUDGET_USD=$(stage_setting FIX_MAX_BUDGET_USD 3.00)
-BUILD_FIX_CHECK_MAX_BUDGET_USD=$(stage_setting FIX_CHECK_MAX_BUDGET_USD 1.00)
+stage_setting_into BUILD_FIX_MODEL FIX_MODEL claude-sonnet-5
+stage_setting_into BUILD_FIX_FALLBACK_MODEL FIX_FALLBACK_MODEL claude-opus-5-5
+stage_setting_into BUILD_FIX_MAX_BUDGET_USD FIX_MAX_BUDGET_USD 3.00
+stage_setting_into BUILD_FIX_CHECK_MAX_BUDGET_USD FIX_CHECK_MAX_BUDGET_USD 1.00
 
 # Not for real tickets yet: the stage runs only where a repository opts in,
 # for development (playground/), with the repository variable
@@ -30,14 +30,14 @@ BUILD_FIX_CHECK_MAX_BUDGET_USD=$(stage_setting FIX_CHECK_MAX_BUDGET_USD 1.00)
 # later push from replacing what was reviewed; the gate comes off after the
 # CI gate and hand-off (4d) and the runner prerequisites
 # (docs/workflows/build.md, "Status").
-BUILD_PREVIEW=$(stage_setting PREVIEW false)
+stage_setting_into BUILD_PREVIEW PREVIEW false
 
 # The Claude Code version the build runs with: exact (e.g. 2.1.280), never
 # "latest" — the build's boundary rests on how that version enforces the
 # sandbox, so the version can't change beneath it (step_fetch checks the
 # runner has it). The same repository variable picks the version installed
 # on GitHub-hosted runners.
-CLAUDE_CODE_VERSION=$(setting AGENT_HUB_CLAUDE_CODE_VERSION "")
+setting_into CLAUDE_CODE_VERSION AGENT_HUB_CLAUDE_CODE_VERSION ""
 
 # A code stage: the steps without an agent get GitHub (lib/github.sh, loaded
 # by lib/load.sh); the workflow's code-stage input gives them the token.
@@ -50,39 +50,39 @@ AGENT_PROFILE=build
 # The branch pull requests go into (default: the repository's default
 # branch), the label marking the hub's own pull requests, and the branch
 # prefix (agent-hub/<KEY>).
-BUILD_TARGET_BRANCH=$(stage_setting TARGET_BRANCH "")
-BUILD_LABEL=$(stage_setting LABEL agent-hub)
+stage_setting_into BUILD_TARGET_BRANCH TARGET_BRANCH ""
+stage_setting_into BUILD_LABEL LABEL agent-hub
 BUILD_BRANCH_PREFIX=agent-hub/
 
 # The gates' size limits (stages/build/gates.sh).
-BUILD_MAX_FILES=$(stage_setting MAX_FILES 50)
-BUILD_MAX_LINES=$(stage_setting MAX_LINES 2000)
-BUILD_MAX_FILE_LINES=$(stage_setting MAX_FILE_LINES 1000)
+stage_setting_into BUILD_MAX_FILES MAX_FILES 50
+stage_setting_into BUILD_MAX_LINES MAX_LINES 2000
+stage_setting_into BUILD_MAX_FILE_LINES MAX_FILE_LINES 1000
 
 # Time limits, in minutes, for installing the dependencies and for each of the
 # repository's checks the verify step runs (docs/workflows/build.md, "Verify").
-BUILD_INSTALL_MINUTES=$(stage_setting INSTALL_MINUTES 10)
-BUILD_CHECK_MINUTES=$(stage_setting CHECK_MINUTES 10)
+stage_setting_into BUILD_INSTALL_MINUTES INSTALL_MINUTES 10
+stage_setting_into BUILD_CHECK_MINUTES CHECK_MINUTES 10
 
 # The minimum age, in days, of any package version the dependency step
 # chooses (docs/workflows/build.md, "Dependencies"): a version published more
 # recently isn't used — most malicious releases are caught within days. 0
 # for none.
-BUILD_MIN_RELEASE_AGE_DAYS=$(stage_setting MIN_RELEASE_AGE_DAYS 3)
+stage_setting_into BUILD_MIN_RELEASE_AGE_DAYS MIN_RELEASE_AGE_DAYS 3
 
 # The licences a package the dependency step adds may have, as SPDX ids
 # (comma-separated): any other, or none, is a decision item for a person
 # (docs/workflows/build.md, "Dependencies"). Permissive licences by default.
-BUILD_ALLOWED_LICENSES=$(stage_setting ALLOWED_LICENSES "MIT,MIT-0,ISC,BSD-2-Clause,BSD-3-Clause,0BSD,Apache-2.0,Unlicense,CC0-1.0,BlueOak-1.0.0,Zlib,Python-2.0")
+stage_setting_into BUILD_ALLOWED_LICENSES ALLOWED_LICENSES "MIT,MIT-0,ISC,BSD-2-Clause,BSD-3-Clause,0BSD,Apache-2.0,Unlicense,CC0-1.0,BlueOak-1.0.0,Zlib,Python-2.0"
 
 # Whether the repository's checks run on the base commit before the agent
 # (docs/workflows/build.md, "Baseline"): stop (a check already failing there
 # stops the build before Claude is used), warn (build anyway) or off.
-BUILD_BASELINE=$(stage_setting BASELINE stop)
+stage_setting_into BUILD_BASELINE BASELINE stop
 
 # Ticket text in a public repository's pull requests, commits and comments:
 # off unless set to true (docs/workflows/build.md, "Publication policy").
-PUBLISH_TICKET_CONTENT=$(setting AGENT_HUB_PUBLISH_TICKET_CONTENT false)
+setting_into PUBLISH_TICKET_CONTENT AGENT_HUB_PUBLISH_TICKET_CONTENT false
 
 # How to retry, in the failure comment (lib/stage.sh): a build starts on
 # approval, not on a /revise comment.

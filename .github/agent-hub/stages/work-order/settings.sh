@@ -8,18 +8,18 @@ HOME_STATUS=$WORK_ORDER_STATUS
 FAILURE_TITLE='❌ Work order generation failed'
 
 # Each is the repository variable AGENT_HUB_WORK_ORDER_<name> (stage_setting).
-CLAUDE_MODEL=$(stage_setting MODEL claude-sonnet-5)
+stage_setting_into CLAUDE_MODEL MODEL claude-sonnet-5
 # Used automatically when the model is overloaded.
-CLAUDE_FALLBACK_MODEL=$(stage_setting FALLBACK_MODEL claude-opus-5-5)
+stage_setting_into CLAUDE_FALLBACK_MODEL FALLBACK_MODEL claude-opus-5-5
 # Stops a runaway run; exceeding it fails the run with the failure comment.
 # API-equivalent dollars (typical costs: docs/claude-usage.md). With a Claude
 # subscription nothing is billed but runs use the plan's limits, so this
 # protects those; with an API key it caps spend.
-CLAUDE_MAX_BUDGET_USD=$(stage_setting MAX_BUDGET_USD 2.00)
-REVIEW_CLAUDE_MAX_BUDGET_USD=$(stage_setting REVIEW_MAX_BUDGET_USD 2.00)
+stage_setting_into CLAUDE_MAX_BUDGET_USD MAX_BUDGET_USD 2.00
+stage_setting_into REVIEW_CLAUDE_MAX_BUDGET_USD REVIEW_MAX_BUDGET_USD 2.00
 # A revision is scoped to the requested changes, so each of its passes has
 # this lower cap instead.
-REVISION_MAX_BUDGET_USD=$(stage_setting REVISION_MAX_BUDGET_USD 1.00)
+stage_setting_into REVISION_MAX_BUDGET_USD REVISION_MAX_BUDGET_USD 1.00
 
 # The Needs details comment: must match the tracker's intake check comment
 # (Jira: the Work Order Requested rule).
