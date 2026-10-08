@@ -39,7 +39,7 @@ setup() {
 # eval_pass_cost: what this case's real Claude passes cost (each records
 # its cost: lib/runners/claude-code.sh), or "unknown".
 eval_pass_cost() {
-  jq -s 'if length == 0 or any(.[]; .cost == null) then "unknown" else map(.cost) | add end' "$RUNNER_TEMP/claude-passes.jsonl" 2> /dev/null | tr -d '"' || echo unknown
+  jq -s 'if length == 0 or any(.[]; .cost == null) then "unknown" else map(.cost) | add | . * 100 | round / 100 end' "$RUNNER_TEMP/claude-passes.jsonl" 2> /dev/null | tr -d '"' || echo unknown
 }
 
 run_eval() { # <case>

@@ -8,4 +8,4 @@
 **Fix pass:** none — no fix-eligible findings.
 [PROJ-99](https://example.atlassian.net/browse/PROJ-99): draft pull request #101 opened from agent-hub/PROJ-99, with 1 decision item(s) and 0 review item(s).
 **Outcome:** written
-**Ticket usage:** this run $2.81; the ticket 1 of 10 runs and $2.81 of $60 since its caps last started.
+**Ticket usage:** this run $2.81; the ticket 1 of 10 runs and $2.81 of $60.00 since its caps last started.

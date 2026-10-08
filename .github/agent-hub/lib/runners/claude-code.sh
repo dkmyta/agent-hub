@@ -255,7 +255,9 @@ _claude() {
     # (Claude Code gives sandboxed commands its own per-user temp folder as
     # their TMPDIR — /tmp/claude-<uid> — whatever this sets; the sandbox
     # check reports which: docs/runners.md, "Checking the sandbox".)
-    env=(CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 "TMPDIR=$temp" "XDG_CACHE_HOME=$temp/cache"
+    # git without the user's ~/.gitconfig, which the sandbox (rightly) can't
+    # read: otherwise every git command an agent runs fails.
+    env=(CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 GIT_CONFIG_GLOBAL=/dev/null "TMPDIR=$temp" "XDG_CACHE_HOME=$temp/cache"
       "npm_config_cache=$temp/npm" "YARN_CACHE_FOLDER=$temp/yarn" "PIP_CACHE_DIR=$temp/pip")
   fi
   # Isolation, whatever the repository's or the runner owner's settings say:

@@ -6,4 +6,4 @@
 
 Work order written on [PROJ-99](https://example.atlassian.net/browse/PROJ-99); resolved 2 needs-details comment(s) and 0 change request(s).
 **Outcome:** written
-**Ticket usage:** this run $1.01; the ticket 1 of 10 runs and $1.01 of $60 since its caps last started.
+**Ticket usage:** this run $1.01; the ticket 1 of 10 runs and $1.01 of $60.00 since its caps last started.

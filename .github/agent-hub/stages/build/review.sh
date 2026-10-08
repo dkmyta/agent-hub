@@ -74,7 +74,7 @@ step_review() {
   jq -c '.structured_output.findings' "$output" | review_policy > "$RUNNER_TEMP/review-findings.json"
   jq -n --arg head "$head" --slurpfile out "$output" --slurpfile findings "$RUNNER_TEMP/review-findings.json" '
     {status: "reviewed", head: $head, summary: $out[0].structured_output.summary,
-     cost: ($out[0].total_cost_usd // 0), findings: $findings[0]}' > "$CODE_REVIEW"
+     cost: ($out[0].total_cost_usd // 0), duration_ms: ($out[0].duration_ms // 0), findings: $findings[0]}' > "$CODE_REVIEW"
   # Counts only: findings quote the code and can echo the ticket.
   jq -r '"**Code review:** \(.findings | length) finding(s) — \([.findings[] | select(.policy == "decision")] | length) decision item(s), \([.findings[] | select(.policy == "fix")] | length) fix-eligible, \([.findings[] | select(.policy == "review")] | length) review item(s); $\(.cost * 100 | round / 100)."' \
     "$CODE_REVIEW" | tee -a "$GITHUB_STEP_SUMMARY"

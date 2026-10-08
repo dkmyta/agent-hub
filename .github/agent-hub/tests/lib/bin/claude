@@ -44,7 +44,7 @@ esac
 suffix=""; [ "$pass" = draft ] || suffix="-$pass"
 printf '%s\n' "$@" > "$RUNNER_TEMP/claude$suffix-args.txt"
 # The environment the hub set for the session (sandboxed profiles).
-env | grep -E '^(CLAUDE_CODE_SUBPROCESS_ENV_SCRUB|TMPDIR|XDG_CACHE_HOME|npm_config_cache|YARN_CACHE_FOLDER|PIP_CACHE_DIR)=' \
+env | grep -E '^(CLAUDE_CODE_SUBPROCESS_ENV_SCRUB|GIT_CONFIG_GLOBAL|TMPDIR|XDG_CACHE_HOME|npm_config_cache|YARN_CACHE_FOLDER|PIP_CACHE_DIR)=' \
   | sort > "$RUNNER_TEMP/claude$suffix-env.txt" || true
 while [ $# -gt 0 ]; do
   [ "$1" = -p ] && { printf '%s' "$2" > "$RUNNER_TEMP/claude$suffix-prompt.txt"; break; }

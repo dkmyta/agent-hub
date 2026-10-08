@@ -276,7 +276,7 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
   run jq ".cost_usd" <<< "$(ledger)"
   assert_output 2.5084
   run cat "$RUNNER_TEMP/summary.md"
-  assert_output --partial "**Ticket usage:** this run \$1.01; the ticket 3 of 10 runs and \$2.51 of \$60 since its caps last started."
+  assert_output --partial "**Ticket usage:** this run \$1.01; the ticket 3 of 10 runs and \$2.51 of \$60.00 since its caps last started."
 }
 
 @test "caps: at either cap the run stops before Claude — labelled, a comment saying how to go on, nothing else changed" {
@@ -295,7 +295,7 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
     assert_equal "$(cat "$RUNNER_TEMP/outcome")" blocked
   done
   run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
-  assert_output "⛔ Claude usage cap reached — this ticket has used \$69 of its \$60 cap in 10 of its 10 runs, across every stage. A run of this stage can cost up to \$4, so it stopped before using Claude. To go on, a person removes the agent-hub-over-cap label — which allows another \$60 and 10 runs — then tries again. Run details"
+  assert_output "⛔ Claude usage cap reached — this ticket has used \$69.00 of its \$60.00 cap in 10 of its 10 runs, across every stage. A run of this stage can cost up to \$4.00, so it stopped before using Claude. To go on, a person removes the agent-hub-over-cap label — which allows another \$60.00 and 10 runs — then tries again. Run details"
 }
 
 @test "caps: still over while the label stays; removing it allows one more cap's worth" {
@@ -374,6 +374,9 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
   run cat "$RUNNER_TEMP/trace.txt"
   assert_line "Agent: skipped"
   assert_equal "$(cat "$RUNNER_TEMP/outcome")" blocked
+  # The log says why, in numbers.
+  run cat "$RUNNER_TEMP/log.txt"
+  assert_output --partial "::notice::PROJ-99 is at its Claude usage cap, so Claude wasn't used: a run of this stage can cost up to \$4.00, and \$3.99 is left of its \$60.00 cap (\$56.01 used)."
 }
 
 @test "caps: a revision's maximum is its revision budget for both passes" {

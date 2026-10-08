@@ -5,6 +5,28 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.10.3 — 2026-10-08
+
+Tidy-ups from the first real build on 2.10.x (the playground's
+AGENTHUB-58: build, review, ticket caps and a budget-blocked run, all as
+designed) and the build eval's first run (passed: the review found the
+planted problem, the fix was kept and confirmed, $0.38).
+
+- **git works for the agent's commands** in the sandbox: they get
+  `GIT_CONFIG_GLOBAL=/dev/null`, so git no longer fails trying to read the
+  user's `~/.gitconfig`, which the sandbox (rightly) blocks. The build agent
+  had worked around it, and said so in its testing instructions.
+- **Money is shown as money everywhere:** `$19.20`, not `$19.2`; the cost
+  line reads `$0.37`, not `0.37 USD` (one `usd` helper in `lib/adf.jq`).
+- **The cost line's time covers every pass** — the build, the review, the fix
+  pass and its check — not just the build pass.
+- **The over-cap log line says why, in numbers:** "a run of this stage can
+  cost up to $19.00, and $18.83 is left of its $19.20 cap ($0.37 used)", or
+  the runs used — instead of only listing the caps.
+- The build eval's results table rounds its cost.
+
+**Updating:** nothing to do.
+
 ## 2.10.2 — 2026-10-07
 
 The build stage's contracts, written down before 4c and 4d are built, and

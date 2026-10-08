@@ -25,9 +25,11 @@ FIX_RESULT="$RUNNER_TEMP/fix.json"
 _fix_record() {
   local cost
   # What the passes that did run cost.
-  cost=$(cat "$RUNNER_TEMP/fix-output.json" "$RUNNER_TEMP/fix-check-output.json" 2> /dev/null | jq -s '[.[].total_cost_usd // 0] | add // 0' 2> /dev/null) || cost=0
-  jq -n --arg status "$1" --arg reason "$2" --arg before "${3:-}" --argjson cost "${cost:-0}" \
-    '{status: $status, reason: $reason, before: $before, cost: $cost, findings: [], fixes: [], checks: [], new_concerns: []}' > "$FIX_RESULT"
+  cost=$(cat "$RUNNER_TEMP/fix-output.json" "$RUNNER_TEMP/fix-check-output.json" 2> /dev/null \
+    | jq -sc '{cost: ([.[].total_cost_usd // 0] | add // 0), ms: ([.[].duration_ms // 0] | add // 0)}' 2> /dev/null) || cost=""
+  jq -n --arg status "$1" --arg reason "$2" --arg before "${3:-}" --argjson spent "${cost:-"{}"}" \
+    '{status: $status, reason: $reason, before: $before, cost: ($spent.cost // 0), duration_ms: ($spent.ms // 0),
+      findings: [], fixes: [], checks: [], new_concerns: []}' > "$FIX_RESULT"
   echo "**Fix pass:** $1 — $2." >> "$GITHUB_STEP_SUMMARY"
 }
 
@@ -96,6 +98,7 @@ step_fix() {
       --slurpfile out "$output" '
     {status: "made", before: $head, findings: [$f[].n],
      cost: (($out[0].total_cost_usd // 0) + ($check[0].total_cost_usd // 0)),
+     duration_ms: (($out[0].duration_ms // 0) + ($check[0].duration_ms // 0)),
      fixes: [$f[] | {finding: .n, fixed, what}],
      # A finding missing from the check is unresolved.
      checks: [$f[] | .n as $n | ($check[0].structured_output.checks | map(select(.finding == $n)) | first)
