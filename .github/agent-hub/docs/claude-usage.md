@@ -108,7 +108,9 @@ run — retries, revisions and resubmissions included:
   fits within the cap. "The most" is the sum of the configured maximum of
   every pass the run may execute — not an estimate: a work order or plan is
   its draft and review budgets ($4 and $10 by default; their revision budgets
-  when revising), a build its build, review, fix and fix check ($19). So a
+  when revising), a build its build, review, fix and fix check ($19) — or,
+  reconciling a pull request that already exists, only the review, fix and
+  fix check ($9). So a
   run that starts can always finish within the cap, and a ticket stops once
   less than one run's maximum is left. A cap smaller than one run's maximum
   is a settings error. Each pass still has its own `--max-budget-usd`, the

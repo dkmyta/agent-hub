@@ -20,16 +20,10 @@
 include "adf";
 include "wording";
 
-# Text from Claude or the ticket: no HTML (which could also forge a state
-# block's marker line), one line where a list item needs it.
-def safe: tostring | gsub("<"; "&lt;");
 # How a criterion is verified, as a phrase: "verified manually", "verified
 # by a new test".
 def verified: if . == "manual" then "verified **manually**"
   else "verified by **\(if test("^[aeiou]") then "an" else "a" end) \(.)**" end;
-def line: safe | gsub("\\s*\\n\\s*"; " ");
-def code: "`" + (tostring | gsub("`"; "'") | gsub("\\n"; " ")) + "`";
-def section($title; $lines): if ($lines | length) > 0 then "", "## \($title)", "", $lines[] else empty end;
 
 def status_word: {A: "added", M: "modified", D: "deleted"}[.] // .;
 def line_counts: if .added == null then "binary" else "+\(.added) −\(.deleted)" end;
@@ -88,41 +82,7 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
     | "- **\(.decision | line)** — \(.why | line)" + (if (.alternatives // []) != [] then " Alternatives: \(.alternatives | map(line) | join("; "))." else "" end)]
     else [] end),
 
-  section("Automated review"; if $r.status == "incomplete" then
-      ["The automated code review didn't finish (\($r.reason)), so this build is unreviewed: a person reviews it without one (a decision item below)."]
-    else
-      [(if $publish then ($r.summary | line) + " " else "" end)
-        + "A fresh, read-only session reviewed this commit against the plan: "
-        + (if ($r.findings | length) == 0 then "no findings."
-           else "\(plural($r.findings | length; "finding")) — \([$r.findings[] | select(.policy == "decision")] | length) for a person to decide, \([$r.findings[] | select(.policy == "fix")] | length) fix-eligible, \([$r.findings[] | select(.policy == "review")] | length) review item(s)." end)]
-      + (if $x.status == "kept" then
-          ["", "The fix-eligible findings were fixed once, in the commit after the reviewed one, and a fresh read-only session checked each fix: \([$x.checks[] | select(.verdict == "resolved")] | length) resolved, \([$x.checks[] | select(.verdict != "resolved")] | length) not (still open below)"
-             + (if ($x.new_concerns | length) > 0 then ", and \(plural($x.new_concerns | length; "new concern")) the fixes raised (below)" else "" end)
-             + ". The hub's gates and the repository's checks passed on the fix before it was kept."]
-        elif $x.status == "dropped" or $x.status == "failed" then
-          ["", "A fix pass ran, but its changes weren't kept: \($x.reason). The fix-eligible findings stay open below."]
-        else [] end)
-    end),
-
-  section("Items for a person"; [$s.items[] | . as $i
-    | if .source == "review" then
-        ([$r.findings[] | select(.n == $i.finding)] | first) as $f
-        | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" elif .status == "fixed" then "fixed by the fix pass (checked)" elif .fix_eligible then "review item, fix-eligible, not fixed" else "review item" end)
-          + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
-          + (if $publish then ": \($f.title | line)" + (if ($f.file // "") != "" then " (\($f.file | code)\(if $f.line then ":\($f.line)" else "" end))" else "" end)
-             else " (details on the ticket)" end)
-      elif .source == "fix-check" then
-        ([$x.new_concerns[] | select(.n == $i.concern)] | first) as $f
-        | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" else "review item" end) + ", raised by the fix check"
-          + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
-          + (if $publish then ": \($f.title | line)" + (if ($f.file // "") != "" then " (\($f.file | code)\(if $f.line then ":\($f.line)" else "" end))" else "" end)
-             else " (details on the ticket)" end)
-      elif (.id | startswith("D")) then
-        "- **\(.id)** " + (if .path != "" then "\(.path | code) — " else "" end) + "decision: \(.reason)"
-      else .path as $path
-        | "- **\(.id)** \(.path | code) — a manual change for a person"
-          + (if $publish then ": \([$p.governance.manual_changes[] | select(.path == $path)][0].change // "" | line)" else " (described on the ticket)" end)
-      end]),
+  status_lines($s; $r; $x; $p; $publish; "this commit"),
 
   section("Risk and governance"; ["- Risk: **\($p.governance.risk.level)**" + (if $publish then " — \($p.governance.risk.reason | line)" else "" end),
     "- Declared in the plan: " + ([$p.governance.includes | to_entries[] | select(.value) | .key | gsub("_"; " ")] | if length > 0 then join(", ") else "none of the sensitive kinds" end),

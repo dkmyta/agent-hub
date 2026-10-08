@@ -37,6 +37,8 @@ The repository's own checks, run by the hub on exactly this commit, in the sandb
 
 - **An empty name greets without one** — greet("") reading "Hello, !" looks broken. Alternatives: Return "Hello, !".
 
+<!-- agent-hub:status -->
+
 ## Automated review
 
 The build matches the plan; no problems found. A fresh, read-only session reviewed this commit against the plan: no findings.
@@ -44,6 +46,7 @@ The build matches the plan; no problems found. A fresh, read-only session review
 ## Items for a person
 
 - **D1** `README.md` — decision: in an area the plan says must not be touched
+<!-- /agent-hub:status -->
 
 ## Risk and governance
 

@@ -276,7 +276,7 @@ test/greet.test.js expected"
 
 # Closing a pull request and deleting its branch say what state it's in, not
 # that a person wants a new build: that takes an approval after the close.
-@test "an earlier pull request: open, or closed with its branch, stops the build; closed, branch deleted and the plan approved since, it builds again" {
+@test "an earlier pull request: open without a record the hub can trust, or closed with its branch, stops the build; closed, branch deleted and the plan approved since, it builds again" {
   # The fixture's approval is at 10:00.
   jq -n '[{number: 100, head: {ref: "agent-hub/PROJ-99"}, base: {ref: "main"}, title: "t", body: "b", draft: true,
     state: "closed", merged_at: null, closed_at: "2026-10-01T11:00:00Z", labels: [{name: "agent-hub"}],
@@ -285,14 +285,14 @@ test/greet.test.js expected"
   jq '.[0].closed_at = "2026-10-01T09:30:00Z"' "$BATS_TEST_TMPDIR/closed.json" > "$BATS_TEST_TMPDIR/closed-before.json"
   fresh_repo agent-hub/PROJ-99
   run_scenario ready MOCK_GH_PRS_FIXTURE="$BATS_TEST_TMPDIR/open.json"
+  # An open pull request is reconciled (4c) — but only from a record the hub
+  # can trust, and this one's description has none.
   run cat "$RUNNER_TEMP/failure-reason"
-  assert_output --partial "already has the hub's pull request #100"
-  # The comment says what a person does first — not "approve again or
-  # re-run", which would stop here again. (It failed before the progress
-  # comment, so the notice is a comment of its own.)
+  assert_output --partial "The hub's record in pull request #100 can't be trusted"
+  # The comment says what a person does first. (It failed before the
+  # progress comment, so the notice is a comment of its own.)
   run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | tostring' "$CALLS"
-  assert_output --partial "To try again, close pull request #100 and delete agent-hub/PROJ-99"
-  refute_output --partial "re-run"
+  assert_output --partial "To try again, a person checks pull request #100's description"
   run_scenario ready MOCK_GH_PRS_FIXTURE="$BATS_TEST_TMPDIR/closed.json"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "closed unmerged and its branch is still there"
@@ -1264,4 +1264,166 @@ pass_row() { # <pass name>: that row's cells, one per line
     run cat "$RUNNER_TEMP/failure-reason"
     assert_output --partial "must be positive numbers of dollars, so Claude wasn't used."
   done
+}
+
+# 4c: a build whose pull request already exists is reconciled, not built
+# again (reconcile.sh; docs/workflows/build.md, "Contracts").
+# built_pr: a first build, its pull request open; prs.json keeps GitHub's
+# state for the next run, which starts from a fresh checkout of main.
+built_pr() {
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+}
+# reconcile_run [VAR=value...]: the second run, on the existing pull request.
+reconcile_run() { run_scenario ready "MOCK_GH_PRS_FIXTURE=$BATS_TEST_TMPDIR/prs.json" "$@"; }
+pr_body() { jq -r '.[0].body' "$RUNNER_TEMP/mock-github/prs.json"; }
+pr_state() { pr_body | awk '/^<!-- agent-hub:state$/ { getline; print }'; }
+
+@test "reconcile: a person's commits are verified and reviewed with the whole change; the description's status and record updated, a comment on each" {
+  built_pr
+  person_pushes agent-hub/PROJ-99 'printf "\n// Reviewed by Dana.\n" >> src/greet.js'
+  reconcile_run
+  run trace
+  assert_line "Agent: success"
+  assert_line "Verify: success"
+  assert_line "Review: success"
+  assert_line "Apply: success"
+  assert_line "--- Outcome: revised"
+  # No build pass: Claude ran only for the review.
+  [ ! -e "$RUNNER_TEMP/claude-args.txt" ] || fail "the build pass ran"
+  run cat "$RUNNER_TEMP/claude-pass-prompt.txt"
+  assert_output --partial "+// Reviewed by Dana."
+  # The record: the next generation, the people's head, the review on it.
+  local head
+  head=$(git --git-dir="$REMOTE" rev-parse refs/heads/agent-hub/PROJ-99)
+  run jq -c '{generation, people: [.heads[] | select(.by == "people") | .head], review: .review.head}' <<< "$(pr_state)"
+  assert_output "{\"generation\":2,\"people\":[\"$head\"],\"review\":\"$head\"}"
+  # The status section rewritten in place, the rest of the description kept.
+  run pr_body
+  assert_output --partial "<!-- agent-hub:status -->"
+  assert_output --partial "A fresh, read-only session reviewed the pull request's current head (after people's commits) against the plan: no findings."
+  assert_output --partial "Built by the agent hub from the approved implementation plan"
+  assert_equal "$(grep -c '^<!-- agent-hub:status -->$' <<< "$output")" 1
+  # Nothing pushed: no fix was needed.
+  assert_equal "$(git --git-dir="$REMOTE" rev-parse refs/heads/agent-hub/PROJ-99)" "$head"
+  run jq -r '.body' "$RUNNER_TEMP/mock-github/comments.jsonl"
+  assert_output --partial "🔁 Re-checked by the agent hub: 1 commit pushed since its last push"
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
+  assert_output --partial "⏳ Re-checking pull request #101"
+  assert_output --partial "🔁 Pull request re-checked"
+}
+
+@test "reconcile: nobody pushed since the hub — nothing to do, no Claude, no comment" {
+  built_pr
+  reconcile_run
+  run trace
+  assert_line "Agent: skipped"
+  assert_line "--- Outcome: no change needed"
+  [ ! -e "$RUNNER_TEMP/mock-github/comments.jsonl" ]
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .path' "$CALLS"
+  assert_output ""
+}
+
+@test "reconcile: built from an earlier plan — superseded, a person decides; nothing else changes" {
+  built_pr
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  { cat "$FIXTURES/plan.md"; printf '\nOne more note from the planner.\n'; } > "$BATS_TEST_TMPDIR/plan-v2.md"
+  reconcile_run "ATTACHMENT_CONTENT_FIXTURE=$BATS_TEST_TMPDIR/plan-v2.md"
+  run trace
+  assert_line "Agent: skipped"
+  assert_line "--- Outcome: blocked"
+  assert_line --partial "⚠️ Build superseded"
+  assert_line --partial '{"update":{"labels":[{"add":"needs-human"}]}}'
+  run jq -r '.body' "$RUNNER_TEMP/mock-github/comments.jsonl"
+  assert_output --partial "newer version than the one this pull request was built from"
+  assert_equal "$(jq -c '.generation' <<< "$(pr_state)")" 1
+}
+
+@test "reconcile: a record someone else edited, or a rewritten branch — stop for a person, nothing changed" {
+  built_pr
+  # Someone changes the state block.
+  jq '.[0].body |= sub("\"generation\":1"; "\"generation\":7") | .[0].versions += [{editor: "dana", body: .[0].body}]' \
+    "$BATS_TEST_TMPDIR/prs.json" > "$BATS_TEST_TMPDIR/tampered.json"
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  run_scenario ready "MOCK_GH_PRS_FIXTURE=$BATS_TEST_TMPDIR/tampered.json"
+  run trace
+  assert_line "Fetch ticket: failure"
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "The hub's record in pull request #101 can't be trusted (an edit by dana changed the state block)"
+  # The branch force-pushed to a history without the hub's push.
+  fresh_checkout
+  git -C "$STEP_CWD" push -q -f origin main:refs/heads/agent-hub/PROJ-99
+  reconcile_run
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "was rewritten since the hub's last push"
+  run trace
+  assert_line "Agent: skipped"
+}
+
+@test "reconcile: the agent-hub-paused label — the hub leaves the pull request alone" {
+  built_pr
+  jq '.[0].labels += [{name: "agent-hub-paused"}]' "$BATS_TEST_TMPDIR/prs.json" > "$BATS_TEST_TMPDIR/paused.json"
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  run_scenario ready "MOCK_GH_PRS_FIXTURE=$BATS_TEST_TMPDIR/paused.json"
+  run trace
+  assert_line "Agent: skipped"
+  assert_line "--- Outcome: paused"
+}
+
+@test "reconcile: a fix on top of a person's commits is pushed without force, and recorded as the hub's" {
+  built_pr
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  reconcile_run CLAUDE_PASS_FIXTURE=claude/review-findings.json CLAUDE_FIX_FIXTURE=claude/fix.json \
+    CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json CLAUDE_FIX_EDITS=edits/fix-trim.sh
+  run trace
+  assert_line "Apply: success"
+  assert_equal "$(git --git-dir="$REMOTE" log -1 --format=%s refs/heads/agent-hub/PROJ-99)" "Fix the automated review's findings"
+  assert_equal "$(git --git-dir="$REMOTE" log -1 --format=%s refs/heads/agent-hub/PROJ-99~1)" "A person's change"
+  run jq -c '[.heads[] | .by // "hub"]' <<< "$(pr_state)"
+  assert_output '["hub","people","hub"]'
+  # The new review's items replace nothing but the old open ones; ids continue.
+  run jq -c '[.items[] | {id, status}]' <<< "$(pr_state)"
+  assert_output '[{"id":"D1","status":"open"},{"id":"D2","status":"open"},{"id":"R1","status":"fixed"},{"id":"R2","status":"open"},{"id":"R3","status":"open"}]'
+}
+
+@test "reconcile: checks failing on people's commits — nothing changed, the output on the ticket" {
+  built_pr
+  person_pushes agent-hub/PROJ-99 'printf "export function greet() { throw new Error(\"broken\"); }\n" > src/greet.js'
+  reconcile_run
+  run trace
+  assert_line "Verify: failure"
+  assert_line "Review: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "The repository's checks fail on pull request #101's current head, after people's commits: test (failed)."
+  assert_equal "$(jq -c '.generation' <<< "$(pr_state)")" 1
+}
+
+@test "reconcile: someone pushing during the run — the fix isn't pushed, and nothing is forced" {
+  built_pr
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  cat > "$BATS_TEST_TMPDIR/race.sh" <<SH
+bash -e "$FIXTURES/edits/fix-trim.sh"
+dir=\$(mktemp -d) && git clone -q "file://$REMOTE" "\$dir/c" && cd "\$dir/c" && git checkout -q agent-hub/PROJ-99 \\
+  && echo "// Sam." >> src/greet.js && git add -A && git -c user.name=sam -c user.email=s@x commit -qm "Sam's change" && git push -q origin agent-hub/PROJ-99
+SH
+  reconcile_run CLAUDE_PASS_FIXTURE=claude/review-findings.json CLAUDE_FIX_FIXTURE=claude/fix.json \
+    CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json "CLAUDE_FIX_EDITS=$BATS_TEST_TMPDIR/race.sh"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "someone pushed to it during this run"
+  assert_equal "$(git --git-dir="$REMOTE" log -1 --format=%s refs/heads/agent-hub/PROJ-99)" "Sam's change"
+}
+
+@test "reconcile: admitted on review, fix and fix check only (9 dollars by default), with no build pass" {
+  built_pr
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  reconcile_run 'MOCK_LEDGER={"runs":1,"cost_usd":51}'
+  run trace
+  assert_line "Review: success"
+  fresh_checkout
+  reconcile_run 'MOCK_LEDGER={"runs":1,"cost_usd":51.01}'
+  run trace
+  assert_line "Agent: skipped"
+  assert_line "--- Outcome: blocked"
 }
