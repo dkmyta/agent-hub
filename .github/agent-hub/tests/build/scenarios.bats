@@ -858,11 +858,11 @@ stops() {
 @test "the cost line says how Claude was reached: a plan's usage counts against its limits, an API key's is billed" {
   run_scenario ready CLAUDE_AUTH=api-key CLAUDE_EDITS=edits/greet.sh
   run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
-  assert_output --partial "Claude (build, review and fixes), via an API key: 2.81 USD, billed to the API key"
+  assert_output --partial "Claude (build, review and fixes), via an API key: \$2.81, billed to the API key"
   fresh_repo
   run_scenario ready CLAUDE_AUTH=account CLAUDE_EDITS=edits/greet.sh
   run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
-  assert_output --partial "Claude (build, review and fixes), via a logged-in Claude account (pro): 2.81 USD API-equivalent, counted against the plan’s usage limits"
+  assert_output --partial "Claude (build, review and fixes), via a logged-in Claude account (pro): \$2.81 API-equivalent, counted against the plan’s usage limits"
   refute_output --partial "private-person@example.com"
 }
 
@@ -1008,7 +1008,7 @@ pushed_head_subject() { local remote; remote=$(git -C "$STEP_CWD" remote get-url
   assert_line --partial "- **R1** fixed by the fix pass (checked) — high correctness"
   assert_line --partial "- **R3** review item, raised by the fix check — low style"
   assert_output --partial "1 resolved, 0 not (still open below), and 1 new concern the fixes raised"
-  assert_output --partial "Claude (build, review and fixes), via a logged-in Claude account (pro): 4.41 USD"
+  assert_output --partial "Claude (build, review and fixes), via a logged-in Claude account (pro): \$4.41"
   run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
   assert_output --partial "R1 — fixed: src/greet.js trims the name before the check"
   assert_output --partial "Check: resolved — src/greet.js trims first"
@@ -1180,7 +1180,7 @@ assert_fully_discarded() {
   run trace
   assert_line "Agent: skipped"
   run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
-  assert_output --partial "A run of this stage can cost up to \$19, so it stopped before using Claude."
+  assert_output --partial "A run of this stage can cost up to \$19.00, so it stopped before using Claude."
 }
 
 # The agent passes (docs/architecture.md, "Agent passes") are one table the

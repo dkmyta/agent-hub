@@ -518,6 +518,8 @@ $RUNNER_TEMP/plugins/repository"
   # Commands get no secrets, and keep temp files and caches in the temp folder.
   run cat "$RUNNER_TEMP/claude-env.txt"
   assert_line "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1"
+  # git works for its commands: no reading the user's ~/.gitconfig.
+  assert_line "GIT_CONFIG_GLOBAL=/dev/null"
   assert_line "TMPDIR=$temp"
   assert_line "npm_config_cache=$temp/npm"
 

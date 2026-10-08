@@ -14,6 +14,10 @@ def unstop: sub("[.\\s]+$"; "");
 def sentence: sub("\\s+$"; "") | if test("[.!?]$") then . else . + "." end;
 # plural($n; $word): "1 file", "2 files".
 def plural($n; $word): "\($n) \($word)" + (if $n == 1 then "" else "s" end);
+# usd: dollars as money — two decimal places, "$19.20".
+def usd: (. * 100 | round) as $c | "$\($c / 100 | floor).\($c % 100 | tostring | if length == 1 then "0" + . else . end)";
+# duration: milliseconds as "38s" or "2 min 5s".
+def duration: (. / 1000 | floor) as $s | if $s < 60 then "\($s)s" else "\($s / 60 | floor) min \($s % 60)s" end;
 
 # --- Inline nodes -----------------------------------------------------------
 
