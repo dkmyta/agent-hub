@@ -180,6 +180,28 @@ tracker_ledger() {
 # tracker_set_ledger < JSON: replace the record.
 tracker_set_ledger() { jira -X PUT "$LEDGER_URL" -d @- > /dev/null; }
 
+# tracker_property <key>: another of the hub's issue properties (private, like
+# the ledger), as JSON, or {} if there's none yet.
+tracker_property() {
+  local keys
+  keys=$(jira "$ISSUE_URL/properties") || return 1
+  if jq -e --arg key "$1" 'any(.keys[]?; .key == $key)' <<< "$keys" > /dev/null; then
+    jira "$ISSUE_URL/properties/$1" | jq -c '.value // {}'
+  else
+    echo '{}'
+  fi
+}
+
+# tracker_set_property <key> < JSON: replace it.
+tracker_set_property() { jira -X PUT "$ISSUE_URL/properties/$1" -d @- > /dev/null; }
+
+# tracker_user_groups <account id>: the groups a user is in, one name per
+# line. Fails if Jira won't say (the hub's account needs the "Browse users
+# and groups" permission) — callers treat that as not authorised.
+tracker_user_groups() {
+  jira "https://$JIRA_DOMAIN/rest/api/3/user/groups?accountId=$(jq -rn --arg id "$1" '$id | @uri')" | jq -r '.[].name'
+}
+
 # tracker_ticket_labels: the ticket's labels now, as a JSON array.
 tracker_ticket_labels() { tracker_issue labels | jq -c '.fields.labels // []'; }
 

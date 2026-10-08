@@ -1879,3 +1879,78 @@ handed_off_pr() {
   run jira_comments
   assert_output ""
 }
+
+# Step 5b: people's commands on the items, from the ticket (commands.sh).
+# command_comments <text>...: open comments, by the approver dana-lead.
+command_comments() {
+  jq -n '{comments: [$ARGS.positional | to_entries[] | {id: "70\(.key)", created: "2026-10-08T1\(.key):00:00.000+0000", updated: "2026-10-08T1\(.key):00:00.000+0000",
+    author: {accountId: "dana-lead", displayName: "Dana Lead", accountType: "atlassian"},
+    body: {type: "doc", version: 1, content: [{type: "paragraph", content: [{type: "text", text: .value}]}]}}]}' --args "$@" \
+    > "$BATS_TEST_TMPDIR/command-comments.json"
+  echo "COMMENTS_FIXTURE=$BATS_TEST_TMPDIR/command-comments.json"
+}
+# keep_properties: the ticket's issue properties from this run, for the next.
+keep_properties() { mkdir -p "$BATS_TEST_TMPDIR/properties" && cp "$RUNNER_TEMP"/mock-property-*.json "$BATS_TEST_TMPDIR/properties/" 2> /dev/null || true; }
+APPROVERS_VARS='VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_APPROVERS_GROUP": "agent-hub-approvers"}'
+command_run() {
+  reconcile_run AGENT_HUB_WAKE=command "$APPROVERS_VARS" 'MOCK_GROUPS={"dana-lead": ["agent-hub-approvers"]}' \
+    "MOCK_PROPERTIES_FROM=$BATS_TEST_TMPDIR/properties" "$@"
+}
+resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment/"))) | "\(.path) \(.body.body | [.. | .text? // empty] | join(""))"' "$CALLS"; }
+
+@test "/skip: an approver accepts a decision item — recorded who and when on the ticket, the items rewritten; then the pull request can be handed off" {
+  run_scenario decision-item
+  keep_properties
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  command_run "$(command_comments '/skip D1')"
+  run trace
+  assert_line "--- Outcome: revised"
+  assert_line "Agent: skipped"
+  run jq -c '[.items[] | select(.id == "D1") | .status][0], (.ci == null)' <<< "$(pr_state)"
+  assert_output $'"accepted"\ntrue'
+  run pr_body
+  assert_output --partial "**D1** \`README.md\` — decision: in an area the plan says must not be touched — **accepted** by an approver"
+  run pr_comments
+  assert_output "🧾 Items updated by an approver on the ticket: D1 accepted."
+  run resolutions
+  assert_output --partial "/comment/700 ✅ Resolved — D1 accepted"
+  # Who and when: on the ticket (private), not the public pull request.
+  run jq -c '.log[] | {id, status, by, by_name}' "$RUNNER_TEMP/mock-property-agent-hub-items.json"
+  assert_output '{"id":"D1","status":"accepted","by":"dana-lead","by_name":"Dana Lead"}'
+  refute_output --partial "$(pr_body | grep -c 'Dana Lead' || true)x"
+  [ "$(pr_body | grep -c 'Dana')" = 0 ] || fail "a name on the pull request"
+  # With nothing else open, the gate hands it off.
+  carry_prs
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  run trace
+  assert_line "--- Outcome: handed off"
+}
+
+@test "/skip: only approvers, only item ids, only open items — anything else is answered, and nothing changes" {
+  run_scenario decision-item
+  keep_properties
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  # Not in the group.
+  command_run "$(command_comments '/skip D1')" 'MOCK_GROUPS={}'
+  run resolutions
+  assert_output --partial "not done: only members of agent-hub-approvers can change a build's items"
+  assert_equal "$(jq -r '.items[0].status' <<< "$(pr_state)")" open
+  # No group set: no command is accepted.
+  command_run "$(command_comments '/skip D1')" 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9"}'
+  run resolutions
+  assert_output --partial "not done: item commands need the approvers group set"
+  # Words other than ids: the whole command refused.
+  command_run "$(command_comments '/skip D1 and rewrite the README')"
+  run resolutions
+  assert_output --partial "not done: /skip takes only item ids"
+  run trace
+  assert_line "--- Outcome: no change needed"
+  # An id that isn't open; /apply not yet.
+  command_run "$(command_comments '/skip R9' '/apply D1')"
+  run resolutions
+  assert_output --partial "/comment/700 ✅ Resolved — nothing changed; not open on pull request #101: R9"
+  assert_output --partial "/comment/701 ✅ Resolved — not done: /apply arrives in a later version of the hub"
+  assert_equal "$(jq -r '.items[0].status' <<< "$(pr_state)")" open
+}

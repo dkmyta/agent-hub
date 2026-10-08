@@ -254,6 +254,9 @@ run_scenario() {
   export CLAUDE_REVIEW_FIXTURE=approve CLAUDE_REVIEW_EXIT=0 CLAUDE_FIXTURE_EDIT="" CLAUDE_REVIEW_FIXTURE_EDIT="" CLAUDE_EDITS=""
   export TICKET_FIXTURE=tickets/ready.json TICKET_LATER_FIXTURE="" CHANGELOG_FIXTURE="" CHANGELOG_PAGE2_FIXTURE="" COMMENTS_FIXTURE="" COMMENTS_LATER_FIXTURE=""
   export MOCK_GH_VISIBILITY=private MOCK_GH_FAIL="" MOCK_GH_PRS_FIXTURE="" MOCK_GH_HISTORY=""
+  # The build's CI gate, CI fixes, closed pull requests and item commands.
+  export AGENT_HUB_WAKE="" MOCK_GH_CHECKS="" MOCK_GH_REQUIRED="" MOCK_GH_RULES="" MOCK_GH_STATUSES="" MOCK_GH_LOG="" \
+    MOCK_GH_ON_CHECKS="" MOCK_GROUPS="" MOCK_PROPERTIES_FROM=""
   export TRANSITIONS_FIXTURE=transitions.json ATTACHMENTS_FIXTURE="" ATTACHMENTS_LATER_FIXTURE="" ATTACHMENTS_LATER_FROM="" ATTACHMENT_CONTENT_FIXTURE=""
   set -a  # scenario.env overrides the defaults above
   # shellcheck source=/dev/null
@@ -287,7 +290,8 @@ run_scenario() {
     echo "--- Jira calls"
     jq -r 'def first_text: [.. | objects | select(.type == "text") | .text][0] // "";
       "\(.method) \(.path)" + (
-        if .body.body then " — comment: \(.body.body | first_text)"
+        if (.path | test("^/properties/agent-hub-(review|items)$")) and .method == "PUT" then " — the hub record of the review or items"
+        elif .body.body then " — comment: \(.body.body | first_text)"
         elif .body.fields.description then " — description: \([.body.fields.description.content[] | select(.type == "heading")] | length) headings"
           + (if .body.update.labels then ", labels: \(.body.update.labels | tostring)" else "" end)
         elif .body then " — \(.body | tostring)"
@@ -310,7 +314,8 @@ run_scenario() {
   [ "${#overrides[@]}" -gt 0 ] || assert_snapshot "$dir/expected/trace.txt" "$RUNNER_TEMP/trace.txt"
 
   if [ "$full" = --full ]; then
-    jq -s . "$CALLS" > "$RUNNER_TEMP/jira-calls.json"
+    # (Commit ids, which differ per run, masked: the build's review record.)
+    jq -s . "$CALLS" | sed -E 's/(^|[^0-9a-f])[0-9a-f]{40}([^0-9a-f]|$)/\1<commit>\2/g' > "$RUNNER_TEMP/jira-calls.json"
     touch "$RUNNER_TEMP/summary.md"
     assert_snapshot "$dir/expected/jira-calls.json" "$RUNNER_TEMP/jira-calls.json"
     assert_snapshot "$dir/expected/summary.md" "$RUNNER_TEMP/summary.md"
