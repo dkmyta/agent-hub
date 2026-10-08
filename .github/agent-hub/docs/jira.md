@@ -165,8 +165,9 @@ as input. `/revise` on its own (no text) retries. How revisions work:
   does nothing (Jira has no trigger for comment edits) — post a new one.
 - Every unresolved `/revise` comment on the ticket is handled in the next
   run, oldest first, so several can be posted before one run picks them up;
-  a newer `/revise` while a run is going cancels that run, and the new run
-  handles all of them.
+  a `/revise` while a run is going waits for it (one queue per ticket), then
+  handles whatever that run didn't see — or, if it saw them all, ends before
+  Claude with nothing to revise.
 - Description edits never start a revision (outside Intake) — they're manual
   changes, kept as they are.
 - Anyone who can comment can start a run, and each run uses Claude. To limit

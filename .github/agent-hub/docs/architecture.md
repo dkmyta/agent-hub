@@ -221,8 +221,9 @@ statuses are the tracker's; *(planned)* marks what the build stage doesn't do ye
 
 **Every run ends in one of these outcomes**, named the same way in every
 stage's run summary: *written* (a new output), *revised*, *sent back* (needs
-details or a decision), *no change needed*, *superseded* (a newer request
-replaced it), *stale* (what it read changed underneath it — nothing written),
+details or a decision), *no change needed*, *superseded* (the run was
+cancelled — by a person, since requests for a ticket queue rather than cancel
+as of 2.12.1), *stale* (what it read changed underneath it — nothing written),
 *failed* (the reason on the ticket, `needs-human`), *blocked* (the ticket is
 at its Claude usage caps: [claude-usage.md](claude-usage.md#per-ticket-caps)).
 The build adds *paused*. A run whose work an earlier run already did ends as *no change
@@ -483,9 +484,12 @@ agent to apply selected mid/low-severity review findings (e.g. `/apply 2 4`);
 re-running the automated review after changes.
 
 ### Safety
-- `concurrency` per ticket with `cancel-in-progress: true`: the newest request
-  wins; the cleanup step runs on `success() || cancelled()` so a cancelled run
-  leaves nothing behind.
+- One `concurrency` group per ticket, shared by every stage (since 2.12.1;
+  `cancel-in-progress: false`, `queue: max`): nothing for a ticket runs in
+  parallel, a run is never cancelled, and each queued run acts on the ticket
+  as it finds it (one whose ticket moved on does nothing). The cleanup step
+  runs on `success() || cancelled()`, so a run cancelled by hand leaves
+  nothing behind.
 - Every step has `timeout-minutes`, and together they fit within the job's
   (a test enforces it), so a slow step fails and is reported instead of the
   job being cancelled.

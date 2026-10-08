@@ -17,11 +17,14 @@ on:
         required: true
         type: string
 
-# One run per ticket: a newer request cancels one still in progress, so the
-# latest version of the ticket wins.
+# One group per ticket, shared by every stage (the work order, the plan and
+# the build), so nothing for a ticket runs in parallel: a run is never
+# cancelled, every request waits its turn (up to 100 pending), and each run
+# acts on the ticket as it finds it then.
 concurrency:
-  group: agent-hub-work-order-${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
-  cancel-in-progress: true
+  group: agent-hub-${{ github.repository }}-${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read

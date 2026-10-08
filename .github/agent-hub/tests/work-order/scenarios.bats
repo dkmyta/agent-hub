@@ -83,7 +83,7 @@ ticket() { jq -nc '{fields: {summary: "S", description: {type: "doc", version: 1
   assert_output --partial "The description was edited while this run was working, so nothing was changed"
 }
 
-@test "cancelled by a newer request: progress comment removed, nothing else changes" {
+@test "cancelled while Claude works: progress comment removed, nothing else changes" {
   run_scenario cancelled-during-run
 }
 
@@ -395,4 +395,37 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
   assert_line "Agent: skipped"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "One run of this stage can cost up to \$4 (its passes' budgets together), more than the ticket cap AGENT_HUB_TICKET_MAX_COST_USD (\$3.00)"
+}
+
+# One queue per ticket (2.12.1): a request that arrived while a run was going
+# waits for it; a revision with nothing left to do ends before Claude.
+# no_open_requests: comments-revise.json without its open /revise request.
+no_open_requests() {
+  jq '.comments |= map(select((.body.content[0].content[0].text // "") | startswith("/revise") | not))' \
+    "$FIXTURES/comments-revise.json" > "$BATS_TEST_TMPDIR/comments-handled.json"
+  echo "COMMENTS_FIXTURE=$BATS_TEST_TMPDIR/comments-handled.json"
+}
+# history <items...>: a changelog with one entry per item, oldest first.
+history() {
+  jq -n '{startAt: 0, maxResults: 100, total: ($ARGS.positional | length), isLast: true,
+    values: [$ARGS.positional[] | {author: {accountId: "someone"}, created: "2026-10-08T10:00:00.000+0000",
+      items: [if . == "description" then {field: "description"} else {field: "status", toString: .} end]}]}' --args "$@" \
+    > "$BATS_TEST_TMPDIR/changelog.json"
+  echo "CHANGELOG_FIXTURE=$BATS_TEST_TMPDIR/changelog.json"
+}
+
+@test "a duplicate request behind the run that wrote the work order: no open requests, nothing to revise — no Claude, nothing written" {
+  run_scenario revise "$(no_open_requests)" "$(history "Work Order" description)"
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  assert_line "--- Outcome: no change needed"
+  [ ! -e "$RUNNER_TEMP/claude-prompt.txt" ] || fail "Claude ran"
+  run writes
+  assert_output ""
+}
+
+@test "resubmitted through Intake with an edited request: revised with no /revise comment" {
+  run_scenario revise "$(no_open_requests)" "$(history description "Work Order")"
+  run cat "$RUNNER_TEMP/claude-prompt.txt"
+  assert_output --partial "Revise the work order"
 }

@@ -37,11 +37,11 @@ setup() {
   done
 }
 
-# Document stages: a newer request cancels a run in progress. Code stages
-# (code-stage, which pushes): one group per ticket, never cancelled mid-push,
-# every request kept in the queue (each run reconciles from current state).
-@test "every stage has a stage workflow calling the shared one, with its own event and concurrency group" {
-  local stage caller expected
+# One concurrency group per ticket, shared by every stage: never cancelled,
+# every request kept in the queue (each run acts on the ticket's current
+# state), so nothing for a ticket runs in parallel.
+@test "every stage has a stage workflow calling the shared one, with its own event and the ticket's shared concurrency group" {
+  local stage caller
   for stage in "$HUB_DIR"/stages/*/; do
     stage=$(basename "$stage")
     caller="$REPO_DIR/.github/workflows/agent-hub-$stage.yml"
@@ -51,13 +51,10 @@ setup() {
       import { parse } from "yaml";
       const wf = parse(readFileSync(process.argv[1], "utf8"));
       const job = Object.values(wf.jobs)[0];
-      const prefix = job.with["code-stage"] ? "agent-hub-${{ github.repository }}-" : `agent-hub-${job.with.stage}-`;
       console.log(job.uses, job.with.stage, wf.on.repository_dispatch.types.join(","),
-        wf.concurrency.group.startsWith(prefix), wf.concurrency["cancel-in-progress"],
-        wf.concurrency.queue ?? "single");' "$caller"
-    expected="true single"
-    grep -q 'code-stage: true' "$caller" && expected="false max"
-    assert_output "./.github/workflows/agent-hub-stage.yml $stage agent-hub-$stage-requested true $expected"
+        wf.concurrency.group === "agent-hub-${{ github.repository }}-${{ github.event.client_payload.ticket_key || inputs.ticket_key }}",
+        wf.concurrency["cancel-in-progress"], wf.concurrency.queue ?? "single");' "$caller"
+    assert_output "./.github/workflows/agent-hub-stage.yml $stage agent-hub-$stage-requested true false max"
   done
 }
 
