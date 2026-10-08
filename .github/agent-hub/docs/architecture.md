@@ -216,8 +216,8 @@ statuses are the tracker's; *(planned)* marks what the build stage doesn't do ye
 | Work Order Approved | The plan agent | Plan written · needs a decision | Implementation Plan (`needs-human`) · Work Order (`needs-clarification`) |
 | Implementation Plan | A person | Approves · re-plans · changes the work order | Implementation Plan Approved · Work Order Approved · Work Order |
 | Implementation Plan Approved | The build agent | Hand-off (every required check green on the head the hub verified, provenance holds, no open decision items; since 2.13.0) · plan unclear · plan changed since approval · failed past its caps | Ready for Review (`needs-human`) · Implementation Plan (`needs-clarification`) · Implementation Plan (re-approval) · stays (`needs-human`) |
-| Ready for Review | A person *(planned)* | Approves the pull request · `/apply` (a revision, stays) | Approved |
-| Approved | A person *(planned)* | Merges; the post-merge check passes | Done |
+| Ready for Review | A person | Approves and merges the pull request (the build moves the ticket to Done: since 2.15.0) · `/apply` (a revision, stays; *planned*) | Done (or Approved, by a person) |
+| Approved | A person | Merges the pull request | Done (the build, since 2.15.0) |
 
 **Every run ends in one of these outcomes**, named the same way in every
 stage's run summary: *written* (a new output), *revised*, *sent back* (needs
@@ -226,7 +226,7 @@ cancelled — by a person, since requests for a ticket queue rather than cancel
 as of 2.12.1), *stale* (what it read changed underneath it — nothing written),
 *failed* (the reason on the ticket, `needs-human`), *blocked* (the ticket is
 at its Claude usage caps: [claude-usage.md](claude-usage.md#per-ticket-caps)).
-The build adds *paused* and *handed off* (ready for review, since 2.13.0). A run whose work an earlier run already did ends as *no change
+The build adds *paused*, *handed off* (ready for review, since 2.13.0) and *done* (merged, since 2.15.0). A run whose work an earlier run already did ends as *no change
 needed* — a normal outcome. Each run summary ends with its outcome
 (`stage_outcome`).
 

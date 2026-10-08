@@ -67,6 +67,8 @@ use its default. (The defaults are in `lib/settings.sh` and each stage's
 | `AGENT_HUB_IMPLEMENTATION_PLAN_STATUS` | `Implementation Plan` | Status of tickets with a plan waiting for approval |
 | `AGENT_HUB_IMPLEMENTATION_PLAN_APPROVED_STATUS` | `Implementation Plan Approved` | Status that requests a build |
 | `AGENT_HUB_READY_FOR_REVIEW_STATUS` | `Ready for Review` | Status the build moves a ticket to when its pull request is handed off |
+| `AGENT_HUB_APPROVED_STATUS` | `Approved` | Optional status a person moves a ticket to after approving its pull request; a merge moves it to Done from there too |
+| `AGENT_HUB_DONE_STATUS` | `Done` | Status the build moves a ticket to when the pull request it handed off is merged |
 | `AGENT_HUB_PUBLISH_TICKET_CONTENT` | `false` | `true` lets the build put ticket text (the title, criteria, Claude's summary and decision log) in a **public** repository's pull requests and commits; private repositories always get it ([build.md](workflows/build.md#publication-policy)) |
 | `AGENT_HUB_NEEDS_HUMAN_LABEL` | `needs-human` | Label for tickets waiting for a person |
 | `AGENT_HUB_NEEDS_CLARIFICATION_LABEL` | `needs-clarification` | Label for tickets the plan stage sent back with questions |

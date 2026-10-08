@@ -1792,3 +1792,90 @@ dispatched() { cat "$SWEEP/mock-github/dispatches.jsonl" 2> /dev/null || true; }
   run dispatched
   assert_output ""
 }
+
+# Step 5a: a hub pull request closed (closed.sh, woken by
+# agent-hub-pr-closed.yml). Done only from a pull request the hub handed off
+# and GitHub reports merged.
+# merge_pr: GitHub's state from the last run, with the pull request merged.
+merge_pr() {
+  jq '.[0] |= . + {state: "closed", merged_at: "2026-10-08T12:00:00Z", merge_commit_sha: "abcdef0123456789"}' \
+    "$RUNNER_TEMP/mock-github/prs.json" > "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+}
+done_transitions() {
+  echo '{"transitions": [{"id": "61", "to": {"name": "Done"}}]}' > "$BATS_TEST_TMPDIR/transitions-done.json"
+  echo "TRANSITIONS_FIXTURE=$BATS_TEST_TMPDIR/transitions-done.json"
+}
+closed_run() { reconcile_run AGENT_HUB_WAKE=closed "MOCK_STATUS=Ready for Review" "$(done_transitions)" "$@"; }
+handed_off_pr() {
+  built_pr
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+}
+
+@test "closed: merged at the head the hub handed off — Done, needs-human removed; nothing built, no Claude" {
+  handed_off_pr
+  merge_pr
+  closed_run
+  run trace
+  assert_line "--- Outcome: done"
+  assert_line "Agent: skipped"
+  assert_equal "$(cat "$RUNNER_TEMP/mock-status")" Done
+  assert_line --partial '{"update":{"labels":[{"remove":"needs-human"}]}}'
+  run jira_comments
+  assert_output --partial "✅ Done"
+  assert_output --partial "was merged (abcdef0), at the head the hub handed off."
+}
+
+@test "closed: merged with commits pushed after the hand-off — still Done, with a note" {
+  handed_off_pr
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  merge_pr
+  closed_run
+  run trace
+  assert_line "--- Outcome: done"
+  run jira_comments
+  assert_output --partial "with commits pushed after the hub handed off"
+}
+
+@test "closed: merged without the hub's hand-off — not Done; a person decides" {
+  built_pr
+  merge_pr
+  closed_run "MOCK_STATUS=Implementation Plan Approved"
+  run trace
+  assert_line "--- Outcome: blocked"
+  [ ! -e "$RUNNER_TEMP/mock-status" ] || fail "the ticket was moved"
+  assert_line --partial '{"update":{"labels":[{"add":"needs-human"}]}}'
+  run jira_comments
+  assert_output --partial "🔎 Merged without the hub's hand-off"
+  assert_output --partial "the hub never handed it off"
+}
+
+@test "closed: closed without merging — never Done, a comment" {
+  handed_off_pr
+  jq '.[0].state = "closed"' "$RUNNER_TEMP/mock-github/prs.json" > "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  closed_run
+  run trace
+  assert_line "--- Outcome: blocked"
+  [ ! -e "$RUNNER_TEMP/mock-status" ] || fail "the ticket was moved"
+  run jira_comments
+  assert_output --partial "🔒 Pull request closed"
+  assert_output --partial "was closed without merging, so the ticket stays in Ready for Review"
+}
+
+@test "closed: a ticket already Done, or a pull request open again — nothing" {
+  handed_off_pr
+  # Reopened before the run: still open.
+  carry_prs
+  closed_run
+  run trace
+  assert_line "--- Outcome: no change needed"
+  run jira_comments
+  assert_output ""
+  merge_pr
+  closed_run MOCK_STATUS=Done
+  run trace
+  assert_line "--- Outcome: no change needed"
+  run jira_comments
+  assert_output ""
+}

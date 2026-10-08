@@ -72,8 +72,10 @@ gh_request() {
     "GET $repo") jq -nc --arg v "${MOCK_GH_VISIBILITY:-private}" '{visibility: $v, private: ($v != "public"), default_branch: "main"}' ;;
     "GET $repo/pulls?state=all&head="*)
       local branch=${path#*head=*:}; branch=${branch%%&*}
-      jq -c --arg b "$branch" --arg repo "$GITHUB_REPOSITORY" \
-        '[.[] | select(.head.ref == $b) | . + {node_id: "PR_\(.number)", head: {ref: .head.ref, repo: {full_name: $repo}}} | del(.versions)]' "$state" ;;
+      local sha
+      sha=$(git --git-dir="${REMOTE:-/nonexistent}" rev-parse "refs/heads/$branch" 2> /dev/null || true)
+      jq -c --arg b "$branch" --arg repo "$GITHUB_REPOSITORY" --arg sha "$sha" \
+        '[.[] | select(.head.ref == $b) | . + {node_id: "PR_\(.number)", head: {ref: .head.ref, sha: $sha, repo: {full_name: $repo}}} | del(.versions)]' "$state" ;;
     "GET $repo/pulls?state=open&per_page=100")
       # Each head's commit from the test's remote, as GitHub reports it.
       local prs pr out="[]" sha

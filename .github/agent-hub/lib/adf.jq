@@ -132,9 +132,9 @@ def is_command($cmd):
 
 # Whether a comment is the automation's own: posted by an app (a tracker rule),
 # or one of the workflows' progress (⏳), failure (❌), resolved (✅), reply
-# (🔁), over-cap (⛔), CI (🔎) or hand-off (✅ Ready for review) comments.
+# (🔁), over-cap (⛔), CI (🔎), hand-off (✅ Ready for review), Done (✅ Done) or closed (🔒) comments.
 def automation_comment:
-  (.author.accountType == "app") or (.body | first_text | test("^(⏳|❌|✅ Resolved|✅ Ready for review|🔁|⛔|🔎)"));
+  (.author.accountType == "app") or (.body | first_text | test("^(⏳|❌|✅ Resolved|✅ Ready for review|✅ Done|🔁|⛔|🔎|🔒)"));
 
 # Whether a comment is a person's change request: not the automation's own,
 # and starting with the command word $cmd. The one rule for both what the agent

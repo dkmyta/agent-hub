@@ -183,7 +183,7 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
 
 # The kill switch: AGENT_HUB_ENABLED=false skips every workflow that runs an
 # agent or changes a ticket, before it reaches a runner.
-@test "the kill switch skips the stage workflow, the evals, the sandbox check and the CI sweep" {
+@test "the kill switch skips the stage workflow, the evals, the sandbox check, the CI sweep and the closed-pull-request handler" {
   run node --input-type=module -e '
     import { readFileSync } from "node:fs";
     import { parse } from "yaml";
@@ -191,9 +191,10 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
       const wf = parse(readFileSync(file, "utf8"));
       for (const job of Object.values(wf.jobs)) console.log(job.if);
     }' "$REPO_DIR/.github/workflows/agent-hub-stage.yml" "$REPO_DIR/.github/workflows/agent-hub-evals.yml" \
-    "$REPO_DIR/.github/workflows/agent-hub-sandbox-check.yml" "$REPO_DIR/.github/workflows/agent-hub-ci-sweep.yml"
+    "$REPO_DIR/.github/workflows/agent-hub-sandbox-check.yml" "$REPO_DIR/.github/workflows/agent-hub-ci-sweep.yml" \
+    "$REPO_DIR/.github/workflows/agent-hub-pr-closed.yml"
   assert_success
-  assert_equal "${#lines[@]}" 4
+  assert_equal "${#lines[@]}" 5
   local condition
   for condition in "${lines[@]}"; do
     [[ "$condition" == *"vars.AGENT_HUB_ENABLED != 'false'"* ]] || fail "no kill switch: $condition"
@@ -248,4 +249,24 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
 @test "shared failure messages never tell people to use /revise (each stage's comment says how to retry)" {
   run bash -c 'grep -nE "(stage_fail|failure-reason).*REVISE_COMMAND|REVISE_COMMAND.*failure-reason" "$1"/lib/*.sh "$1"/lib/runners/*.sh "$1"/stages/build/*.sh' _ "$HUB_DIR"
   assert_output ""
+}
+
+# The closed-pull-request handler runs on pull_request_target, so it stays an
+# event handler: no checkout, no action, no repository script; only the
+# permission to request a run; and nothing from the event placed in a shell
+# command (it reaches the step through env only).
+@test "the closed-pull-request handler checks out nothing, runs no repository code and only requests a run" {
+  run node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { parse } from "yaml";
+    const wf = parse(readFileSync(process.argv[1], "utf8"));
+    console.log(Object.keys(wf.on).join(","), JSON.stringify(wf.permissions));
+    for (const job of Object.values(wf.jobs))
+      for (const step of job.steps) {
+        if (step.uses) console.log("uses", step.uses);
+        if (/\$\{\{/.test(step.run ?? "")) console.log("expression in run");
+        if (/source |\.github\/agent-hub/.test(step.run ?? "")) console.log("repository script");
+      }' "$REPO_DIR/.github/workflows/agent-hub-pr-closed.yml"
+  assert_success
+  assert_output 'pull_request_target {"actions":"write"}'
 }
