@@ -1,0 +1,47 @@
+# Temporary spike (4d research): can GITHUB_TOKEN (checks/statuses read) and
+# the build token read a pull request's check rollup, isRequired and the
+# required-check names? Read-only; prints statuses and counts only. Removed
+# after the spike — never merged.
+name: Spike CI read
+
+on:
+  pull_request:
+    paths: [.github/workflows/spike-ci-read.yml]
+
+permissions:
+  contents: read
+  checks: read
+  statuses: read
+  pull-requests: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read CI state with each token
+        env:
+          GH_ACTIONS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_TOKEN: ${{ secrets.AGENT_HUB_GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -u
+          query='query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){headRefOid potentialMergeCommit{oid} commits(last:1){nodes{commit{oid statusCheckRollup{state contexts(first:50){nodes{__typename ... on CheckRun{name status conclusion isRequired(pullRequestNumber:$n) checkSuite{app{slug}}} ... on StatusContext{context state isRequired(pullRequestNumber:$n)}}}}}}}}}}'
+          for who in GITHUB_TOKEN build-token; do
+            if [ "$who" = GITHUB_TOKEN ]; then tok=$GH_ACTIONS_TOKEN; else tok=$BUILD_TOKEN; fi
+            echo "=== $who (set: $([ -n "$tok" ] && echo yes || echo no))"
+            [ -n "$tok" ] || continue
+            printf 'Authorization: Bearer %s\n' "$tok" > "$RUNNER_TEMP/h"
+            for n in 55 "$PR"; do
+              body=$(jq -nc --arg q "$query" --arg o "${REPO%/*}" --arg r "${REPO#*/}" --argjson n "$n" '{query: $q, variables: {owner: $o, name: $r, n: $n}}')
+              out=$(curl -sS -H @"$RUNNER_TEMP/h" -X POST https://api.github.com/graphql -d "$body")
+              echo "GraphQL PR #$n: $(jq -c '{errors: [.errors[]?.type // .errors[]?.message], head: .data.repository.pullRequest.headRefOid[0:7], merge: (.data.repository.pullRequest.potentialMergeCommit.oid // null | if . then .[0:7] else null end), rollup: .data.repository.pullRequest.commits.nodes[0].commit.statusCheckRollup.state, contexts: [.data.repository.pullRequest.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]? | {n: (.name // .context), s: (.conclusion // .status // .state), req: .isRequired}]}' <<< "$out")"
+            done
+            for p in "commits/$HEAD/check-runs?per_page=5" "commits/$HEAD/status" "branches/main" "rules/branches/main"; do
+              code=$(curl -sS -o "$RUNNER_TEMP/b" -D "$RUNNER_TEMP/d" -w '%{http_code}' -H @"$RUNNER_TEMP/h" "https://api.github.com/repos/$REPO/$p")
+              echo "REST $p: $code $(grep -i '^x-accepted-github-permissions' "$RUNNER_TEMP/d" | tr -d '\r') $(jq -c 'if type == "object" and has("total_count") then {total_count} elif type == "object" and has("protection") then {required: .protection.required_status_checks.contexts} elif type == "object" and has("state") then {state, statuses: (.statuses | length)} elif type == "array" then {rules: length} else {message} end' "$RUNNER_TEMP/b" 2> /dev/null)"
+            done
+            rm -f "$RUNNER_TEMP/h"
+          done
