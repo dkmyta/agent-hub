@@ -320,6 +320,8 @@ reconcile_apply() {
     || stage_fail "Pull request #$number's description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error"))$( [ "$(git rev-parse HEAD)" = "$start" ] || echo ", though its commits were pushed"). A person checks it."
   _reconcile_comment "$number"
   _reconcile_report "$number"
+  # A new review: its findings, for /skip and /apply (commands.sh).
+  [ -z "$status_file" ] || build_save_review "the pull request's current head (after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT"))"
   echo "[$TICKET_KEY]($TICKET_URL): pull request #$number re-checked after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT") — generation $(jq -r '.generation' "$RUNNER_TEMP/state.json")." >> "$GITHUB_STEP_SUMMARY"
   stage_outcome revised
 }

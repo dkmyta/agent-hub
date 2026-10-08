@@ -26,6 +26,11 @@
 #                        transition the run makes changes it, as in Jira
 #   MOCK_FAIL            "METHOD path" of a call that should fail
 #   MOCK_FAIL_FROM       fail it from this occurrence on (default: the first)
+#   MOCK_GROUPS          a user's groups for the approvers check: JSON account id →
+#                        [names] (default: none); the hub's other issue
+#                        properties live in $RUNNER_TEMP/mock-property-<key>.json,
+#                        first copied from MOCK_PROPERTIES_FROM (a folder of
+#                        them, e.g. kept from an earlier run)
 #   MOCK_LEDGER          the hub's record of the ticket (its Claude usage) when
 #                        the run starts, as JSON (default: none); the run's
 #                        writes replace it, as in Jira
@@ -102,12 +107,23 @@ jira_request() {
       if [ -n "$attachments" ]; then jq -c '{fields: {attachment: .}}' "$attachments"; else echo '{"fields":{"attachment":[]}}'; fi ;;
     "GET /myself") echo '{"accountId":"agent-hub-bot"}' ;;
     "GET /properties")
-      if [ -s "$RUNNER_TEMP/mock-ledger.json" ] || [ -n "${MOCK_LEDGER:-}" ]; then echo '{"keys":[{"key":"agent-hub-ledger"}]}'
-      else echo '{"keys":[]}'; fi ;;
+      _mock_jira_seed_properties
+      local keys="[]" f
+      if [ -s "$RUNNER_TEMP/mock-ledger.json" ] || [ -n "${MOCK_LEDGER:-}" ]; then keys='[{"key":"agent-hub-ledger"}]'; fi
+      for f in "$RUNNER_TEMP"/mock-property-*.json; do
+        [ -s "$f" ] || continue
+        keys=$(jq -c --arg k "$(basename "$f" .json | sed 's/^mock-property-//')" '. + [{key: $k}]' <<< "$keys")
+      done
+      jq -nc --argjson keys "$keys" '{keys: $keys}' ;;
+    "GET /user/groups?accountId="*)
+      # MOCK_GROUPS: account id → its groups' names (default: none).
+      jq -c --arg id "${path#*accountId=}" '[(.[$id] // [])[] | {name: .}]' <<< "${MOCK_GROUPS:-"{}"}" ;;
     "GET /properties/agent-hub-ledger")
       if [ -s "$RUNNER_TEMP/mock-ledger.json" ]; then jq -c '{key: "agent-hub-ledger", value: .}' "$RUNNER_TEMP/mock-ledger.json"
       else jq -nc --argjson v "$MOCK_LEDGER" '{key: "agent-hub-ledger", value: $v}'; fi ;;
     "PUT /properties/agent-hub-ledger") printf '%s\n' "$body" > "$RUNNER_TEMP/mock-ledger.json" ;;
+    "GET /properties/"*) _mock_jira_seed_properties; jq -c --arg k "${path#/properties/}" '{key: $k, value: .}' "$RUNNER_TEMP/mock-property-${path#/properties/}.json" ;;
+    "PUT /properties/"*) printf '%s\n' "$body" > "$RUNNER_TEMP/mock-property-${path#/properties/}.json" ;;
     "GET ?fields=labels") jq -nc --argjson labels "${MOCK_LABELS:-[]}" '{fields: {labels: $labels}}' ;;
     "POST /attachments") echo '[{"id":"9001"}]' ;;
     "GET /attachment/content/"*) cat "$ATTACHMENT_CONTENT_FIXTURE" ;;
@@ -119,4 +135,12 @@ jira_request() {
     "PUT "|"PUT ?notifyUsers="*|"PUT /comment/"*|"DELETE /comment/"*|"DELETE /attachment/"*) ;;
     *) echo "mock-jira: unexpected request: $method $path" >&2; return 99 ;;
   esac
+}
+
+# _mock_jira_seed_properties: the issue properties an earlier run left
+# (MOCK_PROPERTIES_FROM), once per run.
+_mock_jira_seed_properties() {
+  [ -n "${MOCK_PROPERTIES_FROM:-}" ] && [ ! -e "$RUNNER_TEMP/mock-properties-seeded" ] || return 0
+  touch "$RUNNER_TEMP/mock-properties-seeded"
+  cp "$MOCK_PROPERTIES_FROM"/mock-property-*.json "$RUNNER_TEMP/" 2> /dev/null || true
 }

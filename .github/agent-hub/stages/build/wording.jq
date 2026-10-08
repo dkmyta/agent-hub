@@ -90,7 +90,7 @@ def status_lines($s; $r; $x; $p; $publish; $what):
     end),
 
   section("Items for a person"; [$s.items[] | select(.status != "closed") | . as $i
-    | if .source == "review" then
+    | (if .source == "review" then
         ([$r.findings[] | select(.n == $i.finding)] | first) as $f
         | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" elif .status == "fixed" then "fixed by the fix pass (checked)" elif .fix_eligible then "review item, fix-eligible, not fixed" else "review item" end)
           + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
@@ -102,12 +102,17 @@ def status_lines($s; $r; $x; $p; $publish; $what):
           + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
           + (if $publish then ": \($f.title | line)" + (if ($f.file // "") != "" then " (\($f.file | code)\(if $f.line then ":\($f.line)" else "" end))" else "" end)
              else " (details on the ticket)" end)
+      elif .source == "ci-fix-check" then
+        "- **\(.id)** " + (if (.id | startswith("D")) then "decision" else "review item" end) + ", raised by a CI fix's check"
+          + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " ")) (details on the ticket)"
       elif (.id | startswith("D")) then
         "- **\(.id)** " + (if .path != "" then "\(.path | code) — " else "" end) + "decision: \(.reason)"
       else .path as $path
         | "- **\(.id)** \(.path | code) — a manual change for a person"
           + (if $publish then ": \([$p.governance.manual_changes[] | select(.path == $path)][0].change // "" | line)" else " (described on the ticket)" end)
-      end]),
+      end)
+      # A person's /skip (step 5): a decision accepted, or an item skipped.
+      + {accepted: " — **accepted** by an approver", skipped: " — **skipped** by an approver"}[$i.status] // ""]),
   status_end;
 
 # reconcile_items(previous items; fresh items): a reconcile run's items

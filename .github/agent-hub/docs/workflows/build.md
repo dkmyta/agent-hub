@@ -872,6 +872,35 @@ and the next revision reviews the whole pull request.
 
 ## Review items and `/apply`
 
+*Built so far* (step 5, agreed 2026-10-08 with an external review):
+**`/skip`** on the ticket (2.16.0, 5b-1; `stages/build/commands.sh`, the
+tracker's Build Command rule); **`/apply`** — item ids, `all` (R items
+only, never D) and `comments` (the pull request's unresolved review threads,
+as read when the run starts), through the fix pass's path — is next (5b-2).
+As built:
+
+- **Commenting on a ticket never authorises a change** (a permanent rule):
+  the commenter must be in `AGENT_HUB_APPROVERS_GROUP`, checked by the hub
+  from the tracker; unset, or not checkable, and nothing is done.
+- **Only item ids.** The command's first paragraph may hold only the command
+  and ids; anything else refuses the whole command — item commands aren't a
+  way to give the agent instructions.
+- **Only open items in the pull request's current record**; every command is
+  answered once, on the ticket (the comment marked resolved with what was
+  done, or why not).
+- **`/skip`:** a decision item is *accepted*, any other *skipped*; the
+  description's items are rewritten from the review the hub keeps on the
+  ticket (the private `agent-hub-review` property: findings' full text a
+  public pull request can't hold), the pull request gets a comment, and who
+  did what, when, on which head, is kept on the ticket (`agent-hub-items`).
+  The CI gate's last result is cleared, so the CI sweep runs it again — a
+  pull request whose only blocker was a decision item is then handed off.
+- **Deferred** (after v1, only if real use shows the need): a relay numbering
+  each pull request comment as an `M` item, commands on the pull request
+  itself, a reviewers setting, post-merge CI.
+
+The design, for reference:
+
 One numbered list per pull request, in the state block, shown in the
 description, and mirrored to the ticket (one comment per review round,
 *provisional*):

@@ -38,6 +38,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/handoff.sh"
 # A closed pull request: Done, or a comment (step 5a).
 # shellcheck source=stages/build/closed.sh
 source "$(dirname "${BASH_SOURCE[0]}")/closed.sh"
+# People's commands on the items, from the ticket (step 5b).
+# shellcheck source=stages/build/commands.sh
+source "$(dirname "${BASH_SOURCE[0]}")/commands.sh"
 
 BUILD_CONTEXT="$RUNNER_TEMP/build-context.json"
 BUILD_GIT="$RUNNER_TEMP/build-git"
@@ -61,6 +64,8 @@ step_fetch() {
   # A hub pull request was closed (agent-hub-pr-closed.yml): Done, or a
   # comment — nothing is built (closed.sh).
   if [ "${AGENT_HUB_WAKE:-}" = closed ]; then build_closed; exit 0; fi
+  # A person's /skip or /apply on the ticket (commands.sh).
+  if [ "${AGENT_HUB_WAKE:-}" = command ]; then build_command; exit 0; fi
   stage_fetch "$PLAN_APPROVED_STATUS" || exit 0
   stage_set_mode new
   # Not for real tickets yet (settings.sh): stop before anything else.
@@ -783,8 +788,33 @@ step_apply() {
   url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$number"
   _ticket_report "$number" "$url"
   _ticket_delivery "$number" "$url" "$branch"
+  build_save_review "the build's commit"
   echo "[$TICKET_KEY]($TICKET_URL): draft pull request #$number opened from $branch, with $(jq '[.items[] | select(.id | startswith("D"))] | length' "$RUNNER_TEMP/state.json") decision item(s) and $(jq '[.items[] | select(.id | startswith("R"))] | length' "$RUNNER_TEMP/state.json") review item(s)." >> "$GITHUB_STEP_SUMMARY"
   stage_outcome written
+}
+
+# build_save_review <what was reviewed>: the latest full review and fix pass,
+# kept in a private issue property on the ticket (agent-hub-review) — the
+# findings' full text, which a public pull request can't hold — for /skip and
+# /apply to re-render the pull request's items and act on them (commands.sh).
+# Trimmed to fit Jira's 32 KB per property. A failure only warns: items can
+# still be skipped, but the description's list isn't rewritten until the next
+# review.
+build_save_review() {
+  local record limit
+  for limit in 600 150 0; do
+    record=$(jq -nc --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --slurpfile contract "$RUNNER_TEMP/contract.json" \
+        --argjson publish "$(context .publish)" --arg what "$1" --argjson limit "$limit" '
+      def cut: if type == "string" and length > $limit then .[0:$limit] + "…" else . end;
+      def keep: {n, area, severity, kind, within_plan, file, line, title, policy,
+                 evidence: (.evidence | cut), suggestion: (.suggestion | cut)};
+      {review: ($review[0] | {status, head, summary, findings: [.findings[]? | keep][0:60]}),
+       fix: ($fix[0] | {status, before, after, checks, new_concerns: [.new_concerns[]? | keep]}),
+       manual_changes: $contract[0].governance.manual_changes, publish: $publish, what: $what}')
+    [ "${#record}" -gt 30000 ] || break
+  done
+  tracker_set_property agent-hub-review <<< "$record" \
+    || echo "::warning::Couldn't keep the review's findings on $TICKET_KEY, so /skip and /apply can't list them until the next review."
 }
 
 # _refuse_hard_links: stop if any file git would commit has more than one

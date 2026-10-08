@@ -861,6 +861,28 @@
     }
   },
   {
+    "method": "PUT",
+    "path": "/properties/agent-hub-review",
+    "body": {
+      "review": {
+        "status": "reviewed",
+        "head": "<commit>",
+        "summary": "The build matches the plan; no problems found.",
+        "findings": []
+      },
+      "fix": {
+        "status": "none",
+        "before": "",
+        "after": null,
+        "checks": [],
+        "new_concerns": []
+      },
+      "manual_changes": [],
+      "publish": true,
+      "what": "the build's commit"
+    }
+  },
+  {
     "method": "GET",
     "path": "/properties",
     "body": null

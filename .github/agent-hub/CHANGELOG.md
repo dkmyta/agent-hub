@@ -5,6 +5,37 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.16.0 — 2026-10-08
+
+Step 5, second part, first half (5b-1): `/skip` on the ticket, and what
+every item command stands on.
+
+- **The Build Command rule** (new, in Jira; docs/jira.md) wakes the build
+  (`wake: command`) when a comment starts with `/skip` or `/apply`. The
+  build reads the ticket's open commands itself, oldest first, and answers
+  each one exactly once — marking it resolved with what was done, or why not.
+- **Commenting never authorises a change:** the commenter must be in
+  `AGENT_HUB_APPROVERS_GROUP` (new setting), checked by the hub from Jira —
+  the service account needs Browse users and groups. Unset, or not
+  checkable: nothing is done.
+- **Only item ids,** and only items open in the pull request's current
+  record. Anything else on the command's line refuses the whole command.
+- **`/skip D1 R2`:** a decision is accepted, any other item skipped — no
+  Claude. The description's items are rewritten, the pull request gets a
+  comment, and who did what, when and on which head is kept on the ticket
+  (an issue property, not the public pull request). The CI gate's last
+  result is cleared, so the CI sweep runs it again: a pull request whose
+  only blocker was a decision item is then handed off.
+- **The latest review's findings are kept on the ticket** (the private
+  `agent-hub-review` issue property, trimmed to Jira's 32 KB), written after
+  each review — what `/skip` re-renders from, and `/apply` (5b-2) will act on.
+- `/apply` is answered "not yet" until 5b-2.
+
+**Updating:**
+- Add the **Build Command** rule (docs/jira.md).
+- Set `AGENT_HUB_APPROVERS_GROUP`, and give the Jira service account the
+  global **Browse users and groups** permission.
+
 ## 2.15.0 — 2026-10-08
 
 Step 5, first part (5a): a merged pull request moves its ticket to Done.

@@ -75,6 +75,10 @@ setting_into PLAN_APPROVED_STATUS AGENT_HUB_IMPLEMENTATION_PLAN_APPROVED_STATUS 
 setting_into READY_FOR_REVIEW_STATUS AGENT_HUB_READY_FOR_REVIEW_STATUS 'Ready for Review'
 setting_into APPROVED_STATUS AGENT_HUB_APPROVED_STATUS Approved
 setting_into DONE_STATUS AGENT_HUB_DONE_STATUS Done
+# The tracker group whose members may act on a build's items with /skip and
+# /apply on the ticket (the same people who approve). Unset: no item
+# commands are accepted — commenting on a ticket never authorises a change.
+setting_into APPROVERS_GROUP AGENT_HUB_APPROVERS_GROUP ""
 setting_into NEEDS_DETAILS_LABEL AGENT_HUB_NEEDS_DETAILS_LABEL needs-details
 # Marks tickets waiting for a person; approving (the tracker's "…Approved"
 # rules) removes it.

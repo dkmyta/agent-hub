@@ -46,7 +46,10 @@ jobs:
       stage: build
       ticket-key: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
       code-stage: true
-      wake: ${{ inputs.wake || '' }}
+      # What woke the run when it isn't a person's approval: the CI sweep
+      # (ci), a closed pull request (closed), or a command on the ticket
+      # (command, from the tracker's Build Command rule).
+      wake: ${{ inputs.wake || github.event.client_payload.wake || '' }}
       agent-minutes: 60
       review-minutes: 30
       fix-minutes: 40

@@ -298,6 +298,38 @@ and the work order (the description) wasn't edited — checked again before it
 pushes or sends the ticket back. To retry a build, move
 the ticket back to Implementation Plan and approve it again.
 
+## Rule: Build Command
+
+Since 2.16.0. Wakes the build when someone comments **`/skip`** (or, from a
+later version, **`/apply`**) on a ticket whose pull request the build opened
+— to act on its items (the pull request's **Items for a person**: `D1`,
+`R2`, `C1`). The rule only wakes the build; the build reads the ticket's
+open commands itself and answers each one, and **acts only for members of
+`AGENT_HUB_APPROVERS_GROUP`** — commenting on a ticket never authorises a
+change ([build.md](workflows/build.md#review-items-and-apply)).
+
+| Part | Setting |
+|---|---|
+| **Trigger** | *Work item commented* |
+| **Condition** | Work type = **Task** |
+| **Condition** | *Smart values condition*: `{{comment.body.trim().toLowerCase()}}` **matches regular expression** `(?s)^/(skip|apply)(\s.*)?$` |
+| **Condition** | Status is one of **Implementation Plan Approved**, **Ready for Review**, **Approved** |
+| **Action** | Send web request |
+| **Rule details** | Allow rule trigger **off**; notify on error **on** |
+
+**Web request** body:
+
+```json
+{"event_type": "agent-hub-build-requested", "client_payload": {"ticket_key": "{{issue.key}}", "wake": "command"}}
+```
+
+How to use them: `/skip D1 R2` closes those items — a decision (`D`) is
+**accepted** — with no Claude, and the build's CI gate runs again (so a pull
+request whose only blocker was a decision item can be handed off). The line
+holds only the command and item ids; anything else and the whole command is
+refused (a reason can go in a following paragraph, for people). Who accepted
+or skipped what is kept on the ticket, not on the pull request.
+
 ## Permissions for the automation account
 
 The account behind `AGENT_HUB_JIRA_EMAIL`: Browse Projects, Edit work items, Transition
@@ -305,8 +337,12 @@ work items, Add comments, Delete own comments, Edit all comments (to resolve
 the rule's comments), Create attachments, Delete own attachments (to replace
 its own earlier plan files; a person's upload is never deleted, so Delete all
 attachments isn't needed). In team-managed projects the Member role has these
-by default. Edit work items also covers the hub's record of each ticket's
-Claude usage, an issue property ([claude-usage.md](claude-usage.md#per-ticket-caps)).
+by default. Edit work items also covers the hub's records on each ticket —
+its Claude usage ([claude-usage.md](claude-usage.md#per-ticket-caps)), the
+latest review's findings and who acted on which items — kept as issue
+properties. For the item commands (`/skip`, `/apply`), the account also needs
+the global **Browse users and groups** permission, to check the commenter is
+in `AGENT_HUB_APPROVERS_GROUP`; without it, every command is refused.
 
 **Required: a dedicated service account.** Use an account that is only the
 automation — not a person's — for three reasons:
@@ -399,7 +435,10 @@ moves trigger them, but they never make them.
 - [ ] Both "…Approved" transitions restricted to approvers
       ([how](#restrict-approvals-to-people))
 - [ ] Rules: Work Order Requested, Implementation Plan Requested, Revision
-      Requested and Build Requested
+      Requested, Build Requested and Build Command
+- [ ] For the item commands: the approvers group in
+      `AGENT_HUB_APPROVERS_GROUP`, and Browse users and groups for the
+      service account
 - [ ] The token in every rule's `Authorization` header, hidden
 
 ## Recommended: do these in Jira, not in the workflows
