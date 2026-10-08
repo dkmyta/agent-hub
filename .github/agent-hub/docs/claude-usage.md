@@ -103,7 +103,16 @@ run — retries, revisions and resubmissions included:
   cancelled — counts at its whole budget, and the total is marked
   *estimated*. Each run summary ends with the ticket's total. Runs that stop
   before Claude (a wrong status, a check that fails first) don't count.
-- **Checked before Claude is used.** A run for a ticket at either cap stops
+- **Checked before Claude is used — for the whole run.** A run may use
+  Claude only if the ticket's spend so far plus the most the run can cost
+  fits within the cap. "The most" is the sum of the configured maximum of
+  every pass the run may execute — not an estimate: a work order or plan is
+  its draft and review budgets ($4 and $10 by default; their revision budgets
+  when revising), a build its build, review, fix and fix check ($19). So a
+  run that starts can always finish within the cap, and a ticket stops once
+  less than one run's maximum is left. A cap smaller than one run's maximum
+  is a settings error. Each pass still has its own `--max-budget-usd`, the
+  third limit. A run that can't be admitted stops
   before its progress comment: the ticket gets the `agent-hub-over-cap` label
   (`AGENT_HUB_OVER_CAP_LABEL`) and `needs-human`, and a ⛔ comment with the
   totals and how to go on. Nothing else changes.

@@ -15,8 +15,10 @@ Installing the hub creates the folder with a README if it doesn't exist yet
 
 | File | Used by | For |
 |---|---|---|
-| `guidance.md` | The agent writing the work order or plan (and its revisions) | Conventions, terminology, where things live, what to always check or mention |
-| `review.md` | The expert review | Extra checks for the reviewer, on top of the hub's |
+| `guidance.md` | The agents that write: the work order or plan (and their revisions), the build, its fix pass — and the build's code review and fix check, which judge code by it | Conventions, terminology, where things live, how to build and test, what to always check or mention |
+| `review.md` | The reviewers: the documents' expert review, the build's code review and fix check | Extra checks for the reviewer, on top of the hub's |
+
+Which pass gets which, in one table: [architecture.md](architecture.md#agent-passes).
 | `agents/<name>.md` | Both passes | Codebase experts ([Claude Code subagents](https://code.claude.com/docs/en/sub-agents)) the agent can ask about a part of the code |
 | `skills/<name>/SKILL.md` (plus any files it uses) | Both passes | Know-how the agent loads when it's relevant ([Claude Code skills](https://code.claude.com/docs/en/skills)) |
 | `README.md` | People only | Notes for whoever maintains the extensions |

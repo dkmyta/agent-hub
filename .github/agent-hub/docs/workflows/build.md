@@ -13,7 +13,9 @@
 > hub before the agent starts ([Dependencies](#dependencies-planned-changes-only)). Since 2.9.0 a
 > fresh, read-only session reviews every build's commit, and its findings
 > become the pull request's review and decision items ([Review](#review-read-only));
-> the fix pass, CI gate and hand-off come in later versions.
+> since 2.10.0 the serious ones within the plan are fixed once, checked, and
+> kept only if the build still passes ([Fix and fix check](#fix-and-fix-check)).
+> The CI gate and hand-off come in later versions (4c, 4d).
 > The agreed plan, reviewed externally three times. Items marked
 > *provisional* are defaults to revisit after the first full pipeline test.
 > When the stage is complete, this page becomes its workflow doc (in the
@@ -384,7 +386,8 @@ network but localhost and its own time limit:
   the agent reported running separately.
 
 The agent is told the checks will be re-run and runs them itself first. The
-table below is the full design, with the review's second verify (PR 4).
+table below is the full design; the second verify, after the fix pass, is
+built (2.10.0, *Verify fix*).
 
 After the build (and the dependency step, if any), and again after the fix
 pass:
@@ -486,6 +489,14 @@ A separate pass with the build's permissions applies the fix-pass findings —
 tests, the criterion) → resolved, unresolved or new concern. Anything not
 resolved becomes a review item; there's no second fix loop. The fix check also
 examines any test a fix changed. Then Verify runs again.
+
+**Fix invariant:** an automatic fix never puts a person's decision into a
+pushable commit. Verify fix keeps a fix only if, compared with the reviewed
+commit, it adds no refused file, **no decision item** (outside the plan's
+scope, a must-not-touch area, a dependency file, the size limits…) and no
+hard link, and every check passes; otherwise the whole candidate is
+discarded — the commit, its gate results, its checks' copy and output —
+and the reviewed commit is pushed exactly as it was (2.10.1).
 
 **As built (2.10.0, `stages/build/fix.sh`):** the *Fix* step runs the fix
 pass (the build profile; `AGENT_HUB_BUILD_FIX_MODEL`, Sonnet, capped by
@@ -899,7 +910,8 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 |---|---|
 | `.github/workflows/agent-hub-build.yml` | Caller: triggers (dispatch from Jira, relay, CI result; manual), the per-ticket concurrency group, limits; one job runs start → validate → build → verify → review → fix → fix check → verify → sync → push |
 | `agent-hub-stage.yml` with `code-stage: true` | The shared stage workflow, as for every stage, plus the full history and the machine user's token for the fetch and apply steps only; the install and dependency steps join it as steps that only code stages run, without the token |
-| `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template); later `fix.md`, `fix-check.md`, `ci-fix.md` |
+| `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template), `wording.jq` (wording the pull request and the ticket's report share, and the items); later `ci-fix/` |
+| `stages/build/fix.sh`, `stages/build/fix/`, `stages/build/fix-check/` | The fix pass, the fix check and Verify fix (2.10.0); each pass's `prompt.md` and `schema.json` |
 | `lib/toolchain.sh` | The Node version a repository declares, for the workflow's setup-node step and the fetch step's check |
 | `stages/build/dependencies.sh` | The dependency step: the folders installed, the plan's dependency changes applied and checked, the result for the gates and the report |
 | `lib/sandbox/` | The hub's sandbox for the install and verify steps: `sandbox.sh` (policies, time limit, a clean environment) and the lockfile `srt` is installed from (per job, from npm's download cache in the runner's tool cache, checked against the lockfile every time; Dependabot keeps it current in the hub's repository, and hub releases carry it to others) |
@@ -909,7 +921,7 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | `agent-hub-relay.yml` | No agent: a review submitted, or a pull request comment `/apply` `/skip` → a numbered acknowledgement; wakes the per-ticket run |
 | `agent-hub-ci-result.yml` | No agent: CI completed for an `agent-hub/*` head → wakes the per-ticket run (metadata only) |
 | `agent-hub-pr-sync.yml` | No agent: pull request approved, merged or closed → wakes the per-ticket run (post-merge check, Done) |
-| Extensions | `build/` and `pr-review/` folders as for every stage; `build/guidance.md` is where a repository says how to install, test and build, and lists sensitive and drift-sensitive paths; `build/checks.json` lists the checks the verify step runs, when the `package.json` scripts aren't the right ones |
+| Extensions | The `build/` folder as for every stage (its `review.md` is the code review's and fix check's checklist; [architecture.md](../architecture.md#agent-passes)); `build/guidance.md` is where a repository says how to install, test and build, and lists sensitive and drift-sensitive paths; `build/checks.json` lists the checks the verify step runs, when the `package.json` scripts aren't the right ones |
 
 **`lib/github.sh` (draft):** `gh_branch_ensure` · `gh_push <branch>
 <expected-head>` (refuses non-fast-forward) · `gh_pr_find` ·

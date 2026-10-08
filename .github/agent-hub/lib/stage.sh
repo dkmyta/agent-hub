@@ -145,13 +145,45 @@ _require_caps() {
     || stage_fail "AGENT_HUB_TICKET_MAX_COST_USD must be a positive number of dollars (e.g. 60.00), not '$TICKET_MAX_COST_USD', so Claude wasn't used."
 }
 
-# stage_check_caps: before a run uses Claude. A ticket at either cap gets the
-# over-cap label and needs-human, and a ⛔ comment saying how to go on; the
-# run ends there (outcome blocked) and Claude isn't used. Removing the label
-# is how a person lifts the cap: the next run allows one more cap's worth.
+# stage_run_max_cost: the most this run's Claude passes can cost together —
+# the sum of the configured maximum (--max-budget-usd) of every pass the run
+# may execute, not an estimate: the draft and its review (both at the
+# revision budget when revising), or the stage's own (stage_max_cost: the
+# build's build, review, fix and fix check). Fails if a budget isn't a number.
+stage_run_max_cost() {
+  if declare -F stage_max_cost > /dev/null; then stage_max_cost; return; fi
+  local draft=$CLAUDE_MAX_BUDGET_USD review=$REVIEW_CLAUDE_MAX_BUDGET_USD
+  if [ "$(stage_mode)" = revision ] && [ -n "${REVISION_MAX_BUDGET_USD:-}" ]; then
+    draft=$REVISION_MAX_BUDGET_USD review=$REVISION_MAX_BUDGET_USD
+  fi
+  stage_sum_usd "$draft" "$review"
+}
+
+# stage_sum_usd <dollars>...: their sum; fails unless each is a positive number.
+stage_sum_usd() {
+  jq -ne '[$ARGS.positional[] | select(test("^[0-9]+(\\.[0-9]+)?$")) | tonumber | select(. > 0)] as $n
+    | if ($n | length) == ($ARGS.positional | length) then $n | add * 10000 | round / 10000 else error("not a budget") end' --args "$@" 2> /dev/null
+}
+
+# stage_check_caps: before a run uses Claude — the admission rule (the
+# ticket's cap is the first of three limits: the cap, this admission, then
+# each pass's own --max-budget-usd):
+#
+#   a run may use Claude only if ticket_spend_to_date + run_max_cost <= the cap
+#   (spend counted from the last lift), and its run count is under its cap
+#
+# so a run that starts can always finish within the cap. A ticket that fails
+# it gets the over-cap label and needs-human, and a ⛔ comment saying how to
+# go on; the run ends there (outcome blocked) and Claude isn't used. Removing
+# the label is how a person lifts the cap: the next run allows one more
+# cap's worth.
 stage_check_caps() {
-  local ledger labels over
+  local ledger labels over run_max
   _require_caps
+  run_max=$(stage_run_max_cost) \
+    || stage_fail "This stage's Claude budgets (the repository variables AGENT_HUB_$(printf '%s' "$STAGE" | tr 'a-z-' 'A-Z_')_*MAX_BUDGET_USD) must be positive numbers of dollars, so Claude wasn't used."
+  jq -ne --argjson max "$run_max" --arg cap "$TICKET_MAX_COST_USD" '$max <= ($cap | tonumber)' > /dev/null \
+    || stage_fail "One run of this stage can cost up to \$$run_max (its passes' budgets together), more than the ticket cap AGENT_HUB_TICKET_MAX_COST_USD (\$$TICKET_MAX_COST_USD), so no run could ever start. Raise the cap or lower the budgets; Claude wasn't used."
   ledger=$(tracker_ledger) || stage_fail "Couldn't read $TICKET_KEY's Claude usage from $TRACKER_NAME, so Claude wasn't used."
   if jq -e '.over_cap == true' <<< "$ledger" > /dev/null; then
     labels=$(tracker_ticket_labels) || stage_fail "Couldn't read $TICKET_KEY's labels from $TRACKER_NAME, so Claude wasn't used."
@@ -161,9 +193,9 @@ stage_check_caps() {
       echo "::notice::The $OVER_CAP_LABEL label was removed from $TICKET_KEY, so its caps allow another $TICKET_MAX_RUNS run(s) and \$$TICKET_MAX_COST_USD."
     fi
   fi
-  over=$(jq -r --argjson runs "$TICKET_MAX_RUNS" --arg cost "$TICKET_MAX_COST_USD" '($cost | tonumber) as $cost |
+  over=$(jq -r --argjson runs "$TICKET_MAX_RUNS" --arg cost "$TICKET_MAX_COST_USD" --argjson max "$run_max" '($cost | tonumber) as $cost |
     if .over_cap == true then "still"
-    elif ((.runs // 0) - (.lifted_runs // 0)) >= $runs or ((.cost_usd // 0) - (.lifted_cost_usd // 0)) >= $cost then "now"
+    elif ((.runs // 0) - (.lifted_runs // 0)) >= $runs or ((.cost_usd // 0) - (.lifted_cost_usd // 0)) + $max > $cost then "now"
     else "" end' <<< "$ledger")
   [ -n "$over" ] || return 0
   if [ "$over" = now ]; then
@@ -173,12 +205,12 @@ stage_check_caps() {
   tracker_labels "+$OVER_CAP_LABEL" "+$NEEDS_HUMAN_LABEL" > /dev/null \
     || stage_fail "$TICKET_KEY is over its Claude usage cap, but its labels couldn't be changed. Claude wasn't used."
   jq -n -L "$HUB_DIR/lib" --argjson ledger "$ledger" --argjson max_runs "$TICKET_MAX_RUNS" --argjson max_cost "$(jq -n --arg c "$TICKET_MAX_COST_USD" '$c | tonumber')" \
-      --arg label "$OVER_CAP_LABEL" --arg run "$RUN_URL" 'include "adf";
+      --argjson run_max "$run_max" --arg label "$OVER_CAP_LABEL" --arg run "$RUN_URL" 'include "adf";
     def usd: "$\(. * 100 | round / 100)";
     (($ledger.runs // 0) - ($ledger.lifted_runs // 0)) as $runs
     | (($ledger.cost_usd // 0) - ($ledger.lifted_cost_usd // 0)) as $cost
     | doc([para([strong("⛔ Claude usage cap reached"),
-        text(" — this ticket has used \($cost | usd)\(if $ledger.estimated then " (estimated)" else "" end) of its \($max_cost | usd) cap in \($runs) of its \($max_runs) runs, across every stage, so this run stopped before using Claude. To go on, a person removes the "),
+        text(" — this ticket has used \($cost | usd)\(if $ledger.estimated then " (estimated)" else "" end) of its \($max_cost | usd) cap in \($runs) of its \($max_runs) runs, across every stage. A run of this stage can cost up to \($run_max | usd), so it stopped before using Claude. To go on, a person removes the "),
         code($label), text(" label — which allows another \($max_cost | usd) and \($max_runs) runs — then tries again. "),
         link("Run details"; $run)])])' | tracker_comment > /dev/null \
     || stage_fail "$TICKET_KEY is over its Claude usage cap, but the comment saying so couldn't be posted. Claude wasn't used."

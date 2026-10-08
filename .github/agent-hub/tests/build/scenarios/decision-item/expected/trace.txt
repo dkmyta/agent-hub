@@ -39,3 +39,4 @@ GET /repos/example/repo/pulls?state=all&head=example:agent-hub/PROJ-99&per_page=
 GET /user
 POST /repos/example/repo/pulls — agent-hub/PROJ-99 → main, draft: true, title: PROJ-99: Greet people by name
 POST /repos/example/repo/issues/101/labels — labels: ["agent-hub"]
+--- Outcome: written

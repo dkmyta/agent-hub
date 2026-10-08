@@ -275,10 +275,11 @@ runner code:
   changes Claude's answer), without Claude Code's bundled skills.
 - **Build profile** (the build stage): commands can't read the home folder or
   a planted secret file, write outside the repository, reach the internet,
-  see a planted environment secret, or edit `.github/`; they can write the
+  see a planted environment secret, edit `.github/`, or hard-link a file
+  from outside the repository into it; they can write the
   repository and a temp folder (outside both the repository and the home
   folder; the check shows which), and use localhost.
-- **Review profile** (the build's review pass, from PR 4): commands still
+- **Review profile** (the build's code review and fix check, since 2.9.0): commands still
   run and can read the repository and write the temp folder, but nothing
   writes the repository — not a shell redirect, `touch` or a child process —
   and the file tools are refused.

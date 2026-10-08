@@ -12,3 +12,4 @@ GET ?fields=summary,description,status
 GET ?fields=status
 POST /comment — comment: ❌ Implementation plan failed
 PUT  — {"update":{"labels":[{"add":"needs-human"}]}}
+--- Outcome: failed

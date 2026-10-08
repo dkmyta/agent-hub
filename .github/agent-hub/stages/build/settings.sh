@@ -25,11 +25,11 @@ BUILD_FIX_CHECK_MAX_BUDGET_USD=$(stage_setting FIX_CHECK_MAX_BUDGET_USD 1.00)
 
 # Not for real tickets yet: the stage runs only where a repository opts in,
 # for development (playground/), with the repository variable
-# AGENT_HUB_BUILD_PREVIEW=true. The build now runs in a known environment and
-# checks its own commit (3c), but a person is still its only reviewer and
-# nothing yet stops a later push from replacing what was reviewed; the gate
-# comes off with the agent review and CI (PR 4; docs/workflows/build.md,
-# "Status").
+# AGENT_HUB_BUILD_PREVIEW=true. The build checks its own commit, reviews it
+# and fixes it once, but nothing yet waits for CI, hands it off, or stops a
+# later push from replacing what was reviewed; the gate comes off after the
+# CI gate and hand-off (4d) and the runner prerequisites
+# (docs/workflows/build.md, "Status").
 BUILD_PREVIEW=$(stage_setting PREVIEW false)
 
 # The Claude Code version the build runs with: exact (e.g. 2.1.280), never

@@ -1,0 +1,62 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 95000,
+  "num_turns": 14,
+  "total_cost_usd": 1.25,
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "costUSD": 1.25
+    }
+  },
+  "structured_output": {
+    "summary": "The change does what the plan asks, with two problems worth fixing before it merges. CANARY-REVIEW-SUMMARY",
+    "findings": [
+      {
+        "area": "correctness",
+        "severity": "high",
+        "kind": "correctness",
+        "within_plan": true,
+        "file": "src/greet.js",
+        "line": 2,
+        "title": "A name of only spaces greets as \"Hello,  !\" CANARY-FINDING-TITLE",
+        "evidence": "greet(\"  \") takes the name branch: the check is `name`, not `name.trim()`. CANARY-FINDING-EVIDENCE",
+        "suggestion": "Trim the name before the check. CANARY-FINDING-SUGGESTION"
+      },
+      {
+        "area": "repository-standards",
+        "severity": "low",
+        "kind": "style",
+        "within_plan": true,
+        "file": "test/greet.test.js",
+        "line": 9,
+        "title": "Test name style differs from the file's CANARY-FINDING-TITLE",
+        "evidence": "Other tests in the file start with a verb. CANARY-FINDING-EVIDENCE",
+        "suggestion": "Rename to \"greets by name\". CANARY-FINDING-SUGGESTION"
+      },
+      {
+        "area": "security",
+        "severity": "medium",
+        "kind": "dependency",
+        "within_plan": true,
+        "file": "",
+        "line": null,
+        "title": "Consider pinning the test runner CANARY-FINDING-TITLE",
+        "evidence": "The lockfile allows minor updates of the test runner. CANARY-FINDING-EVIDENCE",
+        "suggestion": " CANARY-FINDING-SUGGESTION"
+      },
+      {
+        "area": "plan-fidelity",
+        "severity": "high",
+        "kind": "correctness",
+        "within_plan": false,
+        "file": "src/greet.js",
+        "line": 1,
+        "title": "SECRET-TICKET-WORDS should also be localised CANARY-FINDING-TITLE",
+        "evidence": "The work order mentions SECRET-TICKET-WORDS in other languages. CANARY-FINDING-EVIDENCE",
+        "suggestion": "Add translations. CANARY-FINDING-SUGGESTION"
+      }
+    ]
+  }
+}

@@ -8,3 +8,4 @@ Clear progress comment: skipped
 Report failure: failure
 Remove session and credential files: success
 --- Jira calls
+--- Outcome: 

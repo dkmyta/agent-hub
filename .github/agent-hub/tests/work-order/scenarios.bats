@@ -83,15 +83,6 @@ ticket() { jq -nc '{fields: {summary: "S", description: {type: "doc", version: 1
   assert_output --partial "The description was edited while this run was working, so nothing was changed"
 }
 
-@test "every path ends in one of the shared outcomes" {
-  local pair
-  for pair in "ready:written" "revise:revised" "needs-details:sent back" "not-in-work-order:no change needed" \
-    "moved-during-run:stale" "claude-fails:failed" "cancelled-during-run:superseded"; do
-    run_scenario "${pair%%:*}"
-    assert_equal "$(sed -n 's/^\*\*Outcome:\*\* //p' "$RUNNER_TEMP/summary.md")" "${pair#*:}"
-  done
-}
-
 @test "cancelled by a newer request: progress comment removed, nothing else changes" {
   run_scenario cancelled-during-run
 }
@@ -304,7 +295,7 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
     assert_equal "$(cat "$RUNNER_TEMP/outcome")" blocked
   done
   run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
-  assert_output "⛔ Claude usage cap reached — this ticket has used \$69 of its \$60 cap in 10 of its 10 runs, across every stage, so this run stopped before using Claude. To go on, a person removes the agent-hub-over-cap label — which allows another \$60 and 10 runs — then tries again. Run details"
+  assert_output "⛔ Claude usage cap reached — this ticket has used \$69 of its \$60 cap in 10 of its 10 runs, across every stage. A run of this stage can cost up to \$4, so it stopped before using Claude. To go on, a person removes the agent-hub-over-cap label — which allows another \$60 and 10 runs — then tries again. Run details"
 }
 
 @test "caps: still over while the label stays; removing it allows one more cap's worth" {
@@ -369,4 +360,36 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
   assert_line "Report failure: skipped"
   run cat "$RUNNER_TEMP/log.txt"
   assert_output --partial "::warning::Couldn't record PROJ-99's Claude usage in Jira, so this run isn't counted towards its cap."
+}
+
+# The admission rule: a run may use Claude only if the ticket's spend so far
+# plus the most this run's passes can cost (each pass's configured maximum)
+# fits within the cap — so a run that starts can always finish within it.
+@test "caps: a run is admitted only if spend so far plus its maximum cost fits the cap — exactly at the cap is fine, a cent over isn't" {
+  # The work order's draft and review: $2 + $2.
+  run_scenario ready 'MOCK_LEDGER={"runs":3,"cost_usd":56}'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: success"
+  run_scenario ready 'MOCK_LEDGER={"runs":3,"cost_usd":56.01}'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  assert_equal "$(cat "$RUNNER_TEMP/outcome")" blocked
+}
+
+@test "caps: a revision's maximum is its revision budget for both passes" {
+  # $1 + $1: room for a revision where a new work order ($4) wouldn't fit.
+  run_scenario revise 'MOCK_LEDGER={"runs":3,"cost_usd":58}'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: success"
+  run_scenario ready 'MOCK_LEDGER={"runs":3,"cost_usd":58}'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+}
+
+@test "caps: a cap smaller than one run's maximum is a settings error, before Claude" {
+  run_scenario ready 'VARS={"AGENT_HUB_TICKET_MAX_COST_USD": "3.00"}'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "One run of this stage can cost up to \$4 (its passes' budgets together), more than the ticket cap AGENT_HUB_TICKET_MAX_COST_USD (\$3.00)"
 }

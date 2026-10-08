@@ -19,3 +19,4 @@ PUT ?notifyUsers=true — description: 18 headings, labels: [{"add":"needs-human
 GET /properties
 PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":1.0084,"estimated":false,"stages":{"work-order":{"runs":1,"cost_usd":1.0084}}}
 DELETE /comment/5001
+--- Outcome: written

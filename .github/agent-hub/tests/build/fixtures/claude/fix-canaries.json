@@ -1,0 +1,22 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 40000,
+  "num_turns": 8,
+  "total_cost_usd": 0.6,
+  "modelUsage": {
+    "claude-sonnet-5": {
+      "costUSD": 0.6
+    }
+  },
+  "structured_output": {
+    "fixes": [
+      {
+        "finding": 1,
+        "fixed": true,
+        "what": "src/greet.js trims the name before the check; a test in test/greet.test.js covers a name of only spaces. CANARY-FIX-WHAT"
+      }
+    ]
+  }
+}

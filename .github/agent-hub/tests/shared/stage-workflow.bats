@@ -194,6 +194,24 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
   assert_output ""
 }
 
+# The steps that may fail without failing the job are exactly the build's
+# advisory ones — the review, the fix pass and verifying the fix, whose
+# failure must not cost a build that already passed its checks. Every
+# blocking control (Verify's checks, Apply's approval, gates, secret scan and
+# push) is in a step that fails the job. Identified by step id, in every hub
+# workflow, so a new exception fails this test until it's added here.
+@test "continue-on-error: exactly the build's review, fix and verify-fix steps, and nowhere else" {
+  local workflow
+  run node "$TESTS_DIR/lib/workflow.mjs" continue-on-error "$WORKFLOW"
+  assert_success
+  assert_output $'review: true\nfix: true\nverify-fix: true'
+  for workflow in "$REPO_DIR"/.github/workflows/agent-hub-*.yml; do
+    [ "$workflow" != "$WORKFLOW" ] || continue
+    run grep -n 'continue-on-error' "$workflow"
+    assert_output ""
+  done
+}
+
 # A job without a time limit can hold a runner for GitHub's default six hours.
 # Jobs that call a reusable workflow get the called workflow's limits.
 @test "every job in the hub's workflows has a time limit" {

@@ -62,6 +62,13 @@ review and the fix pass use Claude):
 |---|---|---|
 | `missed-criterion` | Misses an acceptance criterion (a name of only spaces) that the repository's tests don't cover, while claiming a test does | Find it in the review, as a fix-eligible finding; fix it once, kept because the checks pass on it; confirm it in the fix check — and the pushed commit really does what the criterion says |
 
+The build eval checks only what comes after the build pass — the review,
+fix pass and fix check — so CI's *Agent behaviour changed* reminder
+suggests it for any build prompt change, but only a change to those passes
+(their `review/`, `fix/` or `fix-check/` files, or the runner) is what it
+can confirm; a change to the build pass itself is best checked on a real
+ticket.
+
 Every case runs the same passes as a real run — the draft, and the expert
 review when the draft proceeds (a draft that sends the ticket back isn't
 reviewed) — so the evals measure what actually reaches the ticket.

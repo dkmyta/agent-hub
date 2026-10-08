@@ -90,8 +90,8 @@ API-equivalent dollars ([claude-usage.md](claude-usage.md)):
 | `REVIEW_MAX_BUDGET_USD` | `2.00` | `5.00` | Cap for the expert review |
 | `REVISION_MAX_BUDGET_USD` | `1.00` | `2.00` | Cap for each pass of a revision, which is scoped to the requested changes |
 
-The build (`BUILD`) is **not enabled for real tickets yet**: until the agent
-review and CI gate (PR 4) a person is its only reviewer, so it runs only with
+The build (`BUILD`) is **not enabled for real tickets yet**: until the CI
+gate and hand-off (PR 4) a person takes every draft from there, so it runs only with
 `AGENT_HUB_BUILD_PREVIEW=true` — for development, like `playground/`. A Node
 project must declare its Node version (an `.nvmrc`, for example: see
 [build.md](workflows/build.md#toolchain)); its dependencies are installed
@@ -117,8 +117,9 @@ review model), and for the fix pass `FIX_MODEL` (`claude-sonnet-5`),
 | `BASELINE` | `stop` | The repository's checks on the base commit before the agent: `stop` builds nothing (and uses no Claude) when one already fails there; `warn` builds anyway, for a plan that fixes a failing check; `off` skips them ([build.md](workflows/build.md#baseline)) |
 
 The workflow's steps have their own limits, which these settings can't
-raise: 15 minutes for **Install dependencies**, and 30 for **Verify** — the
-verify copy's install and every check together. They're part of the hub's
+raise: 15 minutes for **Install dependencies**, 30 for **Verify** (the
+verify copy's install and every check together), 30 for **Review**, 40 for
+**Fix** (the fix pass and its check) and 30 for **Verify fix**. They're part of the hub's
 workflow (`agent-hub-stage.yml`, which updates replace), so a repository
 whose install and checks need longer than that isn't supported yet.
 

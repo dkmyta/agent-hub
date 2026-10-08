@@ -9,3 +9,4 @@ Report failure: skipped
 Remove session and credential files: success
 --- Jira calls
 GET ?fields=summary,description,status
+--- Outcome: no change needed

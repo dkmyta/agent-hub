@@ -55,6 +55,18 @@ jobs:
         with:
           persist-credentials: false
 
+      # The build's evals run its review and fix passes, whose sandboxed
+      # profiles need these on Linux — as the stage workflow installs them.
+      # Without them Claude Code refuses to run (the sandbox is never
+      # optional), so the eval fails rather than running unsandboxed.
+      - name: Install sandbox tools
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 2> /dev/null || true
+
       - name: Install Claude Code
         if: runner.environment == 'github-hosted'
         timeout-minutes: 3

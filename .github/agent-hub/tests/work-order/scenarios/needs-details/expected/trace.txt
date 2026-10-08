@@ -20,3 +20,4 @@ POST /transitions — {"transition":{"id":"11"}}
 GET /properties
 PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":0.0826,"estimated":false,"stages":{"work-order":{"runs":1,"cost_usd":0.0826}}}
 DELETE /comment/5001
+--- Outcome: sent back

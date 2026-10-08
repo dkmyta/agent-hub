@@ -26,3 +26,4 @@ PUT /comment/511 — comment: ✅ Resolved
 GET /properties
 PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":1.9484,"estimated":false,"stages":{"implementation-plan":{"runs":1,"cost_usd":1.9484}}}
 DELETE /comment/5001
+--- Outcome: written

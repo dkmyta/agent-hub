@@ -106,11 +106,15 @@ step_fix() {
     "$FIX_RESULT" | tee -a "$GITHUB_STEP_SUMMARY"
 }
 
-# _drop_fix <reason>: back to the reviewed commit, the fix recorded as dropped.
+# _drop_fix <reason>: back to the reviewed commit, the fix recorded as
+# dropped — fully: the candidate's gate results, its copy for the checks and
+# their output are deleted too, so nothing of it can reach Apply.
 _drop_fix() {
   local before
   before=$(jq -r '.before' "$FIX_RESULT")
   (build_git && git reset -q --hard "$before") || true
+  rm -rf "$RUNNER_TEMP/fix-gates.json" "$RUNNER_TEMP/fix-gates-before.json" "$RUNNER_TEMP/check-commit.json" \
+    "$RUNNER_TEMP/verify" "$RUNNER_TEMP/checks"
   # The reviewed commit's own check results, if a kept fix replaced them.
   [ ! -f "$RUNNER_TEMP/verify-reviewed.json" ] || cp "$RUNNER_TEMP/verify-reviewed.json" "$RUNNER_TEMP/verify.json"
   jq --arg reason "$1" '.status = "dropped" | .reason = $reason' "$FIX_RESULT" > "$FIX_RESULT.new" && mv "$FIX_RESULT.new" "$FIX_RESULT"
@@ -122,25 +126,33 @@ _drop_fix() {
 # the machine user, then check that commit as Verify checked the build's.
 # Prints why not, and fails, if it can't be kept.
 _commit_fix() {
-  local base refused
+  local base refused added
   build_git
   base=$(context .base)
   [ "$(git rev-parse HEAD)" = "$(jq -r '.before' "$FIX_RESULT")" ] || { echo "the checkout isn't at the reviewed commit"; return 1; }
+  # No file with more than one link — the check Verify uses.
+  [ -z "$(build_hard_linked_files)" ] || { echo "it left a hard-linked file"; return 1; }
+  # The gates on the reviewed commit, to compare the fix's with.
+  # shellcheck source=stages/build/gates.sh
+  source "$STAGE_DIR/gates.sh"
+  build_gates "$base" "$RUNNER_TEMP/contract.json" > "$RUNNER_TEMP/fix-gates-before.json" 2> /dev/null || { echo "the reviewed commit's changes couldn't be checked"; return 1; }
   git add -A
   ! git diff --cached --quiet || { echo "it changed nothing"; return 1; }
-  # No file with more than one link (as Verify).
-  [ -z "$(git diff --cached --name-only -z --diff-filter=AM | xargs -0 -I{} find {} -maxdepth 0 -type f -links +1 2> /dev/null)" ] \
-    || { echo "it left a hard-linked file"; return 1; }
   GIT_AUTHOR_NAME=$(context .committer.name) GIT_AUTHOR_EMAIL=$(context .committer.email) \
     GIT_COMMITTER_NAME=$(context .committer.name) GIT_COMMITTER_EMAIL=$(context .committer.email) \
     git commit -q -m "Fix the automated review's findings" -m "Refs: $TICKET_KEY" || { echo "it couldn't be committed"; return 1; }
-  # The gates on the whole change, as Apply will run them: a file the hub
-  # never pushes means the fix isn't kept.
-  # shellcheck source=stages/build/gates.sh
-  source "$STAGE_DIR/gates.sh"
+  # The gates on the whole change, as Apply will run them. A fix is kept only
+  # if it adds nothing for a person: no file the hub never pushes, and no
+  # decision item the reviewed commit didn't already have (outside the
+  # plan's scope, a must-not-touch area, a dependency file, the size
+  # limits…) — an automatic fix never puts a person's decision into a
+  # pushable commit. Counts only: the paths are the agent's.
   build_gates "$base" "$RUNNER_TEMP/contract.json" > "$RUNNER_TEMP/fix-gates.json" 2> /dev/null || { echo "its changes couldn't be checked"; return 1; }
   refused=$(jq '.refused | length' "$RUNNER_TEMP/fix-gates.json")
   [ "$refused" = 0 ] || { echo "it changed $refused file(s) the hub never pushes"; return 1; }
+  added=$(jq -n --slurpfile before "$RUNNER_TEMP/fix-gates-before.json" --slurpfile after "$RUNNER_TEMP/fix-gates.json" \
+    '[$after[0].decisions[] | {path, reason}] - [$before[0].decisions[] | {path, reason}] | length')
+  [ "$added" = 0 ] || { echo "it would add $added decision item(s) for a person"; return 1; }
   _check_commit "$base" || { echo "the repository's checks couldn't run on it"; return 1; }
   if jq -e 'any(.checks[]; .result != "passed")' "$RUNNER_TEMP/check-commit.json" > /dev/null; then
     echo "the repository's checks failed on it: $(jq -r '[.checks[] | select(.result != "passed") | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/check-commit.json")"

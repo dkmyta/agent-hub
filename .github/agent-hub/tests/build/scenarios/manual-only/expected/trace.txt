@@ -23,3 +23,4 @@ GET /changelog?startAt=0&maxResults=100
 GET ?fields=attachment
 POST /comment — comment: 🧑‍🔧 Manual changes only
 PUT  — {"update":{"labels":[{"add":"needs-human"}]}}
+--- Outcome: no change needed
