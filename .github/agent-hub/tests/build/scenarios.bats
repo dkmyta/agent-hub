@@ -191,6 +191,15 @@ test/greet.test.js expected"
   run trace
   assert_line "Apply: failure"
   assert_equal "$(remote_branches)" "main"
+  # The hub's own edit since — the description's Pull Request section, which
+  # the build writes after it opens the pull request — isn't a change to the
+  # work order: every later run on the ticket would otherwise be stale.
+  jq '.values[-1].author.accountId = "agent-hub-bot"' "$BATS_TEST_TMPDIR/edited.json" > "$BATS_TEST_TMPDIR/hub-edited.json"
+  fresh_repo
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/hub-edited.json"
+  run trace
+  assert_line "Apply: success"
+  assert_line "--- Outcome: written"
 }
 
 # A time that can't be read can't show the plan predates the approval.

@@ -233,8 +233,13 @@ _approval_problem() {
   # can't show that, so they count as stale too.
   created=$(jq -r '.plans[-1].created // ""' <<< "$snapshot") approved=$(jq -r '.history.at // ""' <<< "$snapshot")
   _later "$approved" "$created" || { echo "stale"; return; }
-  if jq -e --arg name "$PLAN_FILE_NAME" 'any(.history.changes[];
-       (.kind == "attachment" and .file == $name) or .kind == "description")' <<< "$snapshot" > /dev/null; then
+  # A plan file added or removed, or the work order edited, since — by
+  # anyone except the automation account, whose only edit after an approval
+  # is the build's own (the description's Pull Request section, after it
+  # opens the pull request), which every later run on the ticket would
+  # otherwise take for a change to the work order.
+  if jq -e --arg name "$PLAN_FILE_NAME" --arg automation "$AUTOMATION_ACCOUNT" 'any(.history.changes[];
+       (.kind == "attachment" and .file == $name) or (.kind == "description" and .author != $automation))' <<< "$snapshot" > /dev/null; then
     echo "stale"
   fi
 }
