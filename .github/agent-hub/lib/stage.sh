@@ -206,7 +206,6 @@ stage_check_caps() {
     || stage_fail "$TICKET_KEY is over its Claude usage cap, but its labels couldn't be changed. Claude wasn't used."
   jq -n -L "$HUB_DIR/lib" --argjson ledger "$ledger" --argjson max_runs "$TICKET_MAX_RUNS" --argjson max_cost "$(jq -n --arg c "$TICKET_MAX_COST_USD" '$c | tonumber')" \
       --argjson run_max "$run_max" --arg label "$OVER_CAP_LABEL" --arg run "$RUN_URL" 'include "adf";
-    def usd: "$\(. * 100 | round / 100)";
     (($ledger.runs // 0) - ($ledger.lifted_runs // 0)) as $runs
     | (($ledger.cost_usd // 0) - ($ledger.lifted_cost_usd // 0)) as $cost
     | doc([para([strong("⛔ Claude usage cap reached"),
@@ -214,7 +213,15 @@ stage_check_caps() {
         code($label), text(" label — which allows another \($max_cost | usd) and \($max_runs) runs — then tries again. "),
         link("Run details"; $run)])])' | tracker_comment > /dev/null \
     || stage_fail "$TICKET_KEY is over its Claude usage cap, but the comment saying so couldn't be posted. Claude wasn't used."
-  echo "::notice::$TICKET_KEY is over its Claude usage cap ($TICKET_MAX_RUNS runs, \$$TICKET_MAX_COST_USD), so Claude wasn't used."
+  # Why, in numbers: the runs, or the spend against what a run may cost.
+  jq -nr -L "$HUB_DIR/lib" --argjson ledger "$ledger" --argjson max_runs "$TICKET_MAX_RUNS" --arg max_cost "$TICKET_MAX_COST_USD" \
+      --argjson run_max "$run_max" --arg key "$TICKET_KEY" 'include "adf";
+    ($max_cost | tonumber) as $cap | (($ledger.runs // 0) - ($ledger.lifted_runs // 0)) as $runs
+    | (($ledger.cost_usd // 0) - ($ledger.lifted_cost_usd // 0)) as $spent
+    | "::notice::\($key) is at its Claude usage cap, so Claude wasn'"'"'t used: "
+      + (if $runs >= $max_runs then "\($runs) of its \($max_runs) runs are used."
+         else "a run of this stage can cost up to \($run_max | usd), and \([$cap - $spent, 0] | max | usd) is left of its \($cap | usd) cap (\($spent | usd) used)." end)
+      + (if $ledger.over_cap == true then " A person lifts the cap by removing the over-cap label." else "" end)'
   stage_outcome blocked
   exit 0
 }
@@ -244,9 +251,8 @@ stage_record_usage() {
     echo "::warning::Couldn't record $TICKET_KEY's Claude usage in $TRACKER_NAME, so this run isn't counted towards its cap."
     return 0
   fi
-  jq -r --argjson usage "$usage" --argjson max_runs "$TICKET_MAX_RUNS" --arg max_cost "$TICKET_MAX_COST_USD" '
+  jq -r -L "$HUB_DIR/lib" --argjson usage "$usage" --argjson max_runs "$TICKET_MAX_RUNS" --arg max_cost "$TICKET_MAX_COST_USD" 'include "adf";
     ($max_cost | tonumber) as $max_cost |
-    def usd: "$\(. * 100 | round / 100)";
     "**Ticket usage:** this run \($usage.cost | usd)\(if $usage.estimated then " (estimated: a pass had no report)" else "" end); the ticket \(.runs - (.lifted_runs // 0)) of \($max_runs) runs and \((.cost_usd - (.lifted_cost_usd // 0)) | usd) of \($max_cost | usd) since its caps last started."' \
     <<< "$ledger" | tee -a "$GITHUB_STEP_SUMMARY"
 }

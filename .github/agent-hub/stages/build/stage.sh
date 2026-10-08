@@ -703,7 +703,7 @@ step_apply() {
   jq -n --slurpfile context "$BUILD_CONTEXT" --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile review "$CODE_REVIEW" \
       --slurpfile fix "$FIX_RESULT" \
       --slurpfile contract "$RUNNER_TEMP/contract.json" --arg ticket "$TICKET_KEY" \
-      --arg version "$(cat "$HUB_DIR/VERSION")" --arg head "$(git rev-parse HEAD)" -L "$STAGE_DIR" 'include "wording";
+      --arg version "$(cat "$HUB_DIR/VERSION")" --arg head "$(git rev-parse HEAD)" -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording";
     $context[0] as $c | {schema: 1, ticket: $ticket, generation: 1, hub_version: $version,
       plan: ($c.plan | {attachment, uploaded, sha256, approved_at}), target: $c.target, base: $c.base,
       plan_base: $contract[0].base_commit, heads: [{generation: 1, head: $head, hub_version: $version}],
@@ -883,7 +883,7 @@ _ticket_report() {
                     ($state[0].items[] | select(.id | startswith("D")) | select(.source == "fix-check") | [text("Decision: the fix check’s concern \(.id) above")]),
                     ($p.governance.manual_changes[] | [text("Manual change: "), code(.path), text(" — \(.change)")])])]
          else [] end)
-      + [para([em("\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0) + ($x.cost // 0))), \(($o.duration_ms // 0) / 1000 | floor)s. "),
+      + [para([em("\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0) + ($x.cost // 0))) · \(($o.duration_ms // 0) + ($r.duration_ms // 0) + ($x.duration_ms // 0) | duration) of Claude time. "),
                link("Run summary"; $run)])])' \
     | tracker_comment > /dev/null
 }

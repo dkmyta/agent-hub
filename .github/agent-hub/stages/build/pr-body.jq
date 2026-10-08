@@ -33,7 +33,6 @@ def section($title; $lines): if ($lines | length) > 0 then "", "## \($title)", "
 
 def status_word: {A: "added", M: "modified", D: "deleted"}[.] // .;
 def line_counts: if .added == null then "binary" else "+\(.added) −\(.deleted)" end;
-def duration: (. / 1000 | floor) as $s | if $s < 60 then "\($s)s" else "\($s / 60 | floor) min \($s % 60)s" end;
 
 $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0] as $g
 | $contract[0] as $p | $state[0] as $s | $c.publish as $publish | $review[0] as $r | $fix[0] as $x
@@ -129,4 +128,4 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
     "- Declared in the plan: " + ([$p.governance.includes | to_entries[] | select(.value) | .key | gsub("_"; " ")] | if length > 0 then join(", ") else "none of the sensitive kinds" end),
     "- Plan: attachment \($c.plan.attachment) on the ticket (sha256 \($c.plan.sha256[0:12]))"]),
 
-  section("Run"; ["\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0) + ($x.cost // 0))), \($o.duration_ms // 0 | duration) · hub \($s.hub_version) · [run summary](\($run))"])
+  section("Run"; ["\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0) + ($x.cost // 0))) · \(($o.duration_ms // 0) + ($r.duration_ms // 0) + ($x.duration_ms // 0) | duration) of Claude time · hub \($s.hub_version) · [run summary](\($run))"])

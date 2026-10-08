@@ -1,7 +1,9 @@
 # The build's wording that the pull request (pr-body.jq) and the ticket's
 # report (stage.sh, _ticket_report) share, so they always say the same.
 #
-#   jq -L "$STAGE_DIR" 'include "wording"; …'
+#   jq -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; …'
+
+include "adf";
 
 # What the dependency step found in one folder (dependencies.sh), as one
 # line: the lockfile's changes, publication times, signatures, advisories and
@@ -16,9 +18,8 @@ def dependency_summary($before):
 # The run's Claude usage — the build and its review — as the access it used
 # (agent-access.json) makes it: a plan's usage counts against its limits; an
 # API key's is billed.
-def claude_cost($access; $usd):
-  ($usd // 0 | . * 100 | round / 100) as $c
-  | "Claude (build, review and fixes), via \($access.label // "unknown access"): \($c) USD"
+def claude_cost($access; $amount):
+  "Claude (build, review and fixes), via \($access.label // "unknown access"): \($amount // 0 | usd)"
     + ({"api-key": ", billed to the API key", account: " API-equivalent, counted against the plan’s usage limits"}[$access.method // ""]
        // " (API-equivalent)");
 # review_items(gates; review; fix): the pull request's decision (D) and
