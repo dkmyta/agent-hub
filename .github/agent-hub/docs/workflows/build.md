@@ -24,8 +24,10 @@
 > Since 2.13.0 the **CI gate and hand-off** are built (4d-1): once every
 > required check passes on exactly the head the hub verified, the pull
 > request is marked ready and the ticket moves to Ready for Review
-> ([CI gate](#ci-gate), [Hand-off](#hand-off)). CI fixes (4d-2) come next,
-> built against the [Contracts](#contracts) (2.10.2).
+> ([CI gate](#ci-gate), [Hand-off](#hand-off)). Since 2.14.0 a required check
+> that fails gets a **CI fix** — the fix pass's path, with the failed checks as
+> its findings — up to 2 per hand-off (4d-2). Built against the
+> [Contracts](#contracts) (2.10.2).
 > The agreed plan, reviewed externally three times. Items marked
 > *provisional* are defaults to revisit after the first full pipeline test.
 > When the stage is complete, this page becomes its workflow doc (in the
@@ -634,8 +636,30 @@ pull requests (a revision, step 5, will reuse it).
   person.
 - **Each result is reported once per head** (the state block's `ci`
   record): pending → nothing (until the wait limit: a person); failed → a
-  person (4d-2: the CI-fix pass); green → the hand-off, or a person told
-  why it isn't eligible.
+  CI fix (below), or a person; green → the hand-off, or a person told why
+  it isn't eligible.
+- **CI fixes** (2.14.0, 4d-2): when every failed required check ran and
+  failed (conclusion `failure` — not timed out, cancelled, needing action or
+  erroring, which a code fix can't address: a person), and fewer than
+  `AGENT_HUB_BUILD_CI_FIX_ATTEMPTS` (2) were made since the last full review
+  (so a person's commits, reviewed again, start a new count), the run
+  becomes a CI fix. The attempt is recorded first, before any Claude, so a
+  run that stops part-way is never repeated by the sweep. The failed checks
+  become the fix pass's findings, with what each reported — the check run's
+  own summary and, for an Actions job, the end of its log (read with the
+  workflow's token, `actions: read`; to the agent only, as information) —
+  and from there it's **the fix pass's own path**, no more and no less
+  permissive: its `ci-fix/prompt.md` instructions (find the cause; never
+  weaken a test), the fix check, Verify fix (no new refused file or decision
+  item, no hard link, and every one of the repository's own checks the hub
+  runs — not GitHub's — passing in the sandbox on exactly that commit), the
+  secret scan and a push that's never forced. Only failed *required* checks
+  start one (a check that isn't required is never seen); the pushed fix is a
+  new SHA, so the hand-off waits for every currently required check to pass
+  on it. A kept fix is
+  recorded as `kind: ci-fix`, verified on exactly its commit, and CI runs
+  again on it; one that wasn't kept changes nothing and a person takes
+  over. Admitted on the fix pass and its check ($4 by default).
 - **v1 reads the pull request's head only**, where GitHub Actions posts a
   pull request's checks; CI that reports only on the test merge commit, and
   `C` items for failing checks that aren't required, are after v1.
@@ -982,7 +1006,7 @@ is ever *published* from anything but the exact commit the hub verified.
 | Fix check | The hub's diff of exactly the fix | — (no output of its own is published) | *Built* (2.10.0) |
 | Apply (push) | The verified commit | That commit is `HEAD` and the one the checks passed on; the plan and approval re-checked; the push is never forced, and a new branch must not exist; an existing one must still be at the head the run started from (a push that isn't a fast-forward is rejected) | *Built* (existing branches 2.11.0) |
 | Sync | The target branch's current head and the pull request's head the run recorded | The remote branch still at the recorded head (a push that isn't a fast-forward is rejected); merges only, never a force-push. **A sync is a code change:** it resets verification freshness, and review freshness unless the drift is mechanical (below) | *Built* (2.12.0) |
-| CI fix | The CI failure for the current evaluation commit (which must be the current head) | As Fix, on the current head; the head unchanged since the failure was read | *Planned* (4d) |
+| CI fix | The CI failure for the current evaluation commit (which must be the current head) | As Fix, on the current head; the head unchanged since the failure was read | *Built* (2.14.0; the head only) |
 | Hand-off | The current pull request head | The head is the last head the hub verified; required checks green for exactly that evaluation commit; the provenance rule holds; no open decision items; the plan and approval still stand | *Built* (2.13.0; the head only, see [CI gate](#ci-gate)) |
 | `/apply` | The current pull request head and its current items | As a revision build: admitted, verified, gated; only items still valid on the current head are applied (below) | *Planned* (step 5) |
 
@@ -998,7 +1022,7 @@ changed, we merged it, so we're fine".
 ### Candidate eligibility (any automatic change)
 
 One contract for every commit an agent's work becomes — the build's, the
-fix pass's (*built*, 2.10.0–2.10.1), and a CI fix's (*planned*, 4d, through
+fix pass's (*built*, 2.10.0–2.10.1), and a CI fix's (*built*, 2.14.0, through
 the same code path as the fix pass, no more and no less permissive). A
 candidate is pushed only if:
 
@@ -1021,7 +1045,7 @@ what's pushed (for the build itself: nothing is pushed).
   the hub, or people; a sync's merge also records `sync: {target,
   target_head, drift}`). *Built* (2.11.0, syncs 2.12.0).
 - **Each head says what it is** (since 2.13.0): `kind` (`build`, `fix`,
-  `sync`, `people`; `ci-fix` with 4d-2) and, for the hub's, `verified:
+  `sync`, `people`, `ci-fix`) and, for the hub's, `verified:
   {head, by}` — which check verified exactly which commit — and `at`.
 - **Hand-off rule:** every commit after the last full review is a
   hub-generated commit with a passing fix check (a fix or CI fix), or a
@@ -1034,8 +1058,8 @@ what's pushed (for the build itself: nothing is pushed).
 ### CI semantics
 
 Only GitHub's own result counts, for the exact commit being handed off.
-*Built* (2.13.0) except where noted: failures go to a person until the
-CI-fix pass (4d-2), and v1 reads the head only.
+*Built* (2.13.0; CI fixes 2.14.0) except where noted: v1 reads the head
+only.
 
 | Situation | Result |
 |---|---|
@@ -1192,6 +1216,7 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | `agent-hub-stage.yml` with `code-stage: true` | The shared stage workflow, as for every stage, plus the full history and the machine user's token for the fetch and apply steps only; the install and dependency steps join it as steps that only code stages run, without the token |
 | `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template), `wording.jq` (wording the pull request and the ticket's report share, and the items); later `ci-fix/` |
 | `stages/build/fix.sh`, `stages/build/fix/`, `stages/build/fix-check/` | The fix pass, the fix check and Verify fix (2.10.0); each pass's `prompt.md` and `schema.json` |
+| `stages/build/ci-fix/` | The CI-fix pass's instructions (2.14.0); its schema is the fix pass's |
 | `stages/build/handoff.sh`, `lib/ci.sh` | The CI gate and the hand-off (2.13.0): the required checks for exactly the head, the hand-off rule (`handoff_problems`), reporting to a person once per head |
 | `stages/build/sweep.sh`, `.github/workflows/agent-hub-ci-sweep.yml` | The CI sweep (2.13.0): every 10 minutes, requests the build (CI gate only) for the hub's draft pull requests whose checks have finished |
 | `stages/build/reconcile.sh` | Reconciling an existing pull request (2.11.0): integrity, superseded, people's commits, the state and status rewrite; syncing with a moved target (2.12.0): the merge, drift, conflicts |
@@ -1452,7 +1477,7 @@ where stated and only with the owner's OK.
    its eval case (2.10.0); *4c* an existing pull request — reconciliation,
    integrity, superseded builds, people's commits and review coverage
    (4c-1, 2.11.0), then syncing with a moved target and drift (4c-2, 2.12.0); *4d* the CI gate (after
-   a spike on the CI-result mechanism) and the hand-off (4d-1, 2.13.0), then CI fixes (4d-2). The
+   a spike on the CI-result mechanism) and the hand-off (4d-1, 2.13.0), then CI fixes (4d-2, 2.14.0). The
    preview gate comes off after 4d, once the runner blockers are met.
    2.10.1 fixed the post-4b review's findings; 2.10.2 wrote down the
    [Contracts](#contracts) 4c, 4d and step 5 are built and reviewed against —
@@ -1534,6 +1559,7 @@ stable (the state block's identity, generation, heads and provenance):
 | An invariants section | The rules that hold everywhere, in one place (no silent scope expansion; unverifiable outside state changes nothing; a stale run changes nothing; tests are evidence, not authority) |
 | A failure and recovery matrix | Every failure — including a runner dying, a cancelled run, Jira or GitHub down — with its outcome and whether a rerun is safe; the class named in each failure comment |
 | A production checklist | What must hold before the preview gate comes off, checked item by item |
+| Hand-off without CI (opt-in) | A setting to hand off on the hub's own Verify when the target requires no checks, saying so on the pull request and ticket; today such a pull request is never handed off (decided 2026-10-08: as-is for v1) |
 | Evidence and retention | What's kept, where and for how long (today: the state block, the ticket's comments and its usage record are durable; prompts, responses and sessions aren't kept; run logs expire) |
 | Adversarial, race and recovery tests | Prompt injection in the ticket and repository, an unauthorised `/apply`, duplicate and stale events, cancellation mid-run |
 

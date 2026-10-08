@@ -380,6 +380,7 @@ and every setting named must exist (`tests/build/scenarios.bats`).
 | Code review | Review | `review` | `AGENT_HUB_REVIEW_MODEL` | `AGENT_HUB_BUILD_REVIEW_MAX_BUDGET_USD` | The work order and plan, the hub's check results, the diff the hub computed | `guidance.md`, `review.md` | Findings (`stages/build/review/schema.json`) |
 | Fix | Fix | `build` | `AGENT_HUB_BUILD_FIX_MODEL` | `AGENT_HUB_BUILD_FIX_MAX_BUDGET_USD` | The work order and plan, the fix-eligible findings | `guidance.md` | What it fixed (`stages/build/fix/schema.json`); the code, in the checkout |
 | Fix check | Fix | `review` | `AGENT_HUB_BUILD_FIX_MODEL` | `AGENT_HUB_BUILD_FIX_CHECK_MAX_BUDGET_USD` | The work order and plan, the findings and what the fix pass did, the hub's diff of the fix | `guidance.md`, `review.md` | Verdicts, and new concerns (`stages/build/fix-check/schema.json`) |
+| CI fix | Fix | `build` | `AGENT_HUB_BUILD_FIX_MODEL` | `AGENT_HUB_BUILD_FIX_MAX_BUDGET_USD` | The work order and plan, the failed required checks with what they reported (the check's summary; an Actions job's log tail) — the fix pass, with `ci-fix/prompt.md`, then its fix check (above) | `guidance.md` | As the fix pass (`stages/build/fix/schema.json`); the code, in the checkout |
 
 - **Every pass** also gets the repository's `CLAUDE.md` and, as a plugin, its
   `.claude/` agents and skills and the extensions' `agents/` and `skills/`.

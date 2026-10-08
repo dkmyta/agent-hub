@@ -43,6 +43,21 @@ step_review() {
   base=$(context .base)
   [ "$head" = "$(jq -r '.head' "$RUNNER_TEMP/verify.json" 2> /dev/null)" ] \
     || { _review_incomplete "the commit isn't the one the checks passed on" "$head"; return 0; }
+  # A CI fix (handoff.sh): no code review — the failed checks are the
+  # findings, each fix-eligible, for the fix pass (fix.sh) to work on, with
+  # what the check reported as the evidence. The earlier review still
+  # stands for the change.
+  if reconciling && ci_fixing; then
+    jq -n --arg head "$head" --slurpfile failures "$RUNNER_TEMP/ci-failures.json" '
+      {status: "reviewed", source: "ci", head: $head, summary: "Required checks failed.", cost: 0, duration_ms: 0,
+       findings: [$failures[0] | to_entries[] | {n: (.key + 1), area: "ci", severity: "high", kind: "ci-failure",
+         within_plan: true, file: "", line: null, policy: "fix",
+         title: "The required check \"\(.value.name)\" failed (\(.value.conclusions | unique | join(", ")))",
+         evidence: (if .value.evidence == "" then "GitHub reported no details for it." else .value.evidence end),
+         suggestion: "Find why it fails — in the code or in the test — and fix the cause."}]}' > "$CODE_REVIEW"
+    echo "**Code review:** none — a CI fix: $(jq '.findings | length' "$CODE_REVIEW") failed required check(s) for the fix pass." >> "$GITHUB_STEP_SUMMARY"
+    return 0
+  fi
   # Reconciling a merge of mechanical drift only: the earlier review still
   # applies (reconcile.sh), and no Claude runs.
   if reconciling && ! reconcile_reviews; then

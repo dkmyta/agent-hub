@@ -1215,7 +1215,7 @@ pass_row() { # <pass name>: that row's cells, one per line
   done
   # Every setting named in the table exists in the settings files.
   local var short
-  for var in $(awk -F'|' '/^\| (Draft|Expert review|Build|Code review|Fix|Fix check) \|/ { print $5, $6 }' "$HUB_DIR/docs/architecture.md" | grep -o 'AGENT_HUB_[A-Z_<>]*' | sort -u); do
+  for var in $(awk -F'|' '/^\| (Draft|Expert review|Build|Code review|Fix|Fix check|CI fix) \|/ { print $5, $6 }' "$HUB_DIR/docs/architecture.md" | grep -o 'AGENT_HUB_[A-Z_<>]*' | sort -u); do
     case "$var" in
       AGENT_HUB_\<STAGE\>_*) short=${var#AGENT_HUB_<STAGE>_}; grep -qE "stage_setting_into [A-Z_]+ $short " "$HUB_DIR"/stages/work-order/settings.sh || fail "$var: no stage setting $short" ;;
       AGENT_HUB_BUILD_*) short=${var#AGENT_HUB_BUILD_}; grep -qE "stage_setting_into [A-Z_]+ $short " "$HUB_DIR/stages/build/settings.sh" || fail "$var: not a build setting" ;;
@@ -1533,25 +1533,103 @@ jira_comments() { jq -r 'select(.method == "POST" and .path == "/comment") | .bo
   assert_output --partial "✅ Ready for review"
 }
 
-@test "CI gate: a required check failed — a person is told once; the next run changes nothing" {
+@test "CI gate: a required check failed and the CI fix changed nothing — not pushed, a person told once; the next run changes nothing" {
   built_pr
+  local before
+  before=$(branch_head)
   reconcile_run 'MOCK_GH_CHECKS={"test": "failure"}'
   run trace
+  assert_line "Fix: success"
   assert_line "--- Outcome: blocked"
+  assert_equal "$(branch_head)" "$before"
   assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" true
   run pr_comments
   assert_output --partial "🔎 Not handed off: required checks failed on"
-  assert_output --partial ": test. A person takes it from here"
+  assert_output --partial "(test), and the hub's CI fix wasn't kept: the fix pass changed nothing"
   run jira_comments
-  assert_output --partial "🔎 Not handed off"
-  assert_equal "$(jq -r '.ci.result' <<< "$(pr_state)")" failed
+  assert_output --partial "🔎 CI fix not kept"
+  run jq -c '{ci: .ci.result, attempts: .ci_fix.attempts, last: .ci_fix.last.status}' <<< "$(pr_state)"
+  assert_output '{"ci":"failed","attempts":1,"last":"failed"}'
   carry_prs
   reconcile_run 'MOCK_GH_CHECKS={"test": "failure"}'
   run trace
   assert_line "--- Outcome: no change needed"
+  assert_line "Agent: skipped"
   [ ! -e "$RUNNER_TEMP/mock-github/comments.jsonl" ] || fail "reported twice"
+}
+
+# 4d-2: a CI fix — the fix pass, with the failed checks as its findings.
+ci_fix_run() { # [VAR=value...]: a run that finds the required check "test" failed, and fixes it
+  reconcile_run 'MOCK_GH_CHECKS={"test": "failure"}' CLAUDE_FIX_FIXTURE=claude/fix.json \
+    CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json CLAUDE_FIX_EDITS=edits/fix-trim.sh "$@"
+}
+
+@test "CI fix: a failed required check is fixed through the fix pass's path, verified, pushed without force and recorded as the hub's" {
+  built_pr
+  local before
+  before=$(branch_head)
+  ci_fix_run 'MOCK_GH_LOG=not ok 1 - greet trims names (LOG-MARKER-3)'
+  run trace
+  assert_line "Review: success"
+  assert_line "Fix: success"
+  assert_line "Verify fix: success"
+  assert_line "--- Outcome: revised"
+  # The fix pass got the failed check, with what it reported, and the CI
+  # instructions; no code review ran.
+  run cat "$RUNNER_TEMP/claude-fix-prompt.txt"
+  assert_output --partial 'The required check "test" failed (failure)'
+  assert_output --partial "LOG-MARKER-3"
+  assert_output --partial "1 failing test (check run 9000)"
+  run cat "$RUNNER_TEMP/ci-fix-pass-prompt.md"
+  assert_output --partial "# CI fix agent"
+  [ ! -e "$RUNNER_TEMP/claude-pass-prompt.txt" ] || fail "a code review ran"
+  # On top of the failed head, never forced.
+  assert_equal "$(git --git-dir="$REMOTE" rev-parse "$(branch_head)^")" "$before"
+  assert_equal "$(git --git-dir="$REMOTE" log -1 --format=%s "$(branch_head)")" "Fix the failing required checks"
+  run jq -c --arg head "$(branch_head)" '{last: (.heads[-1] | {kind, by, verified: (.verified.head == $head), head: (.head == $head)}),
+    attempts: .ci_fix.attempts, items: [.items[] | select(.source == "ci-fix-check") | .id]}' <<< "$(pr_state)"
+  assert_output '{"last":{"kind":"ci-fix","by":"hub","verified":true,"head":true},"attempts":1,"items":["R1"]}'
+  run pr_comments
+  assert_output --partial "🔧 CI fix by the agent hub: required checks failed on"
+  assert_output --partial "CI runs again on it (fix 1 of 2)"
+  refute_output --partial "LOG-MARKER-3"
+  # Its admission: the fix pass and its check only.
   run jira_comments
-  assert_output ""
+  assert_output --partial "⏳ Fixing CI on pull request #101"
+  assert_output --partial "🔧 CI fix pushed"
+}
+
+@test "CI fix: once CI passes on the fix, the pull request is handed off" {
+  built_pr
+  ci_fix_run
+  carry_prs
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  run trace
+  assert_line "--- Outcome: handed off"
+  run jq -c '[.heads[] | .kind]' <<< "$(pr_state)"
+  assert_output '["build","ci-fix"]'
+}
+
+@test "CI fix: a check that timed out, was cancelled or errored isn't a code fix — a person, no Claude" {
+  built_pr
+  reconcile_run 'MOCK_GH_CHECKS={"test": "timed_out"}'
+  run trace
+  assert_line "--- Outcome: blocked"
+  assert_line "Agent: skipped"
+  run pr_comments
+  assert_output --partial "not in a way a code fix addresses (timed_out)"
+}
+
+@test "CI fix: after the attempts allowed since the last full review, a person" {
+  built_pr
+  ci_fix_run
+  carry_prs
+  ci_fix_run 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_CI_FIX_ATTEMPTS": "1"}'
+  run trace
+  assert_line "--- Outcome: blocked"
+  assert_line "Agent: skipped"
+  run pr_comments
+  assert_output --partial ": test, after 1 CI fix. A person takes it from here"
 }
 
 @test "CI gate: checks still running or not reported — nothing; past the wait limit, a person" {

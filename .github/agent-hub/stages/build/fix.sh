@@ -39,6 +39,9 @@ _numbered_findings() {
     + (if .what then "\n   The fix pass: \(if .fixed then "fixed" else "left it" end) — \(.what)" else "" end)' <<< "$1"
 }
 
+# _fix_instructions: the fix pass's instructions folder — ci-fix for a CI fix.
+_fix_instructions() { if reconciling && ci_fixing; then echo ci-fix; else echo fix; fi; }
+
 # _fix_diff <commit>: the checkout's changes since <commit> — new files too —
 # from the trusted metadata, without touching its index.
 _fix_diff() {
@@ -62,8 +65,10 @@ step_fix() {
   [ "$head" = "$(jq -r '.head' "$CODE_REVIEW")" ] || { _fix_record failed "the commit isn't the one the review saw"; return 0; }
 
   input=$(printf '<ticket>\n%s\n</ticket>\n\n<findings>\n%s\n</findings>\n' "$(cat "$RUNNER_TEMP/ticket.md")" "$(_numbered_findings "$findings")")
+  # A CI fix is this same pass, with its own instructions (ci-fix/: the
+  # findings are failed checks) and the same schema.
   agent_pass build "$BUILD_FIX_MODEL" "$BUILD_FIX_FALLBACK_MODEL" "$BUILD_FIX_MAX_BUDGET_USD" \
-    "$STAGE_DIR/fix/prompt.md" "$STAGE_DIR/fix/schema.json" "$input" > "$output"
+    "$STAGE_DIR/$(_fix_instructions)/prompt.md" "$STAGE_DIR/fix/schema.json" "$input" > "$output"
   if [ ! -s "$output" ] || ! jq -e --argjson f "$findings" '.is_error == false and (.structured_output.fixes | type == "array")
        and ([.structured_output.fixes[].finding] - [$f[].n] == [])' "$output" > /dev/null 2>&1; then
     _fix_record failed "Claude returned no usable result for the fix pass" "$head"
@@ -144,7 +149,8 @@ _commit_fix() {
   ! git diff --cached --quiet || { echo "it changed nothing"; return 1; }
   GIT_AUTHOR_NAME=$(context .committer.name) GIT_AUTHOR_EMAIL=$(context .committer.email) \
     GIT_COMMITTER_NAME=$(context .committer.name) GIT_COMMITTER_EMAIL=$(context .committer.email) \
-    git commit -q -m "Fix the automated review's findings" -m "Refs: $TICKET_KEY" || { echo "it couldn't be committed"; return 1; }
+    git commit -q -m "$(if [ "$(_fix_instructions)" = ci-fix ]; then echo "Fix the failing required checks"; else echo "Fix the automated review's findings"; fi)" \
+      -m "Refs: $TICKET_KEY" || { echo "it couldn't be committed"; return 1; }
   # The gates on the whole change, as Apply will run them. A fix is kept only
   # if it adds nothing for a person: no file the hub never pushes, and no
   # decision item the reviewed commit didn't already have (outside the

@@ -30,6 +30,7 @@ permissions:
   contents: read
   checks: read
   statuses: read
+  actions: read
 
 jobs:
   implementation-plan:

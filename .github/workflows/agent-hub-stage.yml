@@ -60,12 +60,13 @@ on:
         default: ""
 
 # The workflow's own token reads only: the repository, and (for the build's
-# CI gate) check runs and commit statuses, which a fine-grained token can't
-# be given. Callers grant the same.
+# CI gate and CI fixes) check runs, commit statuses and CI jobs' logs, which
+# a fine-grained token can't be given. Callers grant the same.
 permissions:
   contents: read
   checks: read
   statuses: read
+  actions: read
 
 jobs:
   stage:

@@ -110,7 +110,8 @@ run — retries, revisions and resubmissions included:
   its draft and review budgets ($4 and $10 by default; their revision budgets
   when revising), a build its build, review, fix and fix check ($19) — or,
   reconciling a pull request that already exists, only the review, fix and
-  fix check ($9), and nothing for one that only merges in a target branch's
+  fix check ($9), a CI fix only the fix pass and its check ($4), and nothing
+  for one that only merges in a target branch's
   mechanical drift: a run that uses no Claude isn't admitted or counted. So a
   run that starts can always finish within the cap, and a ticket stops once
   less than one run's maximum is left. A cap smaller than one run's maximum

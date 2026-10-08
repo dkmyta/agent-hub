@@ -114,6 +114,7 @@ review model), and for the fix pass `FIX_MODEL` (`claude-sonnet-5`),
 | `MAX_FILE_LINES` | `1000` | A single file changing more lines than this is a decision item |
 | `INSTALL_MINUTES` | `10` | Time limit for installing the dependencies (each install: in the checkout, and in the verify step's copy); over it, nothing is built |
 | `CHECK_MINUTES` | `10` | Time limit for each of the repository's checks in the verify step; over it, the check counts as failed and nothing is pushed |
+| `CI_FIX_ATTEMPTS` | `2` | CI fixes the hub pushes for one hand-off, counted from the last full review (a person's commits, reviewed again, start a new count); past it, a failed check goes to a person |
 | `CI_WAIT_MINUTES` | `120` | How long the CI gate waits for the required checks to report on a pull request's head (from when the hub recorded it) before asking a person — a path-filtered required check never runs |
 | `MIN_RELEASE_AGE_DAYS` | `3` | The dependency step's minimum release age: every package version it adds or changes, direct and transitive, must have been published on or before now − N × 24 hours, by the registry's own times (`0` for none); otherwise nothing is built, before Claude ([build.md](workflows/build.md#dependencies-planned-changes-only)) |
 | `ALLOWED_LICENSES` | permissive licences (MIT, ISC, BSD, Apache-2.0, …) | SPDX ids, comma-separated: a package the dependency step adds (direct or transitive) with any other licence, or none, is a decision item for a person — this list replaces the default |

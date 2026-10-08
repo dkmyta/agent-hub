@@ -71,6 +71,10 @@ stage_setting_into BUILD_CHECK_MINUTES CHECK_MINUTES 10
 # (docs/workflows/build.md, "CI gate"): a required check can be path-filtered
 # and never run.
 stage_setting_into BUILD_CI_WAIT_MINUTES CI_WAIT_MINUTES 120
+# How many CI fixes the hub pushes for one hand-off — counted from the last
+# full review, so a person's commits (reviewed again) start a new count
+# (docs/workflows/build.md, "CI gate"). Past it, a person.
+stage_setting_into BUILD_CI_FIX_ATTEMPTS CI_FIX_ATTEMPTS 2
 
 # The minimum age, in days, of any package version the dependency step
 # chooses (docs/workflows/build.md, "Dependencies"): a version published more

@@ -99,6 +99,11 @@ step_fetch() {
     cat "$RUNNER_TEMP/plan.md"
   } >> "$RUNNER_TEMP/ticket.md"
   if reconciling; then
+    if ci_fixing; then
+      stage_progress_comment "⏳ Fixing CI on pull request #$(context .pr)" \
+        " — required checks failed ($(context '.ci_fix.checks | join(", ")')), so the hub is trying a fix ($(context .ci_fix.attempt) of $BUILD_CI_FIX_ATTEMPTS), verified before it's pushed. Refresh the page to see the result. "
+      return
+    fi
     stage_progress_comment "⏳ Re-checking pull request #$(context .pr)" " — $(reconcile_why), so it's being verified$(reconcile_reviews && echo " and reviewed") again. Refresh the page to see the result. "
     return
   fi
@@ -113,6 +118,8 @@ stage_max_cost() {
   # A reconcile run has no build pass, and one that only merged a mechanical
   # drift has no review either: no Claude at all.
   if reconciling; then
+    # A CI fix: the fix pass and its check only.
+    if ci_fixing; then stage_sum_usd "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return; fi
     reconcile_reviews || { echo 0; return; }
     stage_sum_usd "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return
   fi

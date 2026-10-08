@@ -29,6 +29,7 @@
 #                        in_progress); default none. MOCK_GH_CHECKS_APP: the
 #                        app id they're posted by (default 15368)
 #   MOCK_GH_STATUSES     commit statuses, a JSON object context → state
+#   MOCK_GH_LOG          a failed Actions job's log (default: one line)
 #   MOCK_GH_ON_CHECKS    a script run once, when the check runs are first read —
 #                        e.g. a person pushing while the hub reads CI
 #
@@ -95,9 +96,14 @@ gh_request() {
           bash -e -c "$MOCK_GH_ON_CHECKS" > "$RUNNER_TEMP/mock-github/on-checks.log" 2>&1
       fi
       jq -nc --argjson checks "${MOCK_GH_CHECKS:-"{}"}" --argjson app "${MOCK_GH_CHECKS_APP:-15368}" '
-        {check_runs: [$checks | to_entries[] | {name: .key, app: {id: $app}}
+        {check_runs: [$checks | to_entries | to_entries[] | .key as $i | .value | {id: (9000 + $i), name: .key, app: {id: $app, slug: "github-actions"}}
           + (if .value | IN("queued", "in_progress") then {status: .value, conclusion: null} else {status: "completed", conclusion: .value} end)]}' ;;
-    "GET $repo/commits/"*/status*)
+    "GET $repo/check-runs/"*)
+      jq -nc --arg id "${path##*/}" '{id: ($id | tonumber), output: {title: "Tests failed", summary: "1 failing test (check run \($id))", text: null}}' ;;
+    "GET $repo/actions/jobs/"*/logs)
+      # The job's log: MOCK_GH_LOG, or a short one.
+      printf '%s\n' "${MOCK_GH_LOG:-2026-10-08T10:00:00Z not ok 1 greets by name}" ;;
+        "GET $repo/commits/"*/status*)
       jq -nc --argjson s "${MOCK_GH_STATUSES:-"{}"}" '{statuses: [$s | to_entries[] | {context: .key, state: .value}]}' ;;
     "POST $repo/actions/workflows/"*/dispatches)
       mkdir -p "$RUNNER_TEMP/mock-github"
