@@ -737,11 +737,14 @@ By default, GitHub concurrency groups allow one running and one pending run,
 and a third trigger cancels the pending one; `queue: max` keeps up to 100
 pending runs. So:
 
-- **One per-ticket group** (`agent-hub-<repo>-<ticket>`) for everything that
-  changes code or the state block, with `cancel-in-progress: false` and
-  `queue: max`: a run is never killed mid-push, wake-ups are kept, and since
-  people start every run, queuing is right. (actionlint doesn't know `queue`
-  yet; `actionlint.yaml` ignores exactly that message for the build workflow.)
+- **One per-ticket group** (`agent-hub-<repo>-<ticket>`) shared by every
+  stage — the work order, the plan and the build (since 2.12.1; the document
+  stages used to cancel an older run) — with `cancel-in-progress: false` and
+  `queue: max`: nothing for a ticket runs in parallel, so no two runs update
+  its state or its Claude usage record at once; a run is never killed
+  mid-push; wake-ups are kept, and since people start every run, queuing is
+  right. (actionlint doesn't know `queue` yet; `actionlint.yaml` ignores
+  exactly that message for those three workflows.)
 - **Runs act on current state, not on the event that started them.** Dropped,
   duplicate, reordered or stale wake-ups are harmless.
 - **One writer:** the relay and CI-result workflows only observe, acknowledge
@@ -830,9 +833,9 @@ description, and mirrored to the ticket (one comment per review round,
 |---|---|---|
 | Fix pass | 1 per build or revision | Remaining findings → review items |
 | Fix check | 1 per fix pass | Unresolved → review items |
-| Merge conflicts | 2 attempts | Draft kept, ❌ on the ticket, `needs-human` |
+| Merge conflicts | None: a person resolves them (decided 2026-10-08) | Nothing pushed, the files listed, `needs-human` |
 | CI fixes (code and test failures) | 2 per hand-off | Same |
-| Semantic-drift re-validation | 1 | A person decides |
+| Semantic drift | The whole change reviewed again on the merged commit (decided 2026-10-08), with its one fix pass | As for a review |
 | Runs per ticket that used Claude, every stage (all started by people; since 2.8.0) | 10 (*provisional*) | Nothing more uses Claude until a person lifts it ([claude-usage.md](../claude-usage.md#per-ticket-caps)) |
 | Spend per ticket, every stage (since 2.8.0) | $60 (*provisional*) | Same |
 | Each pass | Budget and time limit | The run fails with the reason; nothing pushed |
@@ -1016,7 +1019,7 @@ again" line and the run summary — so the way forward fits the cause.
 | Existing branch or pull request | A previous build's branch or pull request | failed (exact instructions) | As the comment says |
 
 *Built:* the outcomes and per-reason instructions (2.7.2, blocked 2.8.0).
-*Planned:* the class named explicitly in the comment and summary (4c).
+*After v1:* the class named explicitly in the comment and summary ([After v1](#after-v1)).
 
 ## Safety
 
@@ -1262,7 +1265,6 @@ ticket to Done. Automating more of that is a [later](#later) item.
 | Size limits | 50 files, 2,000 lines, plus a single-file limit |
 | Spend cap per ticket | $60 |
 | The build eval case | One case, its own cap |
-| Semantic drift | Re-validate once, then a person |
 | Risk level | Informational, plus governance flags and gates |
 | CI result mechanism | `workflow_run` with names written at install, after a spike |
 
@@ -1439,6 +1441,30 @@ settings, and that session files are removed after each run.
 | More than one pull request per ticket | Nothing in v1 assumes one |
 | GitHub Projects as the tracker for the build | Follows the Jira version |
 | Other AI providers (a second agent runner: OpenAI's Codex CLI, Google's Gemini CLI, …) | **A dedicated task after PR 4**, once every workflow is in place: the agent runner interface (`lib/runners/`) already lets one be added; the plan will list what's Claude-specific today (restricted mode, the agent's sandbox, plugins, prompts, budgets, evals), set the guarantees any runner must give as a written, tested contract, and assess each provider's CLI against it. Until then the pre-PR 4 review only flags anything that would make it harder |
+
+### After v1
+
+v1 is the minimum that completes the flow; it's hardened once the pipeline
+test shows it works (agreed 2026-10-08, after an external review of the
+plan). These are deferred, not dropped — v1 keeps the data they'd build on
+stable (the state block's identity, generation, heads and provenance):
+
+| Item | Notes |
+|---|---|
+| A written state model | The states and transitions across Jira, the pull request and runs, as a table |
+| An invariants section | The rules that hold everywhere, in one place (no silent scope expansion; unverifiable outside state changes nothing; a stale run changes nothing; tests are evidence, not authority) |
+| A failure and recovery matrix | Every failure — including a runner dying, a cancelled run, Jira or GitHub down — with its outcome and whether a rerun is safe; the class named in each failure comment |
+| A production checklist | What must hold before the preview gate comes off, checked item by item |
+| Evidence and retention | What's kept, where and for how long (today: the state block, the ticket's comments and its usage record are durable; prompts, responses and sessions aren't kept; run logs expire) |
+| Adversarial, race and recovery tests | Prompt injection in the ticket and repository, an unauthorised `/apply`, duplicate and stale events, cancellation mid-run |
+
+**Never** (complexity v1 and later don't need): a general locking system
+(one queue per ticket is the rule) · a state-machine framework · an audit
+platform (the pull request, git, the ticket and run summaries are the
+record) · CI failure categories that don't change what happens (fixable by
+the CI-fix pass, or a person) · automatic recovery from unknown failures (a
+person) · more tokens without a concrete privilege boundary to enforce ·
+atomic budget accounting (the queue serialises a ticket's runs).
 
 **Not planned:** deploys · migrations against real environments · hub-managed
 preview environments · automatic reverts · risk-based autonomy (auto-merge) ·

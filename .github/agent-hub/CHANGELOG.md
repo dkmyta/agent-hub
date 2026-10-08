@@ -5,6 +5,37 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.12.1 — 2026-10-08
+
+Settles the v1 scope after an external review of the plan: one queue per
+ticket now, the rest of the hardening listed for after v1.
+
+- **One queue per ticket, for every stage.** The work-order and plan
+  workflows now share the build's concurrency group
+  (`agent-hub-<repo>-<ticket>`): nothing for a ticket runs in parallel, so
+  no two runs update its state or its Claude usage record at once (the
+  record is a Jira issue property, which can't be updated atomically). A
+  newer work-order or plan request **waits** for a run in progress instead of
+  cancelling it, then acts on the ticket as it finds it — one whose ticket
+  moved on does nothing.
+- **A queued duplicate costs nothing.** A revision with nothing left to do
+  now ends before Claude ("no change needed"): in the plan stage, one with no
+  open `/revise` comments; in the work-order stage, one with no open
+  `/revise` comments whose work order was already written after the ticket
+  last entered Work Order (a ticket resubmitted through Intake with an edited
+  request is still revised, as before). So several `/revise` comments in a
+  row, two quick moves to Work Order Approved or two quick saves in Intake
+  run Claude only for what's actually new.
+- **build.md:** the loops table now says what was decided for 4c (a merge
+  conflict goes to a person; semantic drift is reviewed again on the merged
+  commit), and a new **After v1** section lists the deferred hardening and
+  what won't be built at all.
+- architecture.md, implementation-plan.md and jira.md describe the queue;
+  a cancelled run is now one a person cancelled.
+
+**Updating:** Nothing. (Runs already in progress when you update finish
+under the old groups.)
+
 ## 2.12.0 — 2026-10-08
 
 PR 4's third part, second half (4c-2): an existing pull request is synced

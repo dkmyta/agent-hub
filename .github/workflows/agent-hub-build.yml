@@ -19,10 +19,10 @@ on:
         required: true
         type: string
 
-# One group per ticket for everything that changes its code: a run is never
-# cancelled mid-push, and every request waits its turn (up to 100 pending),
-# then acts on the state it finds — the request is only a wake-up (a
-# duplicate finds the pull request already open).
+# One group per ticket, shared by every stage (the work order, the plan and
+# the build), so nothing for a ticket runs in parallel: a run is never
+# cancelled, every request waits its turn (up to 100 pending), and each run
+# acts on the ticket as it finds it then.
 concurrency:
   group: agent-hub-${{ github.repository }}-${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
   cancel-in-progress: false

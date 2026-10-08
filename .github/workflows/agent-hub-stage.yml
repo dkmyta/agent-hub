@@ -279,8 +279,8 @@ jobs:
           source "$RUNNER_TEMP/agent-hub/lib/load.sh" tracker
           stage_record_usage
 
-      # Runs on success and on cancellation (a newer request for the ticket
-      # superseded this run), so no "⏳" progress comment is left behind.
+      # Runs on success and on cancellation (a person cancelled the run), so
+      # no "⏳" progress comment is left behind.
       - name: Clear progress comment
         if: success() || cancelled()
         timeout-minutes: 2

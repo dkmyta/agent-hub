@@ -72,6 +72,12 @@ step_fetch() {
     fi
   fi
   stage_set_mode "$MODE"
+  # A plan is revised only on request: with no open change requests this is
+  # a duplicate (queued behind the run that handled them, or a second move
+  # to Work Order Approved behind the run that wrote the plan).
+  if [ "$MODE" = revision ] && [ "$(stage_open_change_requests)" = 0 ]; then
+    stage_nothing_to_revise "no open $REVISE_COMMAND comments"
+  fi
 
   if [ "$MODE" = revision ]; then
     stage_progress_comment "⏳ Revising implementation plan" \

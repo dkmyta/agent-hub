@@ -412,3 +412,15 @@ uploaded_mid_run() {
   refute_output --partial "Questions from the build"
   assert_output --partial "## Expert review"
 }
+
+@test "a duplicate request in Implementation Plan (no open /revise): nothing to revise — no Claude, nothing written" {
+  jq '.comments |= map(select((.body.content[0].content[0].text // "") | startswith("/revise") | not))' \
+    "$FIXTURES/comments-revise.json" > "$BATS_TEST_TMPDIR/comments-handled.json"
+  run_scenario revise "COMMENTS_FIXTURE=$BATS_TEST_TMPDIR/comments-handled.json"
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  assert_line "--- Outcome: no change needed"
+  [ ! -e "$RUNNER_TEMP/claude-prompt.txt" ] || fail "Claude ran"
+  run writes
+  assert_output ""
+}

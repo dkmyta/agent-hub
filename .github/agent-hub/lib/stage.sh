@@ -120,6 +120,26 @@ stage_ticket_markdown() {
     "$RUNNER_TEMP/ticket.json" > "$RUNNER_TEMP/ticket.md"
 }
 
+# stage_open_change_requests: how many of the comments the run read
+# (comments-seen.json, from stage_ticket_markdown --with-comments) are open
+# change requests — the same rule as what Claude is given.
+stage_open_change_requests() {
+  jq -r -L "$HUB_DIR/lib" --arg command "${REVISE_COMMAND:-}" 'include "adf";
+    [.comments[] | select(change_request($command))] | length' "$RUNNER_TEMP/comments-seen.json"
+}
+
+# stage_nothing_to_revise <why>: a revision with nothing to do ends here,
+# before Claude (no change needed). With one queue per ticket, a request
+# that arrived while a run was going waits for it; if that run handled it,
+# the waiting run ends here and costs nothing.
+stage_nothing_to_revise() {
+  echo "::notice::Nothing to revise on $TICKET_KEY: $1."
+  echo "[$TICKET_KEY]($TICKET_URL): nothing to revise — $1." >> "$GITHUB_STEP_SUMMARY"
+  echo "proceed=false" >> "$GITHUB_OUTPUT"
+  stage_outcome "no change needed"
+  exit 0
+}
+
 # stage_progress_comment <title> <text>: the "⏳ …" comment people see while
 # the run is going; its id goes to progress-comment-id. Sets proceed=true —
 # unless the ticket is over its Claude usage caps (stage_check_caps).
@@ -263,7 +283,8 @@ stage_record_usage() {
 # stage_clear_progress: delete the progress comment, if one was posted.
 stage_clear_progress() {
   # This step runs on success or cancellation. Every successful path has
-  # recorded its outcome, so none means a newer request cancelled the run.
+  # recorded its outcome, so none means the run was cancelled (by a person:
+  # requests for a ticket queue rather than cancel, since 2.12.1).
   [ -s "$RUNNER_TEMP/outcome" ] || stage_outcome superseded
   [ -s "$RUNNER_TEMP/progress-comment-id" ] || return 0
   tracker_delete_comment "$(cat "$RUNNER_TEMP/progress-comment-id")"

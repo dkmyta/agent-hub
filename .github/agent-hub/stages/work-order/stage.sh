@@ -25,6 +25,15 @@ step_fetch() {
   stage_set_mode "$MODE"
   # Comments hold extra details and change requests.
   stage_ticket_markdown --with-comments
+  # A revision with no open change requests is a duplicate request — queued
+  # behind the run that already wrote the work order — unless the ticket was
+  # resubmitted through Intake with an edited request: then nothing has
+  # written the description since it entered Work Order. If the history
+  # can't be read, the revision goes ahead.
+  if [ "$MODE" = revision ] && [ "$(stage_open_change_requests)" = 0 ] \
+    && [ "$(tracker_edited_after "$WORK_ORDER_STATUS" description 2> /dev/null)" = yes ]; then
+    stage_nothing_to_revise "no open $REVISE_COMMAND comments, and the work order was written after the ticket last entered $WORK_ORDER_STATUS"
+  fi
   # Shows people on the ticket that a run is going; cleared when it
   # ends, or turned into the failure notice.
   if [ "$MODE" = revision ]; then

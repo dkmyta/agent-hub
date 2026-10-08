@@ -199,7 +199,7 @@ Shared ones (revisions, failures, retries) are in
 | Work order contradicts the code | Needs clarification, saying what was found — Claude doesn't redefine the scope |
 | Summary too large for the description | Fails with the reason; nothing written |
 | Plan upload fails | Description untouched |
-| Two approvals in quick succession | The newer request cancels the older run |
+| Two approvals in quick succession | The second waits for the first (one queue per ticket, since 2.12.1), then finds the ticket has moved on and does nothing |
 | An optional section is absent and a revision adds to it | Inserted in plan order |
 | The plan file has a section a revision changes twice | Fails before changing anything, naming it — which to change would be a guess |
 | The plan file was saved with Windows line endings, or a heading as `## Testing ##` | Read the same (CommonMark headings) |
