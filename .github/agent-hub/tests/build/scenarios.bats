@@ -1499,3 +1499,218 @@ branch_head() { git --git-dir="$REMOTE" rev-parse refs/heads/agent-hub/PROJ-99; 
   assert_output --partial "merging it in conflicts in 1 file"
   assert_output --partial '- `src/greet.js`'
 }
+
+# 4d-1: the CI gate and the hand-off (handoff.sh). A pull request exactly as
+# the hub left it gets its required checks read — with the workflow's own
+# token — for exactly its head.
+# handoff_transitions: Jira allows the move to Ready for Review.
+handoff_transitions() {
+  echo '{"transitions": [{"id": "51", "to": {"name": "Ready for Review"}}]}' > "$BATS_TEST_TMPDIR/transitions-handoff.json"
+  echo "TRANSITIONS_FIXTURE=$BATS_TEST_TMPDIR/transitions-handoff.json"
+}
+# carry_prs: GitHub's state after this run, for the next.
+carry_prs() { cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"; fresh_checkout; }
+pr_comments() { jq -r '.body' "$RUNNER_TEMP/mock-github/comments.jsonl" 2> /dev/null || true; }
+jira_comments() { jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"; }
+
+@test "CI gate: every required check passed on the head the hub verified — handed off: ready for review, ticket in Ready for Review" {
+  built_pr
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  run trace
+  assert_line "--- Outcome: handed off"
+  assert_line "Agent: skipped"
+  assert_line --partial "PUT  — {\"update\":{\"labels\":[{\"add\":\"needs-human\"}]}}"
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" false
+  assert_equal "$(cat "$RUNNER_TEMP/mock-status")" "Ready for Review"
+  # The checks were read with the workflow's own token, for exactly the head.
+  run jq -r --arg head "$(branch_head)" 'select(.path | test("/(check-runs|status|branches|rules)")) | "\(.ci // false) \(.path | test($head))"' "$GH_CALLS"
+  refute_line --regexp '^false'
+  run jq -c --arg head "$(branch_head)" '{ci: .ci.result, ci_head: (.ci.head == $head), handoff: (.handoff.head == $head)}' <<< "$(pr_state)"
+  assert_output '{"ci":"green","ci_head":true,"handoff":true}'
+  run pr_comments
+  assert_output --partial "✅ Ready for review: every required check passed on"
+  run jira_comments
+  assert_output --partial "✅ Ready for review"
+}
+
+@test "CI gate: a required check failed — a person is told once; the next run changes nothing" {
+  built_pr
+  reconcile_run 'MOCK_GH_CHECKS={"test": "failure"}'
+  run trace
+  assert_line "--- Outcome: blocked"
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" true
+  run pr_comments
+  assert_output --partial "🔎 Not handed off: required checks failed on"
+  assert_output --partial ": test. A person takes it from here"
+  run jira_comments
+  assert_output --partial "🔎 Not handed off"
+  assert_equal "$(jq -r '.ci.result' <<< "$(pr_state)")" failed
+  carry_prs
+  reconcile_run 'MOCK_GH_CHECKS={"test": "failure"}'
+  run trace
+  assert_line "--- Outcome: no change needed"
+  [ ! -e "$RUNNER_TEMP/mock-github/comments.jsonl" ] || fail "reported twice"
+  run jira_comments
+  assert_output ""
+}
+
+@test "CI gate: checks still running or not reported — nothing; past the wait limit, a person" {
+  built_pr
+  reconcile_run 'MOCK_GH_CHECKS={"test": "in_progress"}'
+  run trace
+  assert_line "--- Outcome: no change needed"
+  [ ! -e "$RUNNER_TEMP/mock-github/comments.jsonl" ]
+  reconcile_run 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_CI_WAIT_MINUTES": "0"}'
+  run trace
+  assert_line "--- Outcome: blocked"
+  run pr_comments
+  assert_output --partial "haven't all reported on"
+  assert_output --partial "(test)"
+}
+
+@test "CI gate: a target branch that requires no checks — never handed off; a person is told why" {
+  built_pr
+  reconcile_run 'MOCK_GH_REQUIRED=[]' 'MOCK_GH_CHECKS={"test": "success"}'
+  run trace
+  assert_line "--- Outcome: blocked"
+  run pr_comments
+  assert_output --partial "main requires no checks (branch protection or a ruleset)"
+}
+
+@test "CI gate: green, but a decision item is open — not handed off, a person is told why" {
+  run_scenario decision-item
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  run trace
+  assert_line "--- Outcome: blocked"
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" true
+  run pr_comments
+  assert_output --partial "but 1 decision item still open"
+}
+
+@test "CI gate: someone pushes while the hub reads CI — not handed off, nothing written" {
+  built_pr
+  local before
+  before=$(pr_state)
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)" \
+    "MOCK_GH_ON_CHECKS=d=\$(mktemp -d) && git clone -q file://$REMOTE \$d/c && cd \$d/c && git checkout -q agent-hub/PROJ-99 && echo '// Sam.' >> src/greet.js && git -c user.name=sam -c user.email=s@x commit -qam Sam && git push -q origin agent-hub/PROJ-99"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "Someone pushed to agent-hub/PROJ-99 while the hub was checking it, so it wasn't handed off"
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" true
+  assert_equal "$(pr_state)" "$before"
+}
+
+@test "CI gate: a mechanical merge of main since the review is handed off once its checks pass" {
+  built_pr
+  main_moves 'mkdir -p docs && printf "# Notes\n" > docs/notes.md'
+  reconcile_run
+  run trace
+  assert_line "--- Outcome: revised"
+  carry_prs
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  run trace
+  assert_line "--- Outcome: handed off"
+  run jq -c '[.heads[] | [.kind, (.verified.head == .head)]]' <<< "$(pr_state)"
+  assert_output '[["build",true],["sync",true]]'
+}
+
+@test "CI gate: woken by the sweep with a person's commits on the branch — left for a person's run, no comment, no Claude" {
+  built_pr
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  reconcile_run AGENT_HUB_WAKE=ci 'MOCK_GH_CHECKS={"test": "success"}'
+  run trace
+  assert_line "--- Outcome: no change needed"
+  assert_line "Agent: skipped"
+  [ ! -e "$RUNNER_TEMP/mock-github/comments.jsonl" ]
+  run jira_comments
+  assert_output ""
+  run cat "$RUNNER_TEMP/summary.md"
+  assert_output --partial "left for a run a person starts — pull request #101 has commits the hub hasn't checked"
+}
+
+@test "CI gate: woken by the sweep while main has moved — the gate runs on the head as it is (syncing is a person's run)" {
+  built_pr
+  main_moves 'mkdir -p docs && printf "# Notes\n" > docs/notes.md'
+  reconcile_run AGENT_HUB_WAKE=ci 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  run trace
+  assert_line "--- Outcome: handed off"
+}
+
+# The CI sweep (stages/build/sweep.sh): which pull requests it wakes the
+# build for. It runs against GitHub's state from the last run.
+# sweep [VAR=value...]: one pass; its requests in $SWEEP/mock-github/dispatches.jsonl.
+sweep() {
+  SWEEP=$(mktemp -d "$BATS_TEST_TMPDIR/sweep.XXXXXX")
+  mkdir -p "$SWEEP/mock-github"
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$SWEEP/mock-github/prs.json"
+  (
+    # shellcheck disable=SC2163 # each argument is NAME=value
+    export RUNNER_TEMP=$SWEEP GH_CALLS=$SWEEP/gh-calls.jsonl GITHUB_STEP_SUMMARY=$SWEEP/summary.md "$@"
+    # shellcheck source=/dev/null
+    source "$HUB_DIR/stages/build/sweep.sh"
+    # shellcheck source=/dev/null
+    source "$TESTS_DIR/lib/mock-github.bash"
+    build_ci_sweep
+  ) > "$SWEEP/log.txt" 2>&1
+}
+dispatched() { cat "$SWEEP/mock-github/dispatches.jsonl" 2> /dev/null || true; }
+
+@test "sweep: wakes the build — CI gate only — when the required checks have finished on the head the hub recorded" {
+  built_pr
+  sweep 'MOCK_GH_CHECKS={"test": "success"}'
+  run dispatched
+  assert_output '{"ref":"main","inputs":{"ticket_key":"PROJ-99","wake":"ci"},"workflow":"agent-hub-build.yml"}'
+  # Read with the workflow's own token.
+  run jq -r 'select(.path | test("check-runs")) | .ci' "$SWEEP/gh-calls.jsonl"
+  assert_output true
+  sweep 'MOCK_GH_CHECKS={"test": "failure"}'
+  assert_equal "$(dispatched | wc -l | tr -d ' ')" 1
+}
+
+@test "sweep: leaves it while checks run, unless they've waited past the limit" {
+  built_pr
+  sweep 'MOCK_GH_CHECKS={"test": "in_progress"}'
+  run dispatched
+  assert_output ""
+  sweep 'MOCK_GH_CHECKS={"test": "in_progress"}' 'VARS={"AGENT_HUB_BUILD_CI_WAIT_MINUTES": "0"}'
+  run dispatched
+  assert_output --partial '"ticket_key":"PROJ-99"'
+}
+
+@test "sweep: a result the build already handled isn't woken again — until it changes" {
+  built_pr
+  reconcile_run 'MOCK_GH_CHECKS={"test": "failure"}'
+  sweep 'MOCK_GH_CHECKS={"test": "failure"}'
+  run dispatched
+  assert_output ""
+  # Re-run and passed: a new result for the same head.
+  sweep 'MOCK_GH_CHECKS={"test": "success"}'
+  run dispatched
+  assert_output --partial '"ticket_key":"PROJ-99"'
+}
+
+@test "sweep: leaves alone a person's commits, a paused or superseded pull request, and one already handed off" {
+  built_pr
+  local prs=$RUNNER_TEMP/mock-github/prs.json
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  sweep 'MOCK_GH_CHECKS={"test": "success"}'
+  run dispatched
+  assert_output ""
+  grep -q "isn't the last commit the hub recorded" "$SWEEP/log.txt"
+  built_pr
+  jq '.[0].labels += [{name: "agent-hub-paused"}]' "$RUNNER_TEMP/mock-github/prs.json" > "$prs.new" && mv "$prs.new" "$RUNNER_TEMP/mock-github/prs.json"
+  sweep 'MOCK_GH_CHECKS={"test": "success"}'
+  run dispatched
+  assert_output ""
+  built_pr
+  jq '.[0].draft = false' "$RUNNER_TEMP/mock-github/prs.json" > "$prs.new" && mv "$prs.new" "$RUNNER_TEMP/mock-github/prs.json"
+  sweep 'MOCK_GH_CHECKS={"test": "success"}'
+  run dispatched
+  assert_output ""
+  built_pr
+  jq '.[0].body |= sub("\"ticket\":"; "\"superseded\":{\"plan\":\"x\"},\"ticket\":")' "$RUNNER_TEMP/mock-github/prs.json" > "$prs.new" && mv "$prs.new" "$RUNNER_TEMP/mock-github/prs.json"
+  sweep 'MOCK_GH_CHECKS={"test": "success"}'
+  run dispatched
+  assert_output ""
+}

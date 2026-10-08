@@ -9,7 +9,8 @@
 #   the approved plan isn't the one it was
 #   built from                             → superseded: a person decides (blocked)
 #   nobody pushed since the hub's last push,
-#   and the target branch hasn't moved     → nothing to do (no change needed)
+#   and the target branch hasn't moved     → the CI gate, then the hand-off
+#                                            (handoff.sh)
 #   the target branch moved                → merged in (never a rebase or a force-
 #                                            push); a conflict stops for a person
 #                                            (blocked). Mechanical drift — the
@@ -39,6 +40,11 @@ reconciling() { [ "$(jq -r '.mode // "build"' "$BUILD_CONTEXT" 2> /dev/null)" = 
 # open pull request <number>. Ends the run (exit 0) when there's nothing to
 # do or a person must decide; otherwise checks out the pull request's head
 # and records the mode for the later steps.
+#
+# A run the CI sweep requested (AGENT_HUB_WAKE=ci) does only the CI gate:
+# anything else it finds — a record it can't trust, a newer plan, a person's
+# commits — is for a run a person starts, so it ends quietly, saying why in
+# the log only, and never repeats a comment every sweep.
 _reconcile_start() {
   local number=$1 branch pr state head last base people target_head
   branch=$(context .branch) target_head=$(context .base)
@@ -52,12 +58,14 @@ _reconcile_start() {
   fi
   # The hub's record, only if every edit to it was the hub's own.
   if ! state=$(gh_state_read "$number" 2> "$RUNNER_TEMP/state-error"); then
+    _sweep_leaves "the hub's record in pull request #$number can't be trusted"
     stage_retry "a person checks pull request #$number's description (its hidden agent-hub:state block), then approves the plan again."
     stage_fail "The hub's record in pull request #$number can't be trusted ($(head -n 1 "$RUNNER_TEMP/state-error")), so nothing was changed."
   fi
   printf '%s\n' "$state" > "$RECONCILE_STATE"
   # Built from another plan: a person decides.
   if [ "$(jq -r '.plan.sha256' <<< "$state")" != "$(context .plan.sha256)" ]; then
+    _sweep_leaves "pull request #$number was built from an earlier plan"
     _reconcile_superseded "$number"
   fi
   # The branch, as GitHub has it, must build on the head the hub last pushed.
@@ -65,6 +73,7 @@ _reconcile_start() {
   last=$(jq -r '.heads[-1].head' <<< "$state")
   gh_git fetch -q "$GH_REMOTE" "+refs/heads/$branch:refs/remotes/$GH_REMOTE/$branch" 2> "$RUNNER_TEMP/fetch-error" \
     || stage_fail "Couldn't fetch $branch, so nothing was changed." "Git said: $(tail -n 1 "$RUNNER_TEMP/fetch-error")"
+  [ "$head" = "$last" ] || _sweep_leaves "pull request #$number has commits the hub hasn't checked (a run a person starts re-checks them)"
   if ! gh_descends "$last" "$head"; then
     stage_retry "a person checks $branch: its history no longer contains the hub's last push. Restore it, or close the pull request and approve the plan again."
     stage_fail "$branch was rewritten since the hub's last push (it no longer builds on it), so its earlier review and checks don't apply and nothing was changed."
@@ -72,12 +81,15 @@ _reconcile_start() {
   # Where the pull request last met the target branch — the target's head
   # (the checkout) when it hasn't moved since.
   base=$(git merge-base "$target_head" "$head") || stage_fail "Couldn't find where $branch started from the target branch, so nothing was changed."
-  if [ "$head" = "$last" ] && [ "$base" = "$target_head" ]; then
-    echo "Pull request #$number is at the head the hub last pushed and checked, and up to date with $(context .target): nothing to do."
-    echo "[$TICKET_KEY]($TICKET_URL): pull request #$number is up to date with the hub's last push and its target branch; nothing to do." >> "$GITHUB_STEP_SUMMARY"
-    echo "proceed=false" >> "$GITHUB_OUTPUT"
-    stage_outcome "no change needed"
-    exit 0
+  # Exactly as the hub left it, and up to date with the target: the CI gate
+  # and, once every required check passed on this head, the hand-off
+  # (handoff.sh). It ends the run. (For the sweep, the target moving isn't a
+  # reason to wait: syncing is a run a person starts, and GitHub's own rules
+  # decide whether a merge needs the branch up to date.)
+  if [ "$head" = "$last" ] && { [ "$base" = "$target_head" ] || [ "${AGENT_HUB_WAKE:-}" = ci ]; }; then
+    jq --argjson number "$number" '. + {mode: "reconcile", pr: $number}' "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" \
+      && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
+    _reconcile_ci "$number" "$head"
   fi
   # People's commits, a moved target, or both: check the pull request's head
   # out; _reconcile_sync merges the target in, once the committer is known.
@@ -166,11 +178,26 @@ _reconcile_conflict() {
 # _plural <n> <word>: "1 commit", "2 commits".
 _plural() { if [ "$1" = 1 ]; then echo "1 $2"; else echo "$1 ${2}s"; fi; }
 
+# _sweep_leaves <why>: a run the CI sweep requested ends here, quietly (see
+# _reconcile_start); any other run carries on.
+_sweep_leaves() {
+  [ "${AGENT_HUB_WAKE:-}" = ci ] || return 0
+  echo "The CI sweep's run leaves this for a person's run: $1."
+  echo "[$TICKET_KEY]($TICKET_URL): left for a run a person starts — $1." >> "$GITHUB_STEP_SUMMARY"
+  echo "proceed=false" >> "$GITHUB_OUTPUT"
+  stage_outcome "no change needed"
+  exit 0
+}
+
 # _reconcile_superseded <number>: the plan approved now isn't the one the pull
 # request was built from. Nothing is rebuilt automatically: a person closes
 # the pull request (and deletes its branch) to build the new plan, or keeps
 # the old one. Ends the run.
 _reconcile_superseded() {
+  # Marked in the record, so the CI sweep leaves the pull request alone.
+  jq -c --arg plan "$(context .plan.sha256)" '.superseded = {plan: $plan, at: (now | todate)}' "$RECONCILE_STATE" > "$RUNNER_TEMP/state.json" \
+    && gh_state_write "$1" "$(cat "$RUNNER_TEMP/state.json")" 2> /dev/null \
+    || echo "::warning::Couldn't mark pull request #$1's record as superseded."
   printf 'The plan approved on %s is a newer version than the one this pull request was built from, so the hub has stopped updating it. To build the new plan, close this pull request and delete its branch, then approve the plan again; to keep this one, approve the plan it was built from.\n' "$TICKET_KEY" \
     | gh_pr_comment "$1" || echo "::warning::Couldn't comment on pull request #$1."
   jq -n -L "$HUB_DIR/lib" --arg number "$1" --arg run "$RUN_URL" 'include "adf";
@@ -264,17 +291,23 @@ reconcile_apply() {
   # A carried review (mechanical drift only) keeps the earlier review and
   # items: the pull request's own changes are exactly as they were. The sync's
   # merge is recorded as the hub's, with its drift — a commit after the last
-  # full review that hand-off accepts only for mechanical drift.
+  # full review that hand-off accepts only for mechanical drift — and as
+  # verified: reconcile_verify ran the checks on exactly it (and a fix on
+  # top was made on that verified commit). A kept fix is verified by Verify
+  # fix: it's the commit the checks passed on (above).
   jq -n -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile prev "$RECONCILE_STATE" --slurpfile gates "$RUNNER_TEMP/gates.json" \
       --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --arg version "$(cat "$HUB_DIR/VERSION")" \
       --slurpfile ctx "$BUILD_CONTEXT" --arg head "$(git rev-parse HEAD)" 'include "wording";
     $prev[0] as $p | ($p.generation + 1) as $g | $ctx[0] as $c | ($c.sync.head // $c.start_head) as $checked
-    | $p + {generation: $g, hub_version: $version,
+    | (now | todate) as $at
+    | $p + {generation: $g, hub_version: $version, superseded: null,
         heads: ($p.heads
-          + (if $c.people_commits > 0 then [{generation: $g, head: $c.start_head, by: "people"}] else [] end)
-          + (if $c.sync then [{generation: $g, head: $c.sync.head, hub_version: $version, by: "hub",
-               sync: {target: $c.target, target_head: $c.sync.target_head, drift: $c.sync.drift}}] else [] end)
-          + (if $head != $checked then [{generation: $g, head: $head, hub_version: $version, by: "hub"}] else [] end)),
+          + (if $c.people_commits > 0 then [{generation: $g, head: $c.start_head, by: "people", kind: "people", at: $at}] else [] end)
+          + (if $c.sync then [{generation: $g, head: $c.sync.head, hub_version: $version, by: "hub", kind: "sync",
+               sync: {target: $c.target, target_head: $c.sync.target_head, drift: $c.sync.drift},
+               verified: {head: $c.sync.head, by: "verify"}, at: $at}] else [] end)
+          + (if $head != $checked then [{generation: $g, head: $head, hub_version: $version, by: "hub", kind: "fix",
+               verified: {head: $head, by: "verify-fix"}, at: $at}] else [] end)),
         review: (if $review[0].status == "carried" then $p.review else $review[0] | {status, head, cost: (.cost // 0)} end),
         fix: ($fix[0] | {status, before, after}),
         items: (if $review[0].status == "carried" then $p.items else reconcile_items($p.items; review_items($gates[0]; $review[0]; $fix[0])) end),

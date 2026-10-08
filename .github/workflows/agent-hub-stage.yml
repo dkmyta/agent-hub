@@ -52,9 +52,20 @@ on:
         required: false
         type: boolean
         default: false
+      # Set by the build's CI sweep: the run does only the CI gate.
+      wake:
+        description: What woke the run, when not a person (ci — the CI sweep)
+        required: false
+        type: string
+        default: ""
 
+# The workflow's own token reads only: the repository, and (for the build's
+# CI gate) check runs and commit statuses, which a fine-grained token can't
+# be given. Callers grant the same.
 permissions:
   contents: read
+  checks: read
+  statuses: read
 
 jobs:
   stage:
@@ -77,6 +88,7 @@ jobs:
       DISABLE_AUTOUPDATER: "1"
       STAGE: ${{ inputs.stage }}
       TICKET_KEY: ${{ inputs.ticket-key }}
+      AGENT_HUB_WAKE: ${{ inputs.wake }}
       VARS: ${{ toJSON(vars) }}
     steps:
       # Leaves out recorded test data (past Claude outputs, snapshots, eval
@@ -160,6 +172,8 @@ jobs:
           JIRA_EMAIL: ${{ secrets.AGENT_HUB_JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.AGENT_HUB_JIRA_API_TOKEN }}
           AGENT_HUB_GITHUB_TOKEN: ${{ inputs.code-stage && secrets.AGENT_HUB_GITHUB_TOKEN || '' }}
+          # The workflow's own token, read-only: CI results for the CI gate.
+          AGENT_HUB_CI_TOKEN: ${{ inputs.code-stage && github.token || '' }}
         run: |
           source "$RUNNER_TEMP/agent-hub/lib/load.sh" tracker
           step_fetch

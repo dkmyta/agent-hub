@@ -36,6 +36,7 @@ case "$1" in
     if [ "${CODE_STAGE:-false}" = true ]; then
       source "$HUB_DIR/lib/github.sh"
       source "$HUB_DIR/lib/state.sh"
+      source "$HUB_DIR/lib/ci.sh"
     fi ;;
   agent) source "$HUB_DIR/lib/runners/$AGENT_RUNNER.sh" ;;
   sandbox) source "$HUB_DIR/lib/sandbox/sandbox.sh" ;;

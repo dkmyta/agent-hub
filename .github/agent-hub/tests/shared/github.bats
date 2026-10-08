@@ -32,9 +32,11 @@ git_remote() {
     run env TICKET_KEY=PROJ-1 JIRA_DOMAIN=x JIRA_EMAIL=e JIRA_API_TOKEN=t bash -c \
       "source '$HUB_DIR/trackers/jira/tracker.sh'; source '$HUB_DIR/lib/github.sh'; ls '$RUNNER_TEMP' | grep -c 'curl\\|github-'; exit $code"
     assert_equal "$status" "$code"
-    assert_output 4
+    # Jira's curl config; GitHub's curl config, token, askpass helper and the
+    # CI token's curl config.
+    assert_output 5
     run ls "$RUNNER_TEMP"
-    refute_output --regexp "(jira-curl|github-curl|github-token|github-askpass)\."
+    refute_output --regexp "(jira-curl|github-curl|github-token|github-askpass|github-ci-curl)\."
   done
 }
 

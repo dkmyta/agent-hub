@@ -32,6 +32,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/fix.sh"
 # An existing pull request: reconciled rather than built again (4c).
 # shellcheck source=stages/build/reconcile.sh
 source "$(dirname "${BASH_SOURCE[0]}")/reconcile.sh"
+# The CI gate and the hand-off (4d-1).
+# shellcheck source=stages/build/handoff.sh
+source "$(dirname "${BASH_SOURCE[0]}")/handoff.sh"
 
 BUILD_CONTEXT="$RUNNER_TEMP/build-context.json"
 BUILD_GIT="$RUNNER_TEMP/build-git"
@@ -722,14 +725,23 @@ step_apply() {
       '{status: "incomplete", head: $head, reason: "it didn’t run to the end (an error, or its time limit)", findings: []}' > "$CODE_REVIEW"
   fi
 
-  # The draft pull request: the hub's template, then the state block.
+  # The draft pull request: the hub's template, then the state block. Its
+  # heads say what each commit is and which check verified exactly it
+  # (docs/workflows/build.md, "Review coverage and provenance"): the build's
+  # commit (verified before the review, which saw only a verified commit)
+  # and a kept fix on top (verified by Verify fix: it's the commit the
+  # checks passed on, above).
   jq -n --slurpfile context "$BUILD_CONTEXT" --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile review "$CODE_REVIEW" \
       --slurpfile fix "$FIX_RESULT" \
       --slurpfile contract "$RUNNER_TEMP/contract.json" --arg ticket "$TICKET_KEY" \
       --arg version "$(cat "$HUB_DIR/VERSION")" --arg head "$(git rev-parse HEAD)" -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording";
     $context[0] as $c | {schema: 1, ticket: $ticket, generation: 1, hub_version: $version,
       plan: ($c.plan | {attachment, uploaded, sha256, approved_at}), target: $c.target, base: $c.base,
-      plan_base: $contract[0].base_commit, heads: [{generation: 1, head: $head, hub_version: $version}],
+      plan_base: $contract[0].base_commit,
+      heads: ((now | todate) as $at | ($fix[0] | if .status == "kept" then .before else $head end) as $built
+        | [{generation: 1, head: $built, hub_version: $version, by: "hub", kind: "build", verified: {head: $built, by: "verify"}, at: $at}]
+          + (if $head != $built then [{generation: 1, head: $head, hub_version: $version, by: "hub", kind: "fix",
+               verified: {head: $head, by: "verify-fix"}, at: $at}] else [] end)),
       risk: $contract[0].governance.risk.level,
       flags: [$contract[0].governance.includes | to_entries[] | select(.value) | .key],
       items: (review_items($gates[0]; $review[0]; $fix[0])

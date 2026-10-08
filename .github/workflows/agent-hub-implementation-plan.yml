@@ -28,6 +28,8 @@ concurrency:
 
 permissions:
   contents: read
+  checks: read
+  statuses: read
 
 jobs:
   implementation-plan:

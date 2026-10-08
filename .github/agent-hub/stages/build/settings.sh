@@ -66,6 +66,11 @@ stage_setting_into BUILD_MAX_FILE_LINES MAX_FILE_LINES 1000
 # repository's checks the verify step runs (docs/workflows/build.md, "Verify").
 stage_setting_into BUILD_INSTALL_MINUTES INSTALL_MINUTES 10
 stage_setting_into BUILD_CHECK_MINUTES CHECK_MINUTES 10
+# How long the CI gate waits, in minutes, for the repository's required
+# checks to report on a pull request's head before a person is asked
+# (docs/workflows/build.md, "CI gate"): a required check can be path-filtered
+# and never run.
+stage_setting_into BUILD_CI_WAIT_MINUTES CI_WAIT_MINUTES 120
 
 # The minimum age, in days, of any package version the dependency step
 # chooses (docs/workflows/build.md, "Dependencies"): a version published more

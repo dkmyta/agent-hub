@@ -5,6 +5,55 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.13.0 — 2026-10-08
+
+PR 4's last part, first half (4d-1): the CI gate and the hand-off. A build's
+draft pull request is handed off to a person once every required check
+passes on exactly the head the hub verified — and only then.
+
+- **The CI gate.** When the hub's pull request is exactly as the hub left it,
+  a run reads the target branch's required checks (branch protection and
+  rulesets, with the app that must post each) and each one's latest result
+  on exactly that head. Pending → nothing yet; past
+  `AGENT_HUB_BUILD_CI_WAIT_MINUTES` (120) → a person; any failed → a person
+  (CI fixes are 4d-2); nothing required on the target → a person (the hub
+  can't tell when CI passed). Each result is reported once per head.
+- **Read with the workflow's own token,** granted `checks: read` and
+  `statuses: read` (fetch and apply steps only): a fine-grained token can't
+  be given the Checks permission. Proven by a spike before building.
+- **The hand-off rule** (`handoff_problems`), checked again just before
+  anything is written: the record is trusted; the branch's head, the last
+  head recorded and the commit whose checks passed are the same; every head
+  after the last full review is the hub's fix or mechanical merge, each
+  verified on exactly its own commit; the review finished; no decision item
+  is open; the plan and approval still stand. Then the pull request is
+  marked ready for review, the ticket moves to **Ready for Review** with
+  `needs-human`, and both get a comment. Green CI never makes a person's
+  unreviewed commit eligible.
+- **Each head in the record says what it is:** `kind` (`build`, `fix`,
+  `sync`, `people`), `verified: {head, by}` for the hub's, and `at`. The
+  first build now records the build's commit and a kept fix separately, so
+  the reviewed commit is always listed. A record from before 2.13.0 is never
+  handed off (a person reviews it).
+- **The CI sweep** (`agent-hub-ci-sweep.yml`): every 10 minutes, with no
+  agent, it requests the build (`wake: ci`) for the hub's draft pull requests
+  whose required checks have finished on the head the hub recorded, or
+  waited too long, and whose result isn't handled yet. It skips paused,
+  superseded and people-pushed pull requests. A run it requests does only
+  the CI gate: anything else is left, quietly, for a run a person starts.
+  Runs only while `AGENT_HUB_BUILD_PREVIEW` is true.
+- Docs: build.md (CI gate and hand-off as built, the contracts marked
+  built), setup.md, jira.md, architecture.md.
+
+**Updating:**
+- The target branch must **require your CI's checks** (branch protection or
+  a ruleset), or nothing is ever handed off.
+- Allow the Jira transition **Implementation Plan Approved → Ready for
+  Review** (or set `AGENT_HUB_READY_FOR_REVIEW_STATUS`).
+- The new workflow `agent-hub-ci-sweep.yml` is installed by the update.
+- Hub pull requests opened before 2.13.0 aren't handed off: review them by
+  hand.
+
 ## 2.12.1 — 2026-10-08
 
 Settles the v1 scope after an external review of the plan: one queue per
