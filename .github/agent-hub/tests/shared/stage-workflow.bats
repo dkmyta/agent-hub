@@ -87,7 +87,7 @@ setup() {
     for (const step of Object.values(wf.jobs)[0].steps)
       if (step.env?.AGENT_HUB_CI_TOKEN !== undefined) console.log(`${step.id ?? step.name}: ${step.env.AGENT_HUB_CI_TOKEN}`);' "$WORKFLOW"
   assert_success
-  assert_line --index 0 "contents=read,checks=read,statuses=read"
+  assert_line --index 0 "contents=read,checks=read,statuses=read,actions=read"
   assert_line --index 1 "start: \${{ inputs.code-stage && github.token || '' }}"
   assert_line --index 2 "apply: \${{ inputs.code-stage && github.token || '' }}"
   assert_equal "${#lines[@]}" 3

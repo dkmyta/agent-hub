@@ -89,7 +89,9 @@ _reconcile_start() {
   if [ "$head" = "$last" ] && { [ "$base" = "$target_head" ] || [ "${AGENT_HUB_WAKE:-}" = ci ]; }; then
     jq --argjson number "$number" '. + {mode: "reconcile", pr: $number}' "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" \
       && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
-    _reconcile_ci "$number" "$head"
+    # The CI gate ends the run, unless it starts a CI fix (handoff.sh).
+    _reconcile_ci "$number" "$head" "$base"
+    return 0
   fi
   # People's commits, a moved target, or both: check the pull request's head
   # out; _reconcile_sync merges the target in, once the committer is known.
@@ -228,6 +230,13 @@ reconcile_verify() {
     || stage_fail "The checkout isn't pull request #$(context .pr)'s head, so nothing was changed."
   _check_commit "$(context .base)" || stage_fail "$(cat "$RUNNER_TEMP/check-commit-error")"
   cp "$RUNNER_TEMP/check-commit.json" "$RUNNER_TEMP/verify.json"
+  # A CI fix starts from a head CI failed on: the hub's own checks may fail
+  # here too, which is what the fix pass works on (and Verify fix requires
+  # every check to pass on its commit).
+  if ci_fixing; then
+    echo "The repository's checks on $(context '.start_head[0:7]'), where CI failed: $(jq -r '[.checks[] | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/verify.json")."
+    return 0
+  fi
   if jq -e 'any(.checks[]; .result != "passed")' "$RUNNER_TEMP/verify.json" > /dev/null; then
     stage_retry "people fix the checks on $(context .branch), then approve the plan again or re-run the build."
     stage_fail "The repository's checks fail on pull request #$(context .pr)'s current head, after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT"): $(jq -r '[.checks[] | select(.result != "passed") | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/verify.json"). Nothing was changed; the output is in the next comment."
@@ -240,7 +249,8 @@ reconcile_verify() {
 # the state block and the hub-managed status section rewritten and verified;
 # a comment saying what was re-checked — and the full report to the ticket.
 reconcile_apply() {
-  local base branch target number start reviewed rc=0 findings status_file="" publish
+  local base branch target number start reviewed status_file="" publish
+  if ci_fixing; then ci_fix_apply; return; fi
   stage_require_status "$PLAN_APPROVED_STATUS"
   build_git
   _require_same_plan
@@ -271,23 +281,8 @@ reconcile_apply() {
 
   # The sync's merge and the fix commit, if any: scanned and pushed, never
   # forced.
-  if [ "$(git rev-parse HEAD)" != "$start" ]; then
-    findings=$(gh_push "$branch" "$target" 2> "$RUNNER_TEMP/push-error") || rc=$?
-    case "$rc" in
-      0) ;;
-      1) stage_fail "The secret scan found what look like secrets in the commits to push, so nothing was pushed." "Found: $(paste -sd ',' - <<< "$findings" | sed 's/,/, /g')." ;;
-      2) stage_fail "The secret scan couldn't run ($(head -n 1 "$RUNNER_TEMP/push-error")), so nothing was pushed." ;;
-      *) if grep -qi 'workflow' "$RUNNER_TEMP/push-error" 2> /dev/null; then
-           stage_retry "a person merges $target into $branch, then re-runs the build."
-           stage_fail "GitHub rejected the push to $branch: the merge of $target brings in changes to its workflows, which the build token can't push (it has no Workflows permission, by design). Nothing was pushed."
-         fi
-         stage_retry "re-run the build: it starts from the new commits."
-         stage_fail "GitHub rejected the push to $branch — someone pushed to it during this run — so nothing was pushed." ;;
-    esac
-  fi
+  [ "$(git rev-parse HEAD)" = "$start" ] || _reconcile_push "$branch" "$target" "$number"
 
-  # The new state: the next generation, the heads with who made them, the
-  # review and fix, and the items carried, closed or added.
   # A carried review (mechanical drift only) keeps the earlier review and
   # items: the pull request's own changes are exactly as they were. The sync's
   # merge is recorded as the hub's, with its drift — a commit after the last
@@ -378,5 +373,104 @@ _reconcile_report() {
       + [para([em("\(claude_cost($access[0]; ($r.cost // 0) + ($x.cost // 0))) · \((($r.duration_ms // 0) + ($x.duration_ms // 0)) | duration) of Claude time. "),
                link("Run summary"; $run)])])
       end' \
+    | tracker_comment > /dev/null
+}
+
+# _reconcile_push <branch> <target> <number>: the commits this run made,
+# secret-scanned and pushed to <branch>, never forced (rejected if anyone
+# pushed meanwhile).
+_reconcile_push() {
+  local findings rc=0
+  findings=$(gh_push "$1" "$2" 2> "$RUNNER_TEMP/push-error") || rc=$?
+  case "$rc" in
+    0) ;;
+    1) stage_fail "The secret scan found what look like secrets in the commits to push, so nothing was pushed." "Found: $(paste -sd ',' - <<< "$findings" | sed 's/,/, /g')." ;;
+    2) stage_fail "The secret scan couldn't run ($(head -n 1 "$RUNNER_TEMP/push-error")), so nothing was pushed." ;;
+    *) if grep -qi 'workflow' "$RUNNER_TEMP/push-error" 2> /dev/null; then
+         stage_retry "a person merges $2 into $1, then re-runs the build."
+         stage_fail "GitHub rejected the push to $1: the merge of $2 brings in changes to its workflows, which the build token can't push (it has no Workflows permission, by design). Nothing was pushed."
+       fi
+       stage_retry "re-run the build: it starts from the new commits."
+       stage_fail "GitHub rejected the push to $1 — someone pushed to it during this run — so nothing was pushed." ;;
+  esac
+}
+
+# ci_fix_apply: Apply for a CI fix (handoff.sh, _ci_fix_start). A fix Verify
+# fix kept — the same gates, checks and hard-link rule as the review's fix
+# pass — is pushed without force and recorded as the hub's (kind ci-fix,
+# verified on exactly that commit), and CI runs again on it; the sweep wakes
+# the gate when it's done. One that wasn't kept changes nothing, and a
+# person takes over. Either way the record says what this attempt did.
+ci_fix_apply() {
+  local branch target number start status after
+  stage_require_status "$PLAN_APPROVED_STATUS"
+  build_git
+  _require_same_plan
+  branch=$(context .branch) target=$(context .target) number=$(context .pr) start=$(context .start_head)
+  [ -s "$RUNNER_TEMP/agent-access.json" ] || echo '{}' > "$RUNNER_TEMP/agent-access.json"
+  _settle_fix
+  status=$(jq -r '.status' "$FIX_RESULT")
+  if [ "$status" = kept ]; then
+    after=$(git rev-parse HEAD)
+    [ "$after" = "$(jq -r '.head' "$RUNNER_TEMP/verify.json" 2> /dev/null)" ] && [ "$after" = "$(jq -r '.after' "$FIX_RESULT")" ] \
+      || stage_fail "The CI fix's commit isn't the one the checks passed on, so nothing was pushed."
+    _reconcile_push "$branch" "$target" "$number"
+  else
+    after=$start
+  fi
+  # The record: the fix as the hub's head, and what this attempt did. New
+  # concerns from the fix check join the items, numbered on from the last.
+  jq -c --slurpfile fix "$FIX_RESULT" --arg version "$(cat "$HUB_DIR/VERSION")" --arg start "$start" --arg after "$after" '
+    (.generation + 1) as $g | (now | todate) as $at | $fix[0] as $x
+    | . + {generation: $g, hub_version: $version}
+    | if $x.status == "kept" then
+        .heads += [{generation: $g, head: $after, hub_version: $version, by: "hub", kind: "ci-fix",
+                    verified: {head: $after, by: "verify-fix"}, at: $at}]
+        | ([.items[]? | select(.id | startswith("D")) | .id[1:] | tonumber] | max // 0) as $d
+        | ([.items[]? | select(.id | startswith("R")) | .id[1:] | tonumber] | max // 0) as $r
+        | .items += ([$x.new_concerns[] | select(.policy == "decision")] | to_entries
+            | map({id: "D\($d + .key + 1)", source: "ci-fix-check", kind: .value.kind, severity: .value.severity, area: .value.area, status: "open"}))
+        | .items += ([$x.new_concerns[] | select(.policy != "decision")] | to_entries
+            | map({id: "R\($r + .key + 1)", source: "ci-fix-check", kind: .value.kind, severity: .value.severity, area: .value.area, fix_eligible: false, status: "open"}))
+      else . end
+    | .ci_fix.last = {head: $start, status: $x.status, reason: ($x.reason // null), after: (if $x.status == "kept" then $after else null end), at: $at}' \
+    "$RECONCILE_STATE" > "$RUNNER_TEMP/state.json"
+  gh_state_write "$number" "$(cat "$RUNNER_TEMP/state.json")" 2> "$RUNNER_TEMP/state-error" \
+    || stage_fail "Pull request #$number's description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error"))$([ "$status" != kept ] || echo ", though the CI fix was pushed"). A person checks it."
+  _ci_fix_report "$number" "$status" "$start" "$after"
+  if [ "$status" = kept ]; then
+    echo "[$TICKET_KEY]($TICKET_URL): CI fix pushed to pull request #$number ($(_short "$after")); CI runs again." >> "$GITHUB_STEP_SUMMARY"
+    stage_outcome revised
+  else
+    tracker_labels "+$NEEDS_HUMAN_LABEL" > /dev/null
+    echo "[$TICKET_KEY]($TICKET_URL): pull request #$number's CI fix wasn't kept; a person takes it from here." >> "$GITHUB_STEP_SUMMARY"
+    stage_outcome blocked
+  fi
+}
+
+# _ci_fix_report <number> <status> <start> <after>: what the CI fix did, on
+# the pull request (check names and hub facts only) and the ticket (with
+# what the fix pass said, as the review's fix report does).
+_ci_fix_report() {
+  local checks
+  checks=$(context '.ci_fix.checks | join(", ")')
+  if [ "$2" = kept ]; then
+    printf '🔧 CI fix by the agent hub: required checks failed on %s (%s); a fix, %s, passed the hub'"'"'s gates and the repository'"'"'s checks and was checked by a fresh read-only session. CI runs again on it (fix %s of %s).\n' \
+      "$(_short "$3")" "$checks" "$(_short "$4")" "$(context .ci_fix.attempt)" "$BUILD_CI_FIX_ATTEMPTS"
+  else
+    printf '🔎 Not handed off: required checks failed on %s (%s), and the hub'"'"'s CI fix wasn'"'"'t kept: %s. A person takes it from here: fix the failures on the branch (the hub re-checks what'"'"'s pushed).\n' \
+      "$(_short "$3")" "$checks" "$(jq -r '.reason // "it did not finish"' "$FIX_RESULT")"
+  fi | gh_pr_comment "$1" || echo "::warning::Couldn't comment on pull request #$1."
+  # shellcheck disable=SC1112 # curly apostrophes intended
+  jq -n -L "$HUB_DIR/lib" -L "$STAGE_DIR" --arg number "$1" --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$1" --arg run "$RUN_URL" \
+      --arg checks "$checks" --arg start "${3:0:7}" --arg after "${4:0:7}" --slurpfile fix "$FIX_RESULT" \
+      --slurpfile access "$RUNNER_TEMP/agent-access.json" 'include "adf"; include "wording";
+    $fix[0] as $x
+    | doc([para([strong(if $x.status == "kept" then "🔧 CI fix pushed" else "🔎 CI fix not kept" end), text(" — "), link("#\($number)"; $url),
+          text(": required checks failed on \($start) (\($checks)). "
+            + (if $x.status == "kept" then "A fix, \($after), passed the hub’s gates and the repository’s checks, and CI runs again on it."
+               else "The hub’s fix wasn’t kept (\($x.reason // "it did not finish")), so a person takes it from here." end))])]
+      + (if ($x.fixes | length) > 0 then [bullets([$x.fixes[] | [strong("Check \(.finding)"), text(": \(if .fixed then "fixed" else "not fixed" end) — \(.what | sentence)")]])] else [] end)
+      + [para([em("\(claude_cost($access[0]; $x.cost // 0)) · \(($x.duration_ms // 0) | duration) of Claude time. "), link("Run summary"; $run)])])' \
     | tracker_comment > /dev/null
 }

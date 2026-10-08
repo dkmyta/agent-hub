@@ -7,7 +7,9 @@
 #   pending (or not reported yet)  → nothing, until they finish (the CI sweep
 #                                    wakes the run again), or a person after
 #                                    AGENT_HUB_BUILD_CI_WAIT_MINUTES
-#   any failed                     → a person (CI fixes are 4d-2)
+#   any failed                     → the CI-fix pass (ci_fix_start) when every
+#                                    failure is an ordinary one and attempts
+#                                    are left; otherwise a person
 #   nothing required on the target → a person: the hub can't tell when CI passed
 #   all passed                     → hand-off, if the pull request is eligible;
 #                                    otherwise a person, told why
@@ -35,7 +37,7 @@ handoff_problems() {
         "the hub'"'"'s record doesn'"'"'t show which recorded commit was reviewed (a record from an older version of the hub)"
        else
         ($heads[$at + 1:][] | select((.by == "hub" and (.verified.head // "") == .head
-              and (.kind == "fix" or (.kind == "sync" and .sync.drift == "mechanical"))) | not)
+              and (.kind == "fix" or .kind == "ci-fix" or (.kind == "sync" and .sync.drift == "mechanical"))) | not)
           | "commit \(.head[0:7]), after the last full review, isn'"'"'t a verified fix or a mechanical merge of the target by the hub, so the change needs reviewing again")
        end),
       (if (.review.status // "") == "incomplete" then "the automated review didn'"'"'t finish" else empty end),
@@ -43,10 +45,11 @@ handoff_problems() {
         | if . > 0 then "\(.) decision item\(if . == 1 then "" else "s" end) still open" else empty end)'
 }
 
-# _reconcile_ci <number> <head>: the CI gate, on the head _reconcile_start
-# found. Ends the run.
+# _reconcile_ci <number> <head> <base>: the CI gate, on the head
+# _reconcile_start found (<base>: where it last met the target). Ends the
+# run — except when it starts a CI fix, which the run's later steps make.
 _reconcile_ci() {
-  local number=$1 head=$2 target required ci state at waited
+  local number=$1 head=$2 base=$3 target required ci state at waited
   target=$(context .target)
   required=$(ci_required "$target") \
     || stage_fail "Couldn't read which checks $target requires from GitHub, so nothing was changed."
@@ -65,9 +68,7 @@ _reconcile_ci() {
           "re-run or fix the checks, then the hub picks the result up; or review the pull request without them"
       fi
       _ci_done "waiting for the required checks on $(_short "$head") ($(_ci_names "$ci" pending missing))" ;;
-    failed)
-      _ci_person failed "required checks failed on $(_short "$head"): $(_ci_names "$ci" failed)" \
-        "fix the failures on the branch (the hub re-checks what's pushed), or re-run the checks if they were flaky" ;;
+    failed) _ci_failed "$number" "$head" "$base" ;;
     unconfigured)
       _ci_person unconfigured "$target requires no checks (branch protection or a ruleset), so the hub can't tell when CI has passed" \
         "require the repository's CI checks on $target (docs/setup.md), or review the pull request without the hub's hand-off" ;;
@@ -76,6 +77,60 @@ _reconcile_ci() {
 }
 
 _short() { printf '%s' "${1:0:7}"; }
+
+# _ci_failed <number> <head> <base>: a required check failed. A CI fix if
+# every failure is an ordinary one (a check that ran and failed — not timed
+# out, cancelled, needing action or erroring, which a fix can't address) and
+# fewer than AGENT_HUB_BUILD_CI_FIX_ATTEMPTS were made since the last full
+# review; otherwise a person.
+_ci_failed() {
+  local number=$1 head=$2 base=$3 ci=$RUNNER_TEMP/ci.json names other attempts
+  names=$(_ci_names "$(cat "$ci")" failed)
+  other=$(jq -r '[.checks[] | select(.result == "failed") | .conclusions[] | select(. != "failure")] | unique | join(", ")' "$ci")
+  if [ -n "$other" ]; then
+    _ci_person failed "required checks failed on $(_short "$head"): $names — not in a way a code fix addresses ($other)" \
+      "re-run the checks, or look at the runner or the workflow"
+  fi
+  attempts=$(jq -r '(.ci_fix // {}) as $f | if $f.since == .review.head then $f.attempts // 0 else 0 end' "$RECONCILE_STATE")
+  if [ "$attempts" -ge "$BUILD_CI_FIX_ATTEMPTS" ]; then
+    _ci_person failed "required checks failed on $(_short "$head"): $names, after $attempts CI fix$([ "$attempts" = 1 ] || echo es)" \
+      "fix the failures on the branch (the hub re-checks what's pushed)"
+  fi
+  # Once per head: a fix already tried on this head (it couldn't be kept,
+  # or the run stopped) was reported to a person.
+  if jq -e --arg head "$head" '.ci_fix.last.head == $head' "$RECONCILE_STATE" > /dev/null; then
+    _ci_done "a CI fix was already tried on $(_short "$head")"
+  fi
+  _ci_fix_start "$number" "$head" "$base" "$((attempts + 1))"
+}
+
+# _ci_fix_start <number> <head> <base> <attempt>: the CI-fix pass, in this
+# run's later steps — the same path as the review's fix pass (fix.sh), with
+# the failed checks as its findings. The attempt is recorded first, before
+# any Claude, so a run that stops part-way isn't repeated by the sweep. Then
+# the head is checked out and the build context says what the run is for.
+_ci_fix_start() {
+  local number=$1 head=$2 base=$3 attempt=$4
+  ci_failure_details "$(cat "$RUNNER_TEMP/ci.json")" > "$RUNNER_TEMP/ci-failures.json" \
+    || stage_fail "Couldn't read what pull request #$number's failed checks reported, so nothing was changed."
+  jq -c --slurpfile ci "$RUNNER_TEMP/ci.json" --argjson attempt "$attempt" '
+    .ci = {head: $ci[0].head, result: "failed", checks: $ci[0].checks, at: (now | todate)}
+    | .ci_fix = {since: .review.head, attempts: $attempt, last: {head: $ci[0].head, status: "started", at: .ci.at}}
+    | del(.superseded)' "$RECONCILE_STATE" > "$RUNNER_TEMP/state.json"
+  gh_state_write "$number" "$(cat "$RUNNER_TEMP/state.json")" 2> "$RUNNER_TEMP/state-error" \
+    || stage_fail "Pull request #$number's description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error")), so no CI fix was started."
+  cp "$RUNNER_TEMP/state.json" "$RECONCILE_STATE"
+  git checkout -q --detach "$head" || stage_fail "Couldn't check out pull request #$number's head, so nothing was changed."
+  jq --argjson number "$number" --arg head "$head" --arg base "$base" --argjson attempt "$attempt" \
+      --slurpfile failures "$RUNNER_TEMP/ci-failures.json" \
+    '. + {mode: "reconcile", pr: $number, start_head: $head, previous_head: $head, base: $base, target_head: .base,
+          people_commits: 0, sync: null, ci_fix: {head: $head, attempt: $attempt, checks: [$failures[0][].name]}}' \
+    "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
+  echo "Pull request #$number: required checks failed on $(_short "$head") ($(_ci_names "$(cat "$RUNNER_TEMP/ci.json")" failed)); CI fix $attempt of $BUILD_CI_FIX_ATTEMPTS."
+}
+
+# ci_fixing: whether this run is a CI fix (_ci_fix_start).
+ci_fixing() { jq -e '.ci_fix != null' "$BUILD_CONTEXT" > /dev/null 2>&1; }
 
 # _ci_names <ci JSON> <result>...: the checks with those results, as a list.
 _ci_names() {

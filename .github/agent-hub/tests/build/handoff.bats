@@ -43,6 +43,13 @@ problems() { handoff_problems "$1" <<< "$2"; }
   assert_output --partial "isn't a verified fix"
 }
 
+@test "hand-off: a CI fix verified on exactly its own commit is eligible, after a fix too" {
+  run problems ccccccc1 "$(record "[$(fix fffffff1), $(fix ccccccc1 | jq -c '.kind = "ci-fix"')]")"
+  assert_output ""
+  run problems ccccccc1 "$(record "[$(fix ccccccc1 fffffff1 | jq -c '.kind = "ci-fix"')]")"
+  assert_output --partial "isn't a verified fix"
+}
+
 @test "hand-off: a verified mechanical merge of the target is eligible; a semantic one needs reviewing again" {
   local sync='{"head": "sssssss1", "by": "hub", "kind": "sync", "sync": {"drift": "mechanical"}, "verified": {"head": "sssssss1"}}'
   run problems sssssss1 "$(record "[$sync]")"
@@ -95,11 +102,11 @@ runs() { jq -nc --argjson r "$1" '{check_runs: $r}'; }
   CI_RUNS=$(runs '[{"name": "test", "status": "completed", "conclusion": "success", "app": {"id": 1}}]')
   CI_STATUSES='{"statuses": [{"context": "lint", "state": "success"}]}'
   run ci_status abc "$required"
-  assert_output '{"head":"abc","checks":[{"name":"test","conclusions":["success"],"result":"passed"},{"name":"lint","conclusions":["success"],"result":"passed"}],"state":"green"}'
+  assert_output '{"head":"abc","checks":[{"name":"test","conclusions":["success"],"runs":[{"id":null,"app":"","conclusion":"success"}],"result":"passed"},{"name":"lint","conclusions":["success"],"runs":[],"result":"passed"}],"state":"green"}'
   # A required check that never reported: pending, not green.
   CI_STATUSES='{"statuses": []}'
   run ci_status abc "$required"
-  assert_output --partial '{"name":"lint","conclusions":[],"result":"missing"}],"state":"pending"}'
+  assert_output --partial '{"name":"lint","conclusions":[],"runs":[],"result":"missing"}],"state":"pending"}'
   # Still running.
   CI_RUNS=$(runs '[{"name": "test", "status": "in_progress", "conclusion": null, "app": {"id": 1}}]')
   CI_STATUSES='{"statuses": [{"context": "lint", "state": "success"}]}'
@@ -120,7 +127,7 @@ runs() { jq -nc --argjson r "$1" '{check_runs: $r}'; }
   CI_RUNS=$(runs '[{"name": "test", "status": "completed", "conclusion": "success", "app": {"id": 2}}]')
   CI_STATUSES='{"statuses": [{"context": "test", "state": "success"}]}'
   run ci_status abc '[{"name": "test", "app_id": 1}]'
-  assert_output '{"head":"abc","checks":[{"name":"test","conclusions":[],"result":"missing"}],"state":"pending"}'
+  assert_output '{"head":"abc","checks":[{"name":"test","conclusions":[],"runs":[],"result":"missing"}],"state":"pending"}'
 }
 
 @test "CI: nothing required is unconfigured — never green" {

@@ -5,6 +5,42 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.14.0 — 2026-10-08
+
+PR 4's last part, second half (4d-2): CI fixes. A required check that fails
+on the hub's pull request gets a fix through the fix pass's own path, up to
+twice per hand-off; anything else goes to a person.
+
+- **When:** every failed required check ran and failed (conclusion
+  `failure`). Timed out, cancelled, needing action or erroring → a person:
+  a code fix can't address them. At most `AGENT_HUB_BUILD_CI_FIX_ATTEMPTS`
+  (2) since the last full review, so a person's commits, reviewed again,
+  start a new count; past it, a person.
+- **How:** the failed checks become the fix pass's findings, with what each
+  reported — the check run's summary and, for a GitHub Actions job, the end
+  of its log (the workflow's token, now with `actions: read`; to the agent
+  only). From there it's the fix pass's path, no more and no less
+  permissive: new instructions (`stages/build/ci-fix/prompt.md`: find the
+  cause, never weaken a test), the fix check, Verify fix (no new refused
+  file or decision item, no hard link, and every one of the repository's own
+  checks the hub runs — its test, lint, typecheck and build scripts —
+  passing in the sandbox on exactly that commit), the secret scan and a push
+  that's never forced. Only failed **required** checks start a CI fix, and
+  the hand-off still needs every currently required check green on the
+  fix's own SHA: earlier results are never reused.
+- **The record:** the attempt is written before any Claude runs, so a run
+  that stops part-way isn't repeated by the sweep. A kept fix is a
+  `kind: ci-fix` head, verified on exactly its commit, and the hand-off rule
+  accepts it; CI runs again on it, and the sweep wakes the gate. A fix that
+  wasn't kept changes nothing, and the pull request and ticket say why.
+- **Admission:** the fix pass and its check only ($4 by default).
+- Docs: build.md (CI fixes as built, the contracts, "Hand-off without CI"
+  added to After v1), architecture.md (the CI fix pass), claude-usage.md,
+  setup.md.
+
+**Updating:** Nothing (the workflows' token now also reads CI jobs' logs:
+`actions: read`).
+
 ## 2.13.0 — 2026-10-08
 
 PR 4's last part, first half (4d-1): the CI gate and the hand-off. A build's
