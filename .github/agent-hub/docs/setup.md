@@ -66,6 +66,7 @@ use its default. (The defaults are in `lib/settings.sh` and each stage's
 | `AGENT_HUB_WORK_ORDER_APPROVED_STATUS` | `Work Order Approved` | Status that requests an implementation plan |
 | `AGENT_HUB_IMPLEMENTATION_PLAN_STATUS` | `Implementation Plan` | Status of tickets with a plan waiting for approval |
 | `AGENT_HUB_IMPLEMENTATION_PLAN_APPROVED_STATUS` | `Implementation Plan Approved` | Status that requests a build |
+| `AGENT_HUB_READY_FOR_REVIEW_STATUS` | `Ready for Review` | Status the build moves a ticket to when its pull request is handed off |
 | `AGENT_HUB_PUBLISH_TICKET_CONTENT` | `false` | `true` lets the build put ticket text (the title, criteria, Claude's summary and decision log) in a **public** repository's pull requests and commits; private repositories always get it ([build.md](workflows/build.md#publication-policy)) |
 | `AGENT_HUB_NEEDS_HUMAN_LABEL` | `needs-human` | Label for tickets waiting for a person |
 | `AGENT_HUB_NEEDS_CLARIFICATION_LABEL` | `needs-clarification` | Label for tickets the plan stage sent back with questions |
@@ -113,6 +114,7 @@ review model), and for the fix pass `FIX_MODEL` (`claude-sonnet-5`),
 | `MAX_FILE_LINES` | `1000` | A single file changing more lines than this is a decision item |
 | `INSTALL_MINUTES` | `10` | Time limit for installing the dependencies (each install: in the checkout, and in the verify step's copy); over it, nothing is built |
 | `CHECK_MINUTES` | `10` | Time limit for each of the repository's checks in the verify step; over it, the check counts as failed and nothing is pushed |
+| `CI_WAIT_MINUTES` | `120` | How long the CI gate waits for the required checks to report on a pull request's head (from when the hub recorded it) before asking a person — a path-filtered required check never runs |
 | `MIN_RELEASE_AGE_DAYS` | `3` | The dependency step's minimum release age: every package version it adds or changes, direct and transitive, must have been published on or before now − N × 24 hours, by the registry's own times (`0` for none); otherwise nothing is built, before Claude ([build.md](workflows/build.md#dependencies-planned-changes-only)) |
 | `ALLOWED_LICENSES` | permissive licences (MIT, ISC, BSD, Apache-2.0, …) | SPDX ids, comma-separated: a package the dependency step adds (direct or transitive) with any other licence, or none, is a decision item for a person — this list replaces the default |
 | `BASELINE` | `stop` | The repository's checks on the base commit before the agent: `stop` builds nothing (and uses no Claude) when one already fails there; `warn` builds anyway, for a plan that fixes a failing check; `off` skips them ([build.md](workflows/build.md#baseline)) |
@@ -123,6 +125,16 @@ verify copy's install and every check together), 30 for **Review**, 40 for
 **Fix** (the fix pass and its check) and 30 for **Verify fix**. They're part of the hub's
 workflow (`agent-hub-stage.yml`, which updates replace), so a repository
 whose install and checks need longer than that isn't supported yet.
+
+**The build's CI gate** (since 2.13.0) needs the target branch to **require
+your CI's checks** — branch protection or a ruleset (Settings → Branches or
+Rules): the hub hands a pull request off only once every required check has
+passed on its head, so with none required it never hands off. It reads them
+with the workflow's own token (read-only), and the **Agent hub: CI sweep**
+workflow wakes it every 10 minutes; nothing to set up, except that GitHub
+turns schedules off in a repository with no activity for 60 days (turn it
+back on under Actions). Your Jira workflow must allow Implementation Plan
+Approved → Ready for Review ([jira.md](jira.md#transitions)).
 
 ## 5. Set up your tracker
 

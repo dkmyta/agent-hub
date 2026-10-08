@@ -72,6 +72,7 @@ setting_into WORK_ORDER_STATUS AGENT_HUB_WORK_ORDER_STATUS 'Work Order'
 setting_into WORK_ORDER_APPROVED_STATUS AGENT_HUB_WORK_ORDER_APPROVED_STATUS 'Work Order Approved'
 setting_into PLAN_STATUS AGENT_HUB_IMPLEMENTATION_PLAN_STATUS 'Implementation Plan'
 setting_into PLAN_APPROVED_STATUS AGENT_HUB_IMPLEMENTATION_PLAN_APPROVED_STATUS 'Implementation Plan Approved'
+setting_into READY_FOR_REVIEW_STATUS AGENT_HUB_READY_FOR_REVIEW_STATUS 'Ready for Review'
 setting_into NEEDS_DETAILS_LABEL AGENT_HUB_NEEDS_DETAILS_LABEL needs-details
 # Marks tickets waiting for a person; approving (the tracker's "…Approved"
 # rules) removes it.

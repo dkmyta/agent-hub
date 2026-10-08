@@ -21,6 +21,19 @@
 #   MOCK_GH_RACE         one a person saves right after each of them
 #   MOCK_GH_PRS_FIXTURE  pull requests that exist before the run (a JSON array
 #                        in the state's shape, e.g. from an earlier build)
+#   MOCK_GH_REQUIRED     the checks the target branch requires, a JSON array of
+#                        names (default ["test"]); MOCK_GH_RULES its rulesets'
+#                        rules (default [])
+#   MOCK_GH_CHECKS       check runs on any commit, a JSON object name →
+#                        conclusion (success, failure, …) or status (queued,
+#                        in_progress); default none. MOCK_GH_CHECKS_APP: the
+#                        app id they're posted by (default 15368)
+#   MOCK_GH_STATUSES     commit statuses, a JSON object context → state
+#   MOCK_GH_ON_CHECKS    a script run once, when the check runs are first read —
+#                        e.g. a person pushing while the hub reads CI
+#
+# CI reads (gh_ci_get: the workflow's own token) are logged with ci: true;
+# requests for the build (the CI sweep) go to dispatches.jsonl.
 #
 # Any request not listed here fails, so a test can't pass on a call it never
 # meant to make. mock_gh_pr and mock_gh_edit set up state for a test.
@@ -45,8 +58,8 @@ gh_request() {
     esac
   done
   path=${url#"$GH_API"}
-  jq -nc --arg method "$method" --arg path "$path" --arg body "$body" \
-    '{method: $method, path: $path, body: (if $body == "" then null else ($body | fromjson) end)}' >> "$GH_CALLS"
+  jq -nc --arg method "$method" --arg path "$path" --arg body "$body" --arg ci "${GH_READ_CI:-}" \
+    '{method: $method, path: $path, body: (if $body == "" then null else ($body | fromjson) end)} + (if $ci == "1" then {ci: true} else {} end)' >> "$GH_CALLS"
   if [ "$method $path" = "${MOCK_GH_FAIL:-}" ]; then
     echo '{"message": "Mock GitHub failure"}'
     return 22
@@ -59,7 +72,37 @@ gh_request() {
     "GET $repo/pulls?state=all&head="*)
       local branch=${path#*head=*:}; branch=${branch%%&*}
       jq -c --arg b "$branch" --arg repo "$GITHUB_REPOSITORY" \
-        '[.[] | select(.head.ref == $b) | . + {head: {ref: .head.ref, repo: {full_name: $repo}}} | del(.versions)]' "$state" ;;
+        '[.[] | select(.head.ref == $b) | . + {node_id: "PR_\(.number)", head: {ref: .head.ref, repo: {full_name: $repo}}} | del(.versions)]' "$state" ;;
+    "GET $repo/pulls?state=open&per_page=100")
+      # Each head's commit from the test's remote, as GitHub reports it.
+      local prs pr out="[]" sha
+      prs=$(jq -c --arg repo "$GITHUB_REPOSITORY" '.[] | select(.state == "open") | . + {node_id: "PR_\(.number)", head: {ref: .head.ref, repo: {full_name: $repo}}} | del(.versions)' "$state")
+      while IFS= read -r pr; do
+        [ -n "$pr" ] || continue
+        sha=$(git --git-dir="$REMOTE" rev-parse "refs/heads/$(jq -r '.head.ref' <<< "$pr")" 2> /dev/null || true)
+        out=$(jq -c --argjson pr "$pr" --arg sha "$sha" '. + [$pr | .head.sha = $sha]' <<< "$out")
+      done <<< "$prs"
+      echo "$out" ;;
+    "GET $repo/branches/"*)
+      jq -nc --argjson names "${MOCK_GH_REQUIRED:-[\"test\"]}" \
+        '{protected: true, protection: {required_status_checks: {contexts: $names, checks: [$names[] | {context: ., app_id: null}]}}}' ;;
+    "GET $repo/rules/branches/"*) echo "${MOCK_GH_RULES:-[]}" ;;
+    "GET $repo/commits/"*/check-runs*)
+      if [ -n "${MOCK_GH_ON_CHECKS:-}" ] && [ ! -e "$RUNNER_TEMP/mock-github/on-checks" ]; then
+        touch "$RUNNER_TEMP/mock-github/on-checks"
+        # As a person elsewhere: none of the step's git settings (build_git).
+        env -u GIT_DIR -u GIT_WORK_TREE -u GIT_CONFIG_COUNT -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_NOSYSTEM \
+          bash -e -c "$MOCK_GH_ON_CHECKS" > "$RUNNER_TEMP/mock-github/on-checks.log" 2>&1
+      fi
+      jq -nc --argjson checks "${MOCK_GH_CHECKS:-"{}"}" --argjson app "${MOCK_GH_CHECKS_APP:-15368}" '
+        {check_runs: [$checks | to_entries[] | {name: .key, app: {id: $app}}
+          + (if .value | IN("queued", "in_progress") then {status: .value, conclusion: null} else {status: "completed", conclusion: .value} end)]}' ;;
+    "GET $repo/commits/"*/status*)
+      jq -nc --argjson s "${MOCK_GH_STATUSES:-"{}"}" '{statuses: [$s | to_entries[] | {context: .key, state: .value}]}' ;;
+    "POST $repo/actions/workflows/"*/dispatches)
+      mkdir -p "$RUNNER_TEMP/mock-github"
+      jq -c --arg wf "${path#"$repo/actions/workflows/"}" '. + {workflow: ($wf | rtrimstr("/dispatches"))}' <<< "$body" >> "$RUNNER_TEMP/mock-github/dispatches.jsonl"
+      echo '{}' ;;
     "POST $repo/pulls")
       local number
       number=$(jq '([.[].number] | max // 100) + 1' "$state")
@@ -92,6 +135,13 @@ gh_request() {
         'map(if .number == $n then .labels += [$req.labels[] | {name: .}] else . end)' "$state" > "$state.new" && mv "$state.new" "$state"
       echo '[]' ;;
     "POST /graphql")
+      if jq -e '.query | test("markPullRequestReadyForReview")' <<< "$body" > /dev/null; then
+        local n
+        n=$(jq -r '.variables.id | ltrimstr("PR_")' <<< "$body")
+        jq --argjson n "$n" 'map(if .number == $n then .draft = false else . end)' "$state" > "$state.new" && mv "$state.new" "$state"
+        echo '{"data": {"markPullRequestReadyForReview": {"pullRequest": {"isDraft": false}}}}'
+        return 0
+      fi
       # The edit-history query: newest first, a page at a time. GitHub keeps
       # no edit record for a description that was never edited. (The shape
       # recorded from GitHub: shared/fixtures/github-edit-history.)

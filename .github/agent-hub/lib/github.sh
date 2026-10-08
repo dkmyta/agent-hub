@@ -4,8 +4,10 @@
 #
 # Requires: GITHUB_REPOSITORY (owner/name), AGENT_HUB_GITHUB_TOKEN (the
 # machine user's fine-grained token: this repository, Contents and Pull
-# requests read/write). Optional: GITHUB_API_URL, GITHUB_SERVER_URL (GitHub
-# Enterprise), GH_REMOTE (the remote to push to; default origin).
+# requests read/write). Optional: AGENT_HUB_CI_TOKEN (the workflow's own
+# GITHUB_TOKEN, read-only, for CI results: gh_ci_get), GITHUB_API_URL,
+# GITHUB_SERVER_URL (GitHub Enterprise), GH_REMOTE (the remote to push to;
+# default origin).
 #
 # Loaded only by steps that write to GitHub — never by an agent step, so the
 # agents never have the token.
@@ -26,20 +28,29 @@ GH_REMOTE=${GH_REMOTE:-origin}
 GH_CURL_CONFIG=$(umask 077 && mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/github-curl.XXXXXX")
 GH_TOKEN_FILE=$(umask 077 && mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/github-token.XXXXXX")
 GH_ASKPASS=$(umask 077 && mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/github-askpass.XXXXXX")
+GH_CI_CURL_CONFIG=$(umask 077 && mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/github-ci-curl.XXXXXX")
 # Removed when the step ends, with the tracker's (the same trap: see
 # trackers/jira/tracker.sh).
-HUB_SECRET_FILES+=("$GH_CURL_CONFIG" "$GH_TOKEN_FILE" "$GH_ASKPASS")
+HUB_SECRET_FILES+=("$GH_CURL_CONFIG" "$GH_TOKEN_FILE" "$GH_ASKPASS" "$GH_CI_CURL_CONFIG")
 trap 'rm -f "${HUB_SECRET_FILES[@]}"' EXIT
 printf '%s' "${AGENT_HUB_GITHUB_TOKEN:-}" > "$GH_TOKEN_FILE"
 printf 'header = "Authorization: Bearer %s"\n' "$(printf '%s' "${AGENT_HUB_GITHUB_TOKEN:-}" | sed 's/[\\"]/\\&/g')" > "$GH_CURL_CONFIG"
 printf '#!/bin/sh\ncase "$1" in Username*) echo x-access-token ;; *) cat "%s" ;; esac\n' "$GH_TOKEN_FILE" > "$GH_ASKPASS"
 chmod 700 "$GH_ASKPASS"
+printf 'header = "Authorization: Bearer %s"\n' "$(printf '%s' "${AGENT_HUB_CI_TOKEN:-}" | sed 's/[\\"]/\\&/g')" > "$GH_CI_CURL_CONFIG"
 
 # Every GitHub API call goes through gh_request (the tests replace just this),
 # with time limits and retries (lib/http.sh).
+# With GH_READ_CI=1, the call uses AGENT_HUB_CI_TOKEN instead (gh_ci_get).
 gh_request() {
-  [ -n "${AGENT_HUB_GITHUB_TOKEN:-}" ] || { echo "::error::AGENT_HUB_GITHUB_TOKEN isn't set." >&2; return 1; }
-  http_request GitHub --config "$GH_CURL_CONFIG" \
+  local config=$GH_CURL_CONFIG
+  if [ "${GH_READ_CI:-}" = 1 ]; then
+    [ -n "${AGENT_HUB_CI_TOKEN:-}" ] || { echo "::error::AGENT_HUB_CI_TOKEN isn't set." >&2; return 1; }
+    config=$GH_CI_CURL_CONFIG
+  else
+    [ -n "${AGENT_HUB_GITHUB_TOKEN:-}" ] || { echo "::error::AGENT_HUB_GITHUB_TOKEN isn't set." >&2; return 1; }
+  fi
+  http_request GitHub --config "$config" \
     -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
 }
 
@@ -60,6 +71,23 @@ gh_graphql() {
     return 1
   fi
   jq -c '.data' <<< "$response"
+}
+
+# gh_ci_get <path>: a read of CI results — check runs, commit statuses, the
+# checks a branch requires — with the workflow's own token (AGENT_HUB_CI_TOKEN:
+# checks, statuses and contents read). A fine-grained token can't be given
+# the Checks permission, so the machine user's can't read them in a private
+# repository; this one can, and it can't write anything.
+gh_ci_get() { GH_READ_CI=1 gh_request -X GET "$GH_API$1"; }
+
+# gh_pr_ready <node id>: mark a draft pull request ready for review (safe to
+# repeat: a pull request that's already ready stays so).
+gh_pr_ready() {
+  local response
+  response=$(jq -nc --arg id "$1" '{query: "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }", variables: {id: $id}}' \
+    | HTTP_IDEMPOTENT=1 gh_request -X POST -H "Content-Type: application/json" "$GH_API/graphql" -d @-) || return 1
+  jq -e '(.errors // []) | length == 0' <<< "$response" > /dev/null \
+    || { echo "::error::GitHub GraphQL error: $(jq -c '[.errors[].type // .errors[].message]' <<< "$response")" >&2; return 1; }
 }
 
 GH_OWNER=${GITHUB_REPOSITORY%%/*}

@@ -18,6 +18,11 @@ on:
         description: Ticket key (in Implementation Plan Approved)
         required: true
         type: string
+      wake:
+        description: Set by the CI sweep (ci) — leave empty
+        required: false
+        type: string
+        default: ""
 
 # One group per ticket, shared by every stage (the work order, the plan and
 # the build), so nothing for a ticket runs in parallel: a run is never
@@ -30,6 +35,8 @@ concurrency:
 
 permissions:
   contents: read
+  checks: read
+  statuses: read
 
 jobs:
   build:
@@ -38,6 +45,7 @@ jobs:
       stage: build
       ticket-key: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
       code-stage: true
+      wake: ${{ inputs.wake || '' }}
       agent-minutes: 60
       review-minutes: 30
       fix-minutes: 40

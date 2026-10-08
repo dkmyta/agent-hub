@@ -1,0 +1,56 @@
+name: "Agent hub: CI sweep"
+
+# The build's CI gate, woken on a schedule (4d-1): every 10 minutes, for each
+# of the hub's draft pull requests whose required checks have finished on the
+# head the hub last recorded (or waited longer than
+# AGENT_HUB_BUILD_CI_WAIT_MINUTES), and whose result the build hasn't handled
+# yet, request the build for its ticket — which reads the checks again for
+# exactly that head and hands the pull request off, or tells a person why
+# not. No agent, no tracker, nothing from a pull request run or trusted; the
+# hub's scripts come from the default branch. See
+# .github/agent-hub/docs/workflows/build.md ("CI gate").
+#
+# GitHub runs schedules on the default branch only, can start them late, and
+# turns them off in a repository with no activity for 60 days (re-enable it
+# under Actions). It can also be run by hand.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: agent-hub-ci-sweep
+  cancel-in-progress: false
+
+# Reads the pull requests and their checks; `actions: write` only to request
+# the build (a workflow_dispatch).
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  statuses: read
+  actions: write
+
+jobs:
+  sweep:
+    # The kill switch, and — until the build is enabled for real tickets —
+    # only while the build preview is on.
+    if: vars.AGENT_HUB_ENABLED != 'false' && vars.AGENT_HUB_BUILD_PREVIEW == 'true'
+    runs-on: ${{ fromJSON(vars.AGENT_HUB_RUNS_ON || '["self-hosted", "claude"]') }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/agent-hub
+
+      - name: Wake builds whose CI has finished
+        timeout-minutes: 3
+        env:
+          VARS: ${{ toJSON(vars) }}
+          AGENT_HUB_GITHUB_TOKEN: ${{ github.token }}
+          AGENT_HUB_CI_TOKEN: ${{ github.token }}
+        run: |
+          source .github/agent-hub/stages/build/sweep.sh
+          build_ci_sweep

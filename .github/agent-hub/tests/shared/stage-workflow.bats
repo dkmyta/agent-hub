@@ -76,6 +76,23 @@ setup() {
   assert [ "${#lines[@]}" -gt 0 ]
 }
 
+# The workflow's own token, for reading CI results (read-only: the
+# workflow's permissions), reaches the same two steps, for a code stage only.
+@test "the CI token reaches only a code stage's fetch and apply steps" {
+  run node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { parse } from "yaml";
+    const wf = parse(readFileSync(process.argv[1], "utf8"), { merge: true });
+    console.log(Object.entries(wf.permissions).map(([k, v]) => `${k}=${v}`).join(","));
+    for (const step of Object.values(wf.jobs)[0].steps)
+      if (step.env?.AGENT_HUB_CI_TOKEN !== undefined) console.log(`${step.id ?? step.name}: ${step.env.AGENT_HUB_CI_TOKEN}`);' "$WORKFLOW"
+  assert_success
+  assert_line --index 0 "contents=read,checks=read,statuses=read"
+  assert_line --index 1 "start: \${{ inputs.code-stage && github.token || '' }}"
+  assert_line --index 2 "apply: \${{ inputs.code-stage && github.token || '' }}"
+  assert_equal "${#lines[@]}" 3
+}
+
 # Every step loads the hub from the copy made before any agent runs: an
 # agent's change to the checkout's hub never runs in a later step.
 @test "the hub is copied before the agent and every step loads it from the copy" {
@@ -166,7 +183,7 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
 
 # The kill switch: AGENT_HUB_ENABLED=false skips every workflow that runs an
 # agent or changes a ticket, before it reaches a runner.
-@test "the kill switch skips the stage workflow, the evals and the sandbox check" {
+@test "the kill switch skips the stage workflow, the evals, the sandbox check and the CI sweep" {
   run node --input-type=module -e '
     import { readFileSync } from "node:fs";
     import { parse } from "yaml";
@@ -174,9 +191,9 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
       const wf = parse(readFileSync(file, "utf8"));
       for (const job of Object.values(wf.jobs)) console.log(job.if);
     }' "$REPO_DIR/.github/workflows/agent-hub-stage.yml" "$REPO_DIR/.github/workflows/agent-hub-evals.yml" \
-    "$REPO_DIR/.github/workflows/agent-hub-sandbox-check.yml"
+    "$REPO_DIR/.github/workflows/agent-hub-sandbox-check.yml" "$REPO_DIR/.github/workflows/agent-hub-ci-sweep.yml"
   assert_success
-  assert_equal "${#lines[@]}" 3
+  assert_equal "${#lines[@]}" 4
   local condition
   for condition in "${lines[@]}"; do
     [[ "$condition" == *"vars.AGENT_HUB_ENABLED != 'false'"* ]] || fail "no kill switch: $condition"
