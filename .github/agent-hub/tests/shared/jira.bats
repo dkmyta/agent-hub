@@ -158,3 +158,24 @@ EOF
   assert_equal "$(jq -c '[.entered, .at, .by_name, [.changes[] | [.kind, .file]]]' <<< "$output")" \
     '[true,"2026-10-01T10:00:00.000+0000","Dana",[["attachment","plan.md"],["attachment","old.md"],["description",null],["labels",null]]]'
 }
+
+# C4: isLast false means more pages, whatever else the page says (`//` would
+# have treated it as missing and stopped at a page with no total).
+@test "history: a page marked not last is followed, from where it ended, even without a total" {
+  jq -n '{startAt: 0, maxResults: 100, isLast: false, values: [
+    {created: "2026-10-01T09:00:00.000+0000", author: {accountId: "a"}, items: [{field: "status", toString: "Done"}]}]}' > "$BATS_TEST_TMPDIR/page1.json"
+  jq -n '{startAt: 1, maxResults: 100, isLast: true, values: [
+    {created: "2026-10-01T10:00:00.000+0000", author: {accountId: "b"}, items: [{field: "description"}]}]}' > "$BATS_TEST_TMPDIR/page2.json"
+  CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/page1.json" CHANGELOG_PAGE2_FIXTURE="$BATS_TEST_TMPDIR/page2.json" \
+    run with_jira PROJ-1 'tracker_history_since Done; jq -sr ".[1].path" "$CALLS"'
+  assert_success
+  assert_equal "$(jq -c '[.changes[] | .kind]' <<< "${lines[0]}")" '["description"]'
+  assert_equal "${lines[1]}" '/changelog?startAt=1&maxResults=100'
+}
+
+@test "history: an empty page that isn't the last fails rather than read part of the history" {
+  echo '{"startAt": 0, "maxResults": 100, "isLast": false, "values": []}' > "$BATS_TEST_TMPDIR/page1.json"
+  CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/page1.json" run with_jira PROJ-1 'tracker_history_since Done'
+  assert_failure
+  assert_output --partial "empty page"
+}

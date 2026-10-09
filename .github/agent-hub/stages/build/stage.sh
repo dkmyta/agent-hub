@@ -74,15 +74,13 @@ step_fetch() {
   # unless an /apply was accepted — then the run carries on as a fix of the
   # requested items.
   [ "${AGENT_HUB_WAKE:-}" != command ] || build_command
-  # A build starts from Implementation Plan Approved. The CI gate and item
-  # commands also run for a ticket already handed off (Ready for Review, or
-  # Approved): an /apply sends its pull request back to draft, and the gate
-  # hands it off again. The hub never moves a ticket back into Implementation
-  # Plan Approved — its own move there wouldn't be an approval.
-  case "${AGENT_HUB_WAKE:-}" in
-    ci | command) stage_fetch "$PLAN_APPROVED_STATUS" "$READY_FOR_REVIEW_STATUS" "$APPROVED_STATUS" || exit 0 ;;
-    *) stage_fetch "$PLAN_APPROVED_STATUS" || exit 0 ;;
-  esac
+  # A new build starts only from Implementation Plan Approved. A run for a
+  # ticket already handed off (Ready for Review, or Approved) — the CI gate,
+  # an item command, or a person re-running the build to have people's
+  # commits checked — reconciles its pull request (checked after _branch).
+  # The hub never moves a ticket back into Implementation Plan Approved: its
+  # own move there wouldn't be an approval.
+  stage_fetch "$PLAN_APPROVED_STATUS" "$READY_FOR_REVIEW_STATUS" "$APPROVED_STATUS" || exit 0
   stage_set_mode new
   # Not for real tickets yet (settings.sh): stop before anything else.
   [ "$BUILD_PREVIEW" = true ] \
@@ -119,6 +117,13 @@ step_fetch() {
     exit 0
   fi
   _branch
+  # Past the plan's approval, only an existing pull request is worked on.
+  if ! reconciling && [ "$(stage_start_status)" != "$PLAN_APPROVED_STATUS" ]; then
+    echo "::notice::$TICKET_KEY is in $(stage_start_status) and has no open pull request of the hub's, so there's nothing to build: a new build starts from $PLAN_APPROVED_STATUS."
+    echo "proceed=false" >> "$GITHUB_OUTPUT"
+    stage_outcome "no change needed"
+    exit 0
+  fi
   _committer
   # An existing pull request whose target moved: merged in, before anything
   # else reads the code (reconcile.sh).
@@ -150,17 +155,18 @@ step_fetch() {
 
 # stage_max_cost: the most one build run's Claude passes can cost together
 # (lib/stage.sh, stage_run_max_cost): the build, the code review, the fix
-# pass and the fix check, each at its configured maximum.
+# pass and the fix check, each at its configured maximum plus the overshoot
+# allowance.
 stage_max_cost() {
   # A reconcile run has no build pass, and one that only merged a mechanical
   # drift has no review either: no Claude at all.
   if reconciling; then
     # A CI fix: the fix pass and its check only.
-    if ci_fixing || applying; then stage_sum_usd "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return; fi
+    if ci_fixing || applying; then stage_passes_max_usd "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return; fi
     reconcile_reviews || { echo 0; return; }
-    stage_sum_usd "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return
+    stage_passes_max_usd "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return
   fi
-  stage_sum_usd "$CLAUDE_MAX_BUDGET_USD" "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"
+  stage_passes_max_usd "$CLAUDE_MAX_BUDGET_USD" "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"
 }
 
 # _require_limits: the size and time limits (settings.sh) are whole numbers —

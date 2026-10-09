@@ -40,10 +40,18 @@ ci_status() {
   while :; do
     batch=$(gh_ci_get "/repos/$GITHUB_REPOSITORY/commits/$1/check-runs?filter=latest&per_page=100&page=$page") || return 1
     runs=$(jq -c --argjson b "$batch" '. + ($b.check_runs // [])' <<< "$runs")
-    [ "$(jq '.check_runs | length' <<< "$batch")" = 100 ] && [ "$page" -lt 10 ] || break
+    [ "$(jq '.check_runs | length' <<< "$batch")" = 100 ] || break
+    if [ "$page" -ge 10 ]; then
+      echo "::error::$1 has more than 1,000 check runs, so its checks can't all be read." >&2
+      return 1
+    fi
     page=$((page + 1))
   done
   statuses=$(gh_ci_get "/repos/$GITHUB_REPOSITORY/commits/$1/status?per_page=100") || return 1
+  if ! jq -e '(.total_count // (.statuses | length)) <= (.statuses | length)' <<< "$statuses" > /dev/null; then
+    echo "::error::$1 has more than 100 commit statuses, so its checks can't all be read." >&2
+    return 1
+  fi
   jq -nc --arg head "$1" --argjson required "$2" --argjson runs "$runs" --argjson s "$statuses" '
     def run_result: if .status != "completed" then "pending"
       elif (.conclusion | IN("success", "neutral", "skipped")) then "passed" else "failed" end;

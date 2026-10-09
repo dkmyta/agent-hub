@@ -16,7 +16,7 @@ settings() {
   run settings work-order "" TRACKER AGENT_RUNNER CLAUDE_MODEL CLAUDE_MAX_BUDGET_USD WORK_ORDER_STATUS REVISE_COMMAND HOME_STATUS STAGE_DIR
   assert_output "jira
 claude-code
-claude-sonnet-5
+claude-sonnet-5-5
 2.00
 Work Order
 /revise
@@ -44,7 +44,7 @@ x"
   assert_output "plan-model
 5.00"
   run settings work-order "$vars" CLAUDE_MODEL REVIEW_CLAUDE_MAX_BUDGET_USD
-  assert_output "claude-sonnet-5
+  assert_output "claude-sonnet-5-5
 9.00"
   # The review model is shared by every stage.
   run settings work-order '{"AGENT_HUB_REVIEW_MODEL": "reviewer"}' REVIEW_CLAUDE_MODEL

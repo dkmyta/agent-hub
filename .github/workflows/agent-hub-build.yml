@@ -53,5 +53,5 @@ jobs:
       agent-minutes: 60
       review-minutes: 30
       fix-minutes: 40
-      job-minutes: 240
+      job-minutes: 270
     secrets: inherit

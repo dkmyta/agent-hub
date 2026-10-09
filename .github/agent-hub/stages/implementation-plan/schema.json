@@ -572,6 +572,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 40,
+            "pattern": "^[0-9]+$",
             "description": "The id of the change request this answers, as the ticket gives it (\"request 411\" \u2192 \"411\")."
           },
           "request": {

@@ -61,7 +61,7 @@ agent_extension_problems() {
   (cd "$1" && find . -mindepth 1 \( -type l -o \( \
       ! -path ./guidance.md ! -path ./review.md ! -path ./README.md "${checks[@]}" \
       ! -path ./agents ! -path './agents/*.md' ! -path ./skills ! -path './skills/?*/*' ! -path './skills/?*' \
-      \) \) -print) | sed 's|^\./||' | sort \
+      \) \) -print) | sed 's|^\./||' | LC_ALL=C sort \
     | awk 'last != "" && index($0, last "/") == 1 { next } { print; last = $0 }'
 }
 
@@ -609,6 +609,7 @@ agent_cleanup() {
 # ("none" for a stage with no review pass), Claude Code version, how it
 # reached Claude (agent_access), duration, turns and API-equivalent cost.
 agent_summary() {
+  # The status is one agent_check accepted (ready, or one the stage lists).
   jq -r '"status=\(.structured_output.status)"' "$AGENT_OUTPUT" >> "$GITHUB_OUTPUT"
   jq -r --arg title "$1" --arg model "$CLAUDE_MODEL" --arg version "${CLAUDE_VERSION:-unknown}" \
       --arg access "$(jq -r '.label // "unknown"' "$RUNNER_TEMP/agent-access.json" 2> /dev/null || echo unknown)" \

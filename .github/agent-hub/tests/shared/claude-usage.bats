@@ -226,3 +226,19 @@ setup() {
   run ls -A "$BATS_TEST_TMPDIR"
   refute_output --partial ".agent-hub-sandbox-check"
 }
+
+# CLA-1: a pass can go over its budget by about one turn, whatever the budget,
+# so the allowance is added per pass, not multiplied.
+@test "caps: a run's maximum is each pass's budget plus the overshoot allowance; a budget that isn't a number is refused" {
+  passes_max() { PASS_OVERSHOOT_USD=$1 bash -c 'source "$HUB_DIR/lib/stage.sh"; shift; stage_passes_max_usd "$@"' _ "$@"; }
+  run passes_max 1.00 10.00 5.00 3.00 1.00
+  assert_output 23
+  run passes_max 0 2.00 2.00
+  assert_output 4
+  run passes_max 0.333 0.1 0.2 0.3
+  assert_output 1.599
+  run passes_max 1.00 2.00 lots
+  assert_failure
+  run passes_max 1.00 2.00 0
+  assert_failure
+}

@@ -192,6 +192,28 @@ ticket() { jq -nc '{fields: {summary: "S", description: {type: "doc", version: 1
   assert_output 1
 }
 
+# COR-5: the answered ids and the status are model output — used only as what
+# the schema says they are, never split into words or written as more lines.
+@test "revise: an answered id that isn't digits resolves nothing (no word splitting: '411 *' isn't 411)" {
+  run_scenario revise CLAUDE_FIXTURE_EDIT='.structured_output.revision_responses |= map(.request_id = "411 *")'
+  run jq -r 'select(.method == "PUT" and (.path | startswith("/comment/"))) | .path' "$CALLS"
+  refute_output --partial "/comment/411"
+  run grep -c "::warning::1 change request(s) weren't answered" "$RUNNER_TEMP/log.txt"
+  assert_output 1
+}
+
+@test "a status the stage doesn't list (here, one carrying a second output line) stops the run before anything is written" {
+  run_scenario ready CLAUDE_FIXTURE_EDIT='.structured_output.status = "ready\nextra=1"'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: failure"
+  run jq -c 'select(.body.fields.description != null)' "$CALLS"
+  assert_output ""
+  # The step's outputs carry no status at all.
+  run cat "$STEP_OUTPUTS/agent"
+  refute_output --partial "status="
+  refute_output --partial "extra="
+}
+
 # edited_mid_run <heading> <text>: the revise scenario's ticket with a
 # paragraph added under <heading> (the first block after it) — a person's
 # edit during the run — as TICKET_LATER_FIXTURE.
@@ -295,7 +317,7 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
     assert_equal "$(cat "$RUNNER_TEMP/outcome")" blocked
   done
   run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
-  assert_output "⛔ Claude usage cap reached — this ticket has used \$69.00 of its \$60.00 cap in 10 of its 10 runs, across every stage. A run of this stage can cost up to \$4.00, so it stopped before using Claude. To go on, a person removes the agent-hub-over-cap label — which allows another \$60.00 and 10 runs — then tries again. Run details"
+  assert_output "⛔ Claude usage cap reached — this ticket has used \$69.00 of its \$60.00 cap in 10 of its 10 runs, across every stage. A run of this stage can cost up to \$6.00, so it stopped before using Claude. To go on, a person removes the agent-hub-over-cap label — which allows another \$60.00 and 10 runs — then tries again. Run details"
 }
 
 @test "caps: still over while the label stays; removing it allows one more cap's worth" {
@@ -328,7 +350,8 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
 
 @test "caps: settings that aren't positive numbers stop the run before Claude" {
   local vars
-  for vars in '{"AGENT_HUB_TICKET_MAX_RUNS": "0"}' '{"AGENT_HUB_TICKET_MAX_RUNS": "ten"}' '{"AGENT_HUB_TICKET_MAX_COST_USD": "0.00"}' '{"AGENT_HUB_TICKET_MAX_COST_USD": "-5"}'; do
+  for vars in '{"AGENT_HUB_TICKET_MAX_RUNS": "0"}' '{"AGENT_HUB_TICKET_MAX_RUNS": "ten"}' '{"AGENT_HUB_TICKET_MAX_COST_USD": "0.00"}' '{"AGENT_HUB_TICKET_MAX_COST_USD": "-5"}' \
+      '{"AGENT_HUB_PASS_OVERSHOOT_USD": "-1"}' '{"AGENT_HUB_PASS_OVERSHOOT_USD": "lots"}'; do
     run_scenario ready "VARS=$vars"
     run cat "$RUNNER_TEMP/trace.txt"
     assert_line "Agent: skipped"
@@ -336,19 +359,38 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
   done
 }
 
+# WF-3: a step GitHub stopped at its time limit gave no reason of its own;
+# what was running (sandbox_run's limit-reason) is the reason.
+@test "failure report: with no reason given, a step stopped during a sandboxed command says what was running" {
+  use_run_env "$(mktemp -d "$BATS_TEST_TMPDIR/run.XXXXXX")"
+  export TICKET_KEY=PROJ-99 MOCK_FAIL=""
+  echo "LIMIT-REASON-MARKER" > "$RUNNER_TEMP/limit-reason"
+  run_step "$STEPS" report-failure-on-ticket
+  run jq -r 'select(.method == "PUT" or .method == "POST") | .body.body | tostring' "$CALLS"
+  assert_output --partial "LIMIT-REASON-MARKER"
+  : > "$CALLS"
+  # A reason the step gave itself comes first.
+  echo "STAGE-FAIL-MARKER" > "$RUNNER_TEMP/failure-reason"
+  run_step "$STEPS" report-failure-on-ticket
+  run jq -r 'select(.method == "PUT" or .method == "POST") | .body.body | tostring' "$CALLS"
+  assert_output --partial "STAGE-FAIL-MARKER"
+  refute_output --partial "LIMIT-REASON-MARKER"
+}
+
 @test "caps: a pass with no report counts at its whole budget, marked estimated" {
   # Claude Code printed nothing usable.
   run_scenario claude-fails CLAUDE_FIXTURE=none
   run jq -c '{runs, cost_usd, estimated}' <<< "$(ledger)"
-  assert_output '{"runs":1,"cost_usd":2,"estimated":true}'
+  assert_output '{"runs":1,"cost_usd":3,"estimated":true}'
   # A pass cut off while running (a time limit): its budget, still pending.
+  # Each with no report also gets the overshoot allowance ($1).
   use_run_env "$(mktemp -d "$BATS_TEST_TMPDIR/run.XXXXXX")"
   export TICKET_KEY=PROJ-99 MOCK_LEDGER="" MOCK_FAIL=""
   echo 2.50 > "$RUNNER_TEMP/claude-pass-pending"
   echo '{"cost":0.75,"budget":2}' > "$RUNNER_TEMP/claude-passes.jsonl"
   run_step "$STEPS" record-claude-usage
   run jq -c '{runs, cost_usd, estimated}' <<< "$(ledger)"
-  assert_output '{"runs":1,"cost_usd":3.25,"estimated":true}'
+  assert_output '{"runs":1,"cost_usd":4.25,"estimated":true}'
 }
 
 @test "caps: a run that didn't use Claude isn't counted, and a ledger that can't be written is a warning, not a failed run" {
@@ -366,35 +408,36 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
 # plus the most this run's passes can cost (each pass's configured maximum)
 # fits within the cap — so a run that starts can always finish within it.
 @test "caps: a run is admitted only if spend so far plus its maximum cost fits the cap — exactly at the cap is fine, a cent over isn't" {
-  # The work order's draft and review: $2 + $2.
-  run_scenario ready 'MOCK_LEDGER={"runs":3,"cost_usd":56}'
+  # The work order's draft and review: $2 + $2, and $1 each for going over.
+  run_scenario ready 'MOCK_LEDGER={"runs":3,"cost_usd":54}'
   run cat "$RUNNER_TEMP/trace.txt"
   assert_line "Agent: success"
-  run_scenario ready 'MOCK_LEDGER={"runs":3,"cost_usd":56.01}'
+  run_scenario ready 'MOCK_LEDGER={"runs":3,"cost_usd":54.01}'
   run cat "$RUNNER_TEMP/trace.txt"
   assert_line "Agent: skipped"
   assert_equal "$(cat "$RUNNER_TEMP/outcome")" blocked
   # The log says why, in numbers.
   run cat "$RUNNER_TEMP/log.txt"
-  assert_output --partial "::notice::PROJ-99 is at its Claude usage cap, so Claude wasn't used: a run of this stage can cost up to \$4.00, and \$3.99 is left of its \$60.00 cap (\$56.01 used)."
+  assert_output --partial "::notice::PROJ-99 is at its Claude usage cap, so Claude wasn't used: a run of this stage can cost up to \$6.00, and \$5.99 is left of its \$60.00 cap (\$54.01 used)."
 }
 
 @test "caps: a revision's maximum is its revision budget for both passes" {
-  # $1 + $1: room for a revision where a new work order ($4) wouldn't fit.
-  run_scenario revise 'MOCK_LEDGER={"runs":3,"cost_usd":58}'
+  # $1 + $1 (+ $1 each for going over): room for a revision where a new work
+  # order ($6) wouldn't fit.
+  run_scenario revise 'MOCK_LEDGER={"runs":3,"cost_usd":56}'
   run cat "$RUNNER_TEMP/trace.txt"
   assert_line "Agent: success"
-  run_scenario ready 'MOCK_LEDGER={"runs":3,"cost_usd":58}'
+  run_scenario ready 'MOCK_LEDGER={"runs":3,"cost_usd":56}'
   run cat "$RUNNER_TEMP/trace.txt"
   assert_line "Agent: skipped"
 }
 
 @test "caps: a cap smaller than one run's maximum is a settings error, before Claude" {
-  run_scenario ready 'VARS={"AGENT_HUB_TICKET_MAX_COST_USD": "3.00"}'
+  run_scenario ready 'VARS={"AGENT_HUB_TICKET_MAX_COST_USD": "5.00"}'
   run cat "$RUNNER_TEMP/trace.txt"
   assert_line "Agent: skipped"
   run cat "$RUNNER_TEMP/failure-reason"
-  assert_output --partial "One run of this stage can cost up to \$4 (its passes' budgets together), more than the ticket cap AGENT_HUB_TICKET_MAX_COST_USD (\$3.00)"
+  assert_output --partial "One run of this stage can cost up to \$6 (its passes' budgets together, each with \$1.00 for going over), more than the ticket cap AGENT_HUB_TICKET_MAX_COST_USD (\$5.00)"
 }
 
 # One queue per ticket (2.12.1): a request that arrived while a run was going

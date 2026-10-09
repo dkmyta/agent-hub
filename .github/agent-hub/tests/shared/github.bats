@@ -270,3 +270,17 @@ git_remote() {
   run with_github 'gh_branch_head agent-hub/PROJ-1'
   assert_output "$(git rev-parse HEAD~1)"
 }
+
+# A description saved in GitHub's web editor has Windows line endings (\r\n):
+# a person's edit outside the state block must not make the block untrusted.
+@test "description versions: a browser save's Windows line endings are normalised — an edit outside the block keeps the record trusted" {
+  local history="$BATS_TEST_DIRNAME/fixtures/github-edit-history"
+  # The recorded edit outside the block, as a browser would save it: every
+  # line ending of the newest version, and of the current body, \r\n.
+  jq '.data.repository.pullRequest |= (.body |= gsub("\n"; "\r\n") | .userContentEdits.nodes[0].diff |= gsub("\n"; "\r\n"))' \
+    "$history/1-edit-outside.json" > "$BATS_TEST_TMPDIR/crlf.json"
+  grep -q '\\r\\n' "$BATS_TEST_TMPDIR/crlf.json"
+  MOCK_GH_HISTORY="$BATS_TEST_TMPDIR/crlf.json" \
+    run with_github 'source "$HUB_DIR/lib/state.sh"; v=$(gh_pr_body_versions 45); jq -r "[.[].body | contains(\"\r\")] | any" <<< "$v"; state_trusted "$v" dkmyta && echo trusted'
+  assert_output $'false\ntrusted'
+}

@@ -105,9 +105,19 @@ sandbox_temp() {
 # self-hosted runner is in the home folder the sandbox denies — Node aborts
 # on startup when its output is a file it can't read. Returns the command's
 # exit code — 124 if it ran out of time, 125 if the sandbox couldn't start.
+#
+# While it runs, limit-reason says what was running: if GitHub stops the
+# whole step at the step's own time limit (the hub's limit is per command,
+# and a step runs several), that's the reason the ticket's failure comment
+# gives (stage_report_failure) rather than none.
 sandbox_run() {
-  local policy=$1 folder=$2 minutes=$3 log=$4 command=$5 srt settings temp
+  local policy=$1 folder=$2 minutes=$3 log=$4 command=$5 srt settings temp rc
   srt=$(sandbox_install 2> "$log") || return 125
+  if [ "$policy" = install ]; then
+    echo "GitHub stopped the step at its own time limit while dependencies were installing: each install can take up to AGENT_HUB_BUILD_INSTALL_MINUTES, and the step runs several. Lower that setting so they fit in the step, or make the install faster, then retry."
+  else
+    echo "GitHub stopped the step at its own time limit while the repository's checks were running: each check can take up to AGENT_HUB_BUILD_CHECK_MINUTES, and before the agent a failing check runs twice. Lower that setting, or list fewer or faster checks in build/checks.json, then retry."
+  fi > "$RUNNER_TEMP/limit-reason"
   temp=$(sandbox_temp)
   settings=$(mktemp "$RUNNER_TEMP/sandbox-settings.XXXXXX")
   sandbox_settings "$policy" "$folder" > "$settings"
@@ -130,5 +140,7 @@ sandbox_run() {
         alarm $seconds; waitpid($pid, 0); exit($? >> 8)' \
       "$minutes" "$srt" --settings "$settings" -c "$command"
   ) 2>&1 | cat > "$log"
-  return "${PIPESTATUS[0]}"
+  rc=${PIPESTATUS[0]}
+  rm -f "$RUNNER_TEMP/limit-reason"
+  return "$rc"
 }

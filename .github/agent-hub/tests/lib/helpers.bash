@@ -249,6 +249,15 @@ run_scenario() {
   local full="" dir="$SUITE_DIR/scenarios/$1" var overrides=() arg
   shift
   for arg in "$@"; do case "$arg" in --full) full=--full ;; *) overrides+=("$arg") ;; esac; done
+  # Every mock setting from an earlier run goes, listed below or not: a run
+  # has only its defaults and its own overrides — and the suite's own (the
+  # stand-ins, MOCK_SRT and MOCK_GITLEAKS), restored to their values from
+  # before its first run.
+  if [ -z "${SUITE_MOCKS+set}" ]; then
+    SUITE_MOCKS=$(for var in $(compgen -v MOCK_); do printf '%s=%s\n' "$var" "${!var}"; done)
+  fi
+  for var in $(compgen -v MOCK_); do unset "$var"; done
+  while IFS= read -r var; do [ -z "$var" ] || export "${var?}"; done <<< "$SUITE_MOCKS"
   export TICKET_KEY=PROJ-99 CLAUDE_EXIT=0 MOCK_STATUS_LATER="" MOCK_FAIL="" MOCK_FAIL_FROM="" CLAUDE_FIXTURE=none CANCEL_AFTER="" FAIL_STEP="" MOCK_LEDGER="" MOCK_LABELS=""
   export CLAUDE_PASS_FIXTURE="" CLAUDE_PASS_EXIT=0 CLAUDE_FIX_FIXTURE="" CLAUDE_FIX_EDITS="" CLAUDE_FIX_CHECK_FIXTURE=""
   export CLAUDE_REVIEW_FIXTURE=approve CLAUDE_REVIEW_EXIT=0 CLAUDE_FIXTURE_EDIT="" CLAUDE_REVIEW_FIXTURE_EDIT="" CLAUDE_EDITS=""

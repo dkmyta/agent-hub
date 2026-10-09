@@ -175,20 +175,33 @@ _require_caps() {
     || stage_fail "AGENT_HUB_TICKET_MAX_RUNS must be a positive whole number, not '$TICKET_MAX_RUNS', so Claude wasn't used."
   [[ "$TICKET_MAX_COST_USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] && [ "$(printf '%s' "$TICKET_MAX_COST_USD" | tr -d '0.')" != "" ] \
     || stage_fail "AGENT_HUB_TICKET_MAX_COST_USD must be a positive number of dollars (e.g. 60.00), not '$TICKET_MAX_COST_USD', so Claude wasn't used."
+  [[ "$PASS_OVERSHOOT_USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] \
+    || stage_fail "AGENT_HUB_PASS_OVERSHOOT_USD must be a number of dollars (e.g. 1.00), not '$PASS_OVERSHOOT_USD', so Claude wasn't used."
 }
 
 # stage_run_max_cost: the most this run's Claude passes can cost together —
-# the sum of the configured maximum (--max-budget-usd) of every pass the run
-# may execute, not an estimate: the draft and its review (both at the
-# revision budget when revising), or the stage's own (stage_max_cost: the
-# build's build, review, fix and fix check). Fails if a budget isn't a number.
+# the configured maximum (--max-budget-usd) of every pass the run may
+# execute, each with the overshoot allowance (stage_passes_max_usd), not an
+# estimate: the draft and its review (both at the revision budget when
+# revising), or the stage's own (stage_max_cost: the build's build, review,
+# fix and fix check). Fails if a budget isn't a number.
 stage_run_max_cost() {
   if declare -F stage_max_cost > /dev/null; then stage_max_cost; return; fi
   local draft=$CLAUDE_MAX_BUDGET_USD review=$REVIEW_CLAUDE_MAX_BUDGET_USD
   if [ "$(stage_mode)" = revision ] && [ -n "${REVISION_MAX_BUDGET_USD:-}" ]; then
     draft=$REVISION_MAX_BUDGET_USD review=$REVISION_MAX_BUDGET_USD
   fi
-  stage_sum_usd "$draft" "$review"
+  stage_passes_max_usd "$draft" "$review"
+}
+
+# stage_passes_max_usd <budget>...: the most those passes can cost — each
+# budget plus PASS_OVERSHOOT_USD (a pass ends after the turn that crosses its
+# budget, so it can go over). Fails unless each budget is a positive number.
+stage_passes_max_usd() {
+  local sum
+  sum=$(stage_sum_usd "$@") || return 1
+  jq -n --argjson sum "$sum" --arg over "${PASS_OVERSHOOT_USD:-0}" --argjson n "$#" \
+    '$sum + $n * ($over | tonumber) | . * 10000 | round / 10000'
 }
 
 # stage_sum_usd <dollars>...: their sum; fails unless each is a positive number.
@@ -215,7 +228,7 @@ stage_check_caps() {
   run_max=$(stage_run_max_cost) \
     || stage_fail "This stage's Claude budgets (the repository variables AGENT_HUB_$(printf '%s' "$STAGE" | tr 'a-z-' 'A-Z_')_*MAX_BUDGET_USD) must be positive numbers of dollars, so Claude wasn't used."
   jq -ne --argjson max "$run_max" --arg cap "$TICKET_MAX_COST_USD" '$max <= ($cap | tonumber)' > /dev/null \
-    || stage_fail "One run of this stage can cost up to \$$run_max (its passes' budgets together), more than the ticket cap AGENT_HUB_TICKET_MAX_COST_USD (\$$TICKET_MAX_COST_USD), so no run could ever start. Raise the cap or lower the budgets; Claude wasn't used."
+    || stage_fail "One run of this stage can cost up to \$$run_max (its passes' budgets together, each with \$$PASS_OVERSHOOT_USD for going over), more than the ticket cap AGENT_HUB_TICKET_MAX_COST_USD (\$$TICKET_MAX_COST_USD), so no run could ever start. Raise the cap or lower the budgets; Claude wasn't used."
   # A run that uses no Claude (a build's sync with only mechanical drift)
   # isn't admitted against the caps, and isn't counted.
   [ "$run_max" != 0 ] || return 0
@@ -263,14 +276,16 @@ stage_check_caps() {
 
 # stage_record_usage: add this run to the ticket's usage, if it used Claude —
 # each pass's cost as Claude Code reported it, or, for a pass with no report
-# (cut off by a time limit or cancelled), its whole budget, marked estimated.
+# (cut off by a time limit or cancelled), its whole budget and the overshoot
+# allowance (PASS_OVERSHOOT_USD), marked estimated.
 # Runs whatever happened. A failure to record is a warning, not a failed run:
 # the run's work is already done.
 stage_record_usage() {
   local passes="$RUNNER_TEMP/claude-passes.jsonl" pending="$RUNNER_TEMP/claude-pass-pending" usage ledger
   [ -s "$passes" ] || [ -s "$pending" ] || return 0
   usage=$({ cat "$passes" 2> /dev/null; [ ! -s "$pending" ] || jq -nc --argjson budget "$(cat "$pending")" '{cost: null, budget: $budget}'; } \
-    | jq -sc '{cost: (map(.cost // .budget) | add), estimated: any(.[]; .cost == null)}')
+    | jq -sc --arg over "${PASS_OVERSHOOT_USD:-0}" '($over | tonumber) as $over
+        | {cost: (map(.cost // (.budget + $over)) | add), estimated: any(.[]; .cost == null)}')
   if ! ledger=$(tracker_ledger); then
     echo "::warning::Couldn't read $TICKET_KEY's Claude usage from $TRACKER_NAME, so this run's (\$$(jq -r '.cost * 100 | round / 100' <<< "$usage")) isn't counted towards its cap."
     return 0
@@ -312,6 +327,8 @@ stage_move() {
 # stage_report_failure <title> <start status>: turn the progress comment into
 # the failure notice (or post one if there's no progress comment — never
 # posted, or already gone), with the reason when a step gave one (stage_fail)
+# — or, for a step GitHub stopped at its time limit during a sandboxed
+# command, what was running (limit-reason, sandbox_run) —
 # and how to retry (stage_retry's, the stage's RETRY_INSTRUCTIONS, or a
 # /revise comment or a re-run), naming the status the ticket is in now. Every
 # failure reason leaves the how to this line, so the advice always fits the
@@ -325,7 +342,7 @@ stage_report_failure() {
   moved=$(cat "$RUNNER_TEMP/moved-to" 2> /dev/null || true)
   body=$(jq -n -L "$HUB_DIR/lib" --arg title "$1" --arg status "$current" --arg run "$RUN_URL" \
     --arg retry "$(cat "$RUNNER_TEMP/retry-instructions" 2> /dev/null || printf '%s' "${RETRY_INSTRUCTIONS:-}")" \
-    --rawfile reason <(cat "$RUNNER_TEMP/failure-reason" 2>/dev/null) 'include "adf";
+    --rawfile reason <(cat "$RUNNER_TEMP/failure-reason" 2>/dev/null || cat "$RUNNER_TEMP/limit-reason" 2>/dev/null) 'include "adf";
     doc((if ($reason | rtrimstr("\n")) != "" then [para([strong("Why: "), text($reason | rtrimstr("\n"))])] else [] end) as $why
       | [para([strong($title),
       text(" — the ticket is in \($status). "),
@@ -401,14 +418,15 @@ stage_resolve_comments() {
 # unanswered stays open for the next run; the log gives the count. Prints the
 # count resolved.
 stage_resolve_revisions() {
-  local answered unanswered
-  answered=$(jq -r '.structured_output.revision_responses[]?.request_id' "$RUNNER_TEMP/agent-output.json")
+  local answered unanswered id ids=()
+  # Model output: only ids that are ids (digits), and kept as separate words.
+  answered=$(jq -r '.structured_output.revision_responses[]?.request_id | strings | select(test("^[0-9]+$"))' "$RUNNER_TEMP/agent-output.json")
+  while IFS= read -r id; do [ -z "$id" ] || ids+=("$id"); done <<< "$answered"
   unanswered=$(jq -r -L "$HUB_DIR/lib" --arg command "${REVISE_COMMAND:-}" --arg answered "$answered" 'include "adf";
     [.comments[] | select((automation_comment | not) and change_request($command))
      | select(.id as $id | $answered | split("\n") | index($id) | not)] | length' "$RUNNER_TEMP/comments-seen.json" 2>/dev/null || echo 0)
   [ "$unanswered" = 0 ] || echo "::warning::$unanswered change request(s) weren't answered, so they stay open for the next run." >&2
-  # shellcheck disable=SC2086 # one id per word
-  _resolve_matching "$1" "handled — see the 🔁 comment for what changed." 'change_request($command) and (.id | IN($args[]))' $answered
+  _resolve_matching "$1" "handled — see the 🔁 comment for what changed." 'change_request($command) and (.id | IN($args[]))' ${ids[@]+"${ids[@]}"}
 }
 
 # stage_revision_reply <what> [note]: when the result answers change requests

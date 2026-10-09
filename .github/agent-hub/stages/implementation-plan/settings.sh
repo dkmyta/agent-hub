@@ -13,7 +13,7 @@ FAILURE_TITLE='❌ Implementation plan failed'
 # Each is the repository variable AGENT_HUB_IMPLEMENTATION_PLAN_<name>
 # (stage_setting).
 stage_setting_into CLAUDE_MODEL MODEL claude-opus-5-5
-stage_setting_into CLAUDE_FALLBACK_MODEL FALLBACK_MODEL claude-sonnet-5
+stage_setting_into CLAUDE_FALLBACK_MODEL FALLBACK_MODEL claude-sonnet-5-5
 stage_setting_into CLAUDE_MAX_BUDGET_USD MAX_BUDGET_USD 5.00
 stage_setting_into REVIEW_CLAUDE_MAX_BUDGET_USD REVIEW_MAX_BUDGET_USD 5.00
 # A revision is scoped to the requested changes, so each of its passes has

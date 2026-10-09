@@ -5,6 +5,60 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.19.0 — 2026-10-09
+
+Correctness fixes from the 2.17.0 reviews, and how the hub is tested.
+
+- **After the hand-off, a person's run checks the pull request again.** A run
+  a person starts (Actions → Agent hub: Build → Run workflow) for a ticket in
+  Ready for Review or Approved now reconciles its pull request — commits
+  pushed since the hand-off are verified and reviewed; before, it did
+  nothing (reproduced). A new build still starts only from Implementation
+  Plan Approved, and a repeated wake-up after a hand-off changes nothing.
+  `/apply`'s refusal after someone else's push says how to run it.
+- **A hand-off that stopped part-way is finished:** recorded, but the pull
+  request still a draft (marking it ready failed) — the CI sweep now wakes
+  the gate for it instead of treating it as handled.
+- **The record survives a browser save:** a description saved with Windows
+  line endings no longer makes the state block untrusted.
+- **`/skip` is answered only once its record is written:** a record that
+  can't be written leaves the command unanswered, so it runs again.
+- **Nothing read only in part:** the CI sweep reads every page of open pull
+  requests; the CI gate fails rather than judge from part of a commit's
+  checks (over 1,000 check runs or 100 statuses); `/apply comments` is
+  refused when the review threads (over 100, or 100 comments in one) can't
+  all be read; a ticket's history follows Jira's `isLast: false` — before,
+  a page with no total ended the read.
+- **Claude's output is used only as the schema says:** a change request's
+  id must be digits and is never split into words.
+- **Budgets allow for going over:** a pass stops only after the turn that
+  crosses its budget (measured at 3.4× on a $0.05 budget), so admission adds
+  `AGENT_HUB_PASS_OVERSHOOT_USD` ($1) per pass, and a pass with no cost
+  report counts at its budget plus that. A default build is admitted on $23
+  rather than $19; the $60 cap still fits.
+- **Time limits:** the checkout has a limit of its own and the build job
+  more headroom (270 minutes), so a slow step is reported, not lost to a job
+  timeout; when GitHub stops a step during an install or the checks, the
+  failure comment says which and what to lower.
+- **Model defaults:** `claude-sonnet-5-5` replaces `claude-sonnet-5`
+  (checked to resolve on Claude Code 2.1.285).
+- **Tests:** which kind of test a change gets is written down (tests
+  README, CONTRIBUTING, the pull request template); fuzz tests for the
+  parsers at the trust boundaries (the state block, plan sections, ADF →
+  Markdown, the plan's contract) from a fixed seed; the whole suite on macOS
+  (Bash 3.2, a non-C locale) on main; sort order pinned in the test runner;
+  every mock setting reset between scenario runs. A mutation check of 24
+  security and gating guards found every one caught by a test.
+
+**Updating:**
+- Model defaults change to `claude-sonnet-5-5` (the work order's model, and
+  the fallbacks and the build's fix model): set the `AGENT_HUB_*_MODEL`
+  variables to keep the old ones.
+- Runs are admitted on more ($1 per pass): a ticket near its cap stops one
+  run sooner. Set `AGENT_HUB_PASS_OVERSHOOT_USD` to change it (`0` for none).
+- A person's run for a ticket in Ready for Review or Approved now checks its
+  pull request again (and can use Claude) instead of doing nothing.
+
 ## 2.18.0 — 2026-10-09
 
 Security fixes from two reviews of 2.17.0 — this session's, and an
