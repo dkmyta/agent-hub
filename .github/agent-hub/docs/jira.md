@@ -34,7 +34,7 @@ the same settings live in the workflow scheme and permission scheme.
 - **Board columns**, one per status, in pipeline order:
   **Intake** (the initial status new tickets land in) → **Work Order** →
   **Work Order Approved** → **Implementation Plan** → **Implementation Plan
-  Approved** → *(later stages: Ready for Review → Approved → Done)*.
+  Approved** → **Ready for Review** → **Approved** → **Done**.
   Board → ⋯ → Configure board → Columns.
 
 ## Statuses
@@ -113,10 +113,11 @@ and marked resolved later:
 This ticket doesn’t have enough detail to generate a work order, so it’s in Intake until more is added. Update the description, or add the details in a comment starting with /revise, to resubmit it automatically.
 ```
 
-**Web request** — see [Web requests](#web-requests); body:
+**Web request** — see [Web requests](#web-requests): workflow
+`agent-hub-work-order.yml`, body:
 
 ```json
-{"event_type": "agent-hub-work-order-requested", "client_payload": {"ticket_key": "{{issue.key}}"}}
+{"ref": "main", "inputs": {"ticket_key": "{{issue.key}}"}}
 ```
 
 ## Rule: Implementation Plan Requested
@@ -131,10 +132,10 @@ Requests a plan when a person approves a work order.
 | **Action** | Send web request |
 | **Rule details** | Allow rule trigger **off**; notify on error **on** |
 
-**Web request** body:
+**Web request** — workflow `agent-hub-implementation-plan.yml`, body:
 
 ```json
-{"event_type": "agent-hub-implementation-plan-requested", "client_payload": {"ticket_key": "{{issue.key}}"}}
+{"ref": "main", "inputs": {"ticket_key": "{{issue.key}}"}}
 ```
 
 ## Rule: Revision Requested
@@ -150,9 +151,9 @@ that owns the ticket's current status.
 | **Condition** | Work type = **Task** |
 | **Condition** | *Smart values condition*: `{{comment.body.trim().toLowerCase()}}` **matches regular expression** `(?s)^/revise(\s.*)?$` — only comments starting with the word `/revise` |
 | **If/else block** | |
-| → **If** Status = **Intake** | Edit work item: Labels **remove** `needs-details` and `needs-human` → Transition to **Work Order** → Send web request with the `agent-hub-work-order-requested` body (as in Work Order Requested) |
-| → **Else if** Status = **Work Order** | Edit work item: Labels **remove** `needs-human` → Send web request with the `agent-hub-work-order-requested` body |
-| → **Else if** Status is one of **Work Order Approved**, **Implementation Plan** | Edit work item: Labels **remove** `needs-human` → Send web request with the `agent-hub-implementation-plan-requested` body (as in Implementation Plan Requested) |
+| → **If** Status = **Intake** | Edit work item: Labels **remove** `needs-details` and `needs-human` → Transition to **Work Order** → Send web request to `agent-hub-work-order.yml` (as in Work Order Requested) |
+| → **Else if** Status = **Work Order** | Edit work item: Labels **remove** `needs-human` → Send web request to `agent-hub-work-order.yml` |
+| → **Else if** Status is one of **Work Order Approved**, **Implementation Plan** | Edit work item: Labels **remove** `needs-human` → Send web request to `agent-hub-implementation-plan.yml` (as in Implementation Plan Requested) |
 | → **Else** | Comment: `*Revision not started* — /revise works while the ticket is in Intake, Work Order, Work Order Approved or Implementation Plan.` |
 | **Rule details** | Allow rule trigger **off**; notify on error **on**. The workflows' own comments (posted through the API) do start this rule, but never begin with `/revise`, so the condition stops them |
 
@@ -174,9 +175,12 @@ as input. `/revise` on its own (no text) retries. How revisions work:
   Claude with nothing to revise.
 - Description edits never start a revision (outside Intake) — they're manual
   changes, kept as they are.
-- Anyone who can comment can start a run, and each run uses Claude. To limit
-  it, add a *User condition* to this rule (e.g. the commenter is in the
-  project's reviewers group or role), before the If/else block.
+- Anyone who can comment can start a run, and each run uses Claude. Limit
+  it before production: add a *User condition* to this rule — the commenter
+  is in the project's role or group for the people who work these tickets —
+  before the If/else block (the same people as `AGENT_HUB_APPROVERS_GROUP`,
+  or a wider group of contributors). Without one, anyone who can comment on
+  a ticket spends Claude usage on it, up to its caps.
 - The command word is the `AGENT_HUB_REVISE_COMMAND` variable (default `/revise`);
   if you change it, change this rule to match. Later stages add their
   statuses to this rule.
@@ -239,34 +243,55 @@ what's being used.
 
 ## Web requests
 
-Every rule calls the same GitHub endpoint with the same token, the
-**dispatch token**:
+Every rule starts a stage's workflow directly (since 2.20.0), with the same
+token, the **dispatch token**:
 
 | Setting | Value |
 |---|---|
-| URL | `https://api.github.com/repos/<owner>/<repo>/dispatches` |
-| Method | POST, custom body (above) |
+| URL | `https://api.github.com/repos/<owner>/<repo>/actions/workflows/<workflow>/dispatches` — the workflow file each rule names (`agent-hub-work-order.yml`, `agent-hub-implementation-plan.yml` or `agent-hub-build.yml`) |
+| Method | POST, custom body (each rule's, above) |
 | Header | `Authorization: Bearer <token>` — mark **hidden** |
 | Header | `Accept: application/vnd.github+json` |
 | Header | `Content-Type: application/json` |
 
+In each body, `"ref"` is your repository's **default branch** (`main` in the
+examples): the workflow runs as that branch has it. A request GitHub accepts
+gets **204** with no body.
+
 The dispatch token is a fine-grained GitHub token for this repository only,
-with **Contents: Read and write**, ideally owned by a machine user. Name it
+with **Actions: Read and write** and nothing else (Metadata: read is added
+by GitHub), ideally owned by a machine user. Name it
 `agent-hub-dispatch-<repo>` in GitHub, so it isn't confused with the build's
 token ([the two GitHub tokens](setup.md#the-two-github-tokens)).
+
+**What the token can do:** start, re-run and cancel this repository's
+workflows (any of them, with any inputs they take), enable or disable them,
+and delete their runs, logs, artifacts and caches. It **can't** push code,
+open pull requests, read secrets or variables, or change settings. Anyone
+who has it can start a stage for any ticket key; each run still checks the
+ticket's status and approvals itself, and uses Claude only within the
+ticket's caps — so keep it hidden in every rule, and revoke it if it leaks.
+
+**Before 2.20.0** the rules called `…/repos/<owner>/<repo>/dispatches` with
+`{"event_type": "agent-hub-<stage>-requested", "client_payload": {...}}`
+and a token with **Contents: Read and write** — which can also push code.
+The workflows still accept those requests in 2.20.0, so the rules keep
+working while you change them; the next release removes them. To change:
+create the new token, update every rule's URL, body and header, check each
+rule once (the audit log shows 204), then delete the old token.
 
 **It lives in Jira only.** Jira sends it, so Jira holds it: never add it to
 GitHub's secrets, where nothing would read it and it would only be one more
 copy to leak or forget when rotating. Every **Send web request** action sends
 the same token in its `Authorization` header (`Bearer <token>`, marked
-**hidden**) to the same URL (`…/dispatches`) — six of them: one each in Work
-Order Requested, Implementation Plan Requested and Build Requested, and three
+**hidden**) — seven of them: one each in Work Order Requested,
+Implementation Plan Requested, Build Requested and Build Command, and three
 in Revision Requested (one per status block). When you regenerate the token,
-update all six. (The build's own
+update all seven. (The build's own
 token, `AGENT_HUB_GITHUB_TOKEN`, is a different one and never goes in Jira.)
 A rule whose header is missing or wrong gets **404** from GitHub (for a public
-repository; 401 for a token GitHub doesn't recognise), shown in the rule's
-audit log.
+repository; 401 for a token GitHub doesn't recognise), and one whose `ref` or
+inputs are wrong gets **422**, shown in the rule's audit log.
 
 Ownership, expiry and alerts: [setup.md](setup.md#6-plan-for-credential-expiry).
 
@@ -285,10 +310,10 @@ request to it and rename it.
 | **Action** | Send web request |
 | **Rule details** | Allow rule trigger **off**; notify on error **on** |
 
-**Web request** body:
+**Web request** — workflow `agent-hub-build.yml`, body:
 
 ```json
-{"event_type": "agent-hub-build-requested", "client_payload": {"ticket_key": "{{issue.key}}"}}
+{"ref": "main", "inputs": {"ticket_key": "{{issue.key}}"}}
 ```
 
 The build checks the approval itself: it builds only from the newest plan
@@ -321,10 +346,10 @@ change ([build.md](workflows/build.md#review-items-and-apply)).
 | **Action** | Send web request |
 | **Rule details** | Allow rule trigger **off**; notify on error **on** |
 
-**Web request** body:
+**Web request** — workflow `agent-hub-build.yml`, body:
 
 ```json
-{"event_type": "agent-hub-build-requested", "client_payload": {"ticket_key": "{{issue.key}}", "wake": "command"}}
+{"ref": "main", "inputs": {"ticket_key": "{{issue.key}}", "wake": "command"}}
 ```
 
 How to use them: `/skip D1 R2` closes those items — a decision (`D`) is
@@ -452,7 +477,11 @@ moves trigger them, but they never make them.
 - [ ] For the item commands: the approvers group in
       `AGENT_HUB_APPROVERS_GROUP`, and Browse users and groups for the
       service account
-- [ ] The token in every rule's `Authorization` header, hidden
+- [ ] The dispatch token (Actions: read and write only) in every rule's
+      `Authorization` header, hidden; each rule's URL naming its workflow,
+      and `"ref"` your default branch
+- [ ] Revision Requested limited to the people who work the tickets (a User
+      condition)
 
 ## Recommended: do these in Jira, not in the workflows
 

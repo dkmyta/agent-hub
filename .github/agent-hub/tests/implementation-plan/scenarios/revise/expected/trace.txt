@@ -21,7 +21,7 @@ GET ?fields=attachment
 GET /myself
 POST /attachments — {"upload":"PROJ-99-implementation-plan.md"}
 GET ?fields=attachment
-PUT ?notifyUsers=true — description: 21 headings, labels: [{"remove":"needs-clarification"},{"add":"needs-human"}]
+PUT ?notifyUsers=true — description: 22 headings, labels: [{"remove":"needs-clarification"},{"add":"needs-human"}]
 GET ?fields=attachment
 DELETE /attachment/8003
 POST /comment — comment: 🔁 Change requests to the implementation plan

@@ -79,6 +79,11 @@ jobs:
     # label list, e.g. ["ubuntu-latest"]) plus the AGENT_HUB_ANTHROPIC_API_KEY
     # secret to use the Claude API instead. See .github/agent-hub/docs/runners.md.
     runs-on: ${{ fromJSON(vars.AGENT_HUB_RUNS_ON || '["self-hosted", "claude"]') }}
+    # The secrets belong in this environment, limited to the default branch
+    # (docs/setup.md, "Add secrets"): then a run someone starts on another
+    # branch — whose hub scripts could be anything — gets none of them.
+    # GitHub creates it, unprotected, on the first run.
+    environment: agent-hub
     # Every step has its own limit and together they fit within this one, so a
     # slow step fails (and is reported on the ticket) instead of the whole job
     # being cancelled.

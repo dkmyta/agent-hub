@@ -23,13 +23,12 @@ stage_setting_into BUILD_FIX_FALLBACK_MODEL FIX_FALLBACK_MODEL claude-opus-5-5
 stage_setting_into BUILD_FIX_MAX_BUDGET_USD FIX_MAX_BUDGET_USD 3.00
 stage_setting_into BUILD_FIX_CHECK_MAX_BUDGET_USD FIX_CHECK_MAX_BUDGET_USD 1.00
 
-# Not for real tickets yet: the stage runs only where a repository opts in,
-# for development (playground/), with the repository variable
-# AGENT_HUB_BUILD_PREVIEW=true. The build checks its own commit, reviews it
-# and fixes it once, but nothing yet waits for CI, hands it off, or stops a
-# later push from replacing what was reviewed; the gate comes off after the
-# CI gate and hand-off (4d) and the runner prerequisites
-# (docs/workflows/build.md, "Status").
+# In preview: the stage runs only where a repository opts in, with the
+# repository variable AGENT_HUB_BUILD_PREVIEW=true. The whole flow is built;
+# the gate comes off after its manual test and the runner prerequisites
+# (docs/workflows/build-design.md, "Production checklist"). The
+# CI sweep and closed-pull-request workflows check this variable too, and
+# change with it.
 stage_setting_into BUILD_PREVIEW PREVIEW false
 
 # The Claude Code version the build runs with: exact (e.g. 2.1.280), never

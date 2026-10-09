@@ -328,13 +328,17 @@ uploaded_mid_run() {
   assert_output --partial "Open every link in the README section"
 
   # The summary in the description: none of its parts were updated, so they're
-  # unchanged; only the pointer to the attachment (always re-rendered) and the
-  # review note are new.
+  # unchanged; only what the build may change (read again from the revised
+  # file), the pointer to the attachment (always re-rendered) and the review
+  # note are new.
   local before after
   before=$(jq -c '.fields.description' "$FIXTURES/tickets/plan-written.json")
   after=$(jq -c 'select(.body.fields.description) | .body.fields.description' "$CALLS")
   run jq -rn -L "$HUB_LIB" --argjson a "$before" --argjson b "$after" 'include "adf";
-    ($a | section_blocks("Implementation Plan")[:-2]) == ($b | section_blocks("Implementation Plan")[:-2])'
+    ($b | section_blocks("Implementation Plan")) as $s
+    | ([$s[] | .type == "heading" and plain_text == "What the build may change"] | index(true)) as $i
+    | $i != null
+      and ($a | section_blocks("Implementation Plan")[:-2]) == (($s[:$i] + $s[$i + 3:])[:-2])'
   assert_output true
 }
 

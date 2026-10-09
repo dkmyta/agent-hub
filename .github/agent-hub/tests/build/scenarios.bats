@@ -37,7 +37,7 @@ main"
   assert_output --partial "node --test — passed: 2 tests passed."
   assert_output --partial "An empty name greets without one"
   assert_output --partial "Not checked by the build: Needs a browser"
-  assert_output --partial "stays in Implementation Plan Approved until then"
+  assert_output --partial "this ticket moves to Ready for Review"
   run jq -c 'select(.method == "PUT" and (.path | startswith("?notifyUsers"))) | .body' "$CALLS"
   assert_equal "$(jq -r '.update.labels | tostring' <<< "$output")" '[{"add":"needs-human"}]'
   assert_equal "$(jq -r -L "$HUB_LIB" 'include "adf"; .fields.description | section_blocks("Pull Request") | tostring | test("pull/101")' <<< "$output")" true
@@ -329,7 +329,7 @@ main"
   run writes
   refute_line "GET /attachment/content/10001"
   run cat "$RUNNER_TEMP/failure-reason"
-  assert_output --partial "isn't enabled for real tickets yet"
+  assert_output --partial "The build stage is in preview"
 }
 
 # The build's sandbox rests on the Claude Code version, so it runs only with
@@ -1282,7 +1282,7 @@ pass_row() { # <pass name>: that row's cells, one per line
 }
 
 # 4c: a build whose pull request already exists is reconciled, not built
-# again (reconcile.sh; docs/workflows/build.md, "Contracts").
+# again (reconcile.sh; docs/workflows/build-design.md, "Contracts").
 # built_pr: a first build, its pull request open; prs.json keeps GitHub's
 # state for the next run, which starts from a fresh checkout of main.
 built_pr() {

@@ -75,3 +75,53 @@ x"
   assert_failure
   assert_output --partial "AGENT_HUB_RUNNER is 'codex', which isn't one of the hub's agent runners (claude-code)"
 }
+
+# Every setting the code defines is in setup.md, with the default the code
+# has: the settings files are the source, and the docs can't drift from them.
+# A default documented in words (a list of sites, the licences) or for an
+# empty one ("none", "latest") isn't compared.
+@test "setup.md documents every setting, with the code's default" {
+  run node --input-type=module -e '
+    import { readFileSync, readdirSync } from "node:fs";
+    const hub = process.argv[1], doc = readFileSync(`${hub}/docs/setup.md`, "utf8").split("\n");
+    const defs = [];
+    const read = (file, stage) => {
+      for (const line of readFileSync(file, "utf8").split("\n")) {
+        const m = line.match(/^(stage_)?setting_into \S+ (\S+) (.*)$/);
+        if (!m) continue;
+        defs.push({ stage: m[1] ? stage : null, name: m[2], dflt: m[3].trim().replace(/^(["\x27])(.*)\1$/, "$2") });
+      }
+    };
+    read(`${hub}/lib/settings.sh`, null);
+    for (const s of readdirSync(`${hub}/stages`)) read(`${hub}/stages/${s}/settings.sh`, s);
+    const codes = (cell) => [...(cell ?? "").matchAll(/`([^`]*)`/g)].map((m) => m[1]);
+    const only = (cell) => /^\s*(`[^`]*`(,\s*)?)+\s*$/.test(cell ?? "");
+    const row = (pred) => doc.map((l) => l.split("|").slice(1, -1).map((c) => c.trim())).find((cells) => cells.length > 1 && pred(cells));
+    const problems = [];
+    const compare = (what, cell, i, dflt) => {
+      if (dflt === "" || !only(cell)) return;
+      const got = codes(cell)[i];
+      if (got !== dflt) problems.push(`${what}: documented ${got}, the code has ${dflt}`);
+    };
+    for (const d of defs) {
+      if (!d.stage) {
+        const r = row((c) => codes(c[0]).includes(d.name));
+        if (!r) { problems.push(`${d.name}: not in setup.md`); continue; }
+        compare(d.name, r[1], 0, d.dflt);
+      } else if (d.stage !== "build") {
+        const col = { "work-order": 1, "implementation-plan": 2 }[d.stage];
+        const r = row((c) => codes(c[0]).includes(d.name) && c.length >= 4);
+        if (!r) { problems.push(`${d.stage} ${d.name}: not in setup.md`); continue; }
+        compare(`${d.stage} ${d.name}`, r[col], 0, d.dflt);
+      } else {
+        const r = row((c) => codes(c[0]).includes(d.name) && c.length === 3);
+        if (r) { compare(`build ${d.name}`, r[1], codes(r[0]).indexOf(d.name), d.dflt); continue; }
+        const prose = doc.join("\n").match(new RegExp("`" + d.name + "`\\s+\\(`([^`]*)`"));
+        if (prose) { if (d.dflt !== "" && prose[1] !== d.dflt) problems.push(`build ${d.name}: documented ${prose[1]}, the code has ${d.dflt}`); continue; }
+        if (!doc.join("\n").includes(`AGENT_HUB_BUILD_${d.name}`)) problems.push(`build ${d.name}: not in setup.md`);
+      }
+    }
+    console.log(problems.join("\n") || `${defs.length} settings documented`);' "$HUB_DIR"
+  assert_success
+  assert_output --regexp '^[0-9]+ settings documented$'
+}

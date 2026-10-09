@@ -67,6 +67,7 @@ _reconcile_ci() {
   fi
   required=$(ci_required "$target") \
     || stage_fail "Couldn't read which checks $target requires from GitHub, so nothing was changed."
+  ci_unbound_warnings "$target" "$required"
   ci=$(ci_status "$head" "$required") \
     || stage_fail "Couldn't read pull request #$number's checks from GitHub, so nothing was changed."
   printf '%s\n' "$ci" > "$RUNNER_TEMP/ci.json"
