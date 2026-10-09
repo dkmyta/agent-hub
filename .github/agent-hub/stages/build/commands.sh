@@ -11,7 +11,8 @@
 #   /apply R2 D1     fix those open items (a decision only by its id), through
 #   /apply all       the fix pass's path; all is every open R item, never a D
 #   /apply comments  the pull request's unresolved review threads from people
-#                    with write access, as read now (combinable: /apply R2
+#                    with write access (asked of GitHub for each commenter), as
+#                    read now (combinable: /apply R2
 #                    comments). The run becomes a fix of exactly those, as a
 #                    review's fix pass: the fix check, the Verify-fix gate, a
 #                    push never forced; then CI and the hand-off gate again on
@@ -24,7 +25,9 @@
 # Rules that hold for every command:
 #   - Commenting on a ticket never authorises a change: the commenter must be
 #     in AGENT_HUB_APPROVERS_GROUP, read from the tracker; if that can't be
-#     checked, or the group isn't set, nothing is done.
+#     checked, or the group isn't set, nothing is done. And the comment must
+#     be the commenter's own words: one someone else edited (Jira's "Edit All
+#     Comments") is refused — its author never wrote the command.
 #   - Only the first paragraph is read, and it may hold only item ids:
 #     anything else and the whole command is refused — this is not a way to
 #     give the agent instructions. Later paragraphs are a note for people.
@@ -106,6 +109,9 @@ _command_handle() {
   verb=${words%%[[:space:]]*}
   ids=$(tr -s '[:space:]' '\n' <<< "${words#"$verb"}" | grep . || true)
 
+  if [ "$(jq -r '.updateAuthor.accountId // .author.accountId // ""' <<< "$cmd")" != "$author" ]; then
+    _command_reply "$id" "not done: the comment was edited by someone other than its author, so it isn't their command — they post it again themselves"; return
+  fi
   if [ -z "$APPROVERS_GROUP" ]; then
     _command_reply "$id" "not done: item commands need the approvers group set (the AGENT_HUB_APPROVERS_GROUP repository variable)"; return
   fi
@@ -209,11 +215,17 @@ _apply_request() {
   # The review threads: unresolved, from people with write access, as read
   # now — the snapshot the fix is attributed to.
   if grep -qx comments <<< "$words"; then
+    local writers="[]" who
     login=$(gh_login) && threads=$(gh_graphql 'query($owner: String!, $name: String!, $number: Int!) {
         repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes {
           id isResolved path line comments(first: 30) { nodes { databaseId body authorAssociation author { login } } } } } } } }' \
         "$(jq -nc --arg o "$GH_OWNER" --arg n "$GH_NAME" --argjson num "$number" '{owner: $o, name: $n, number: $num}')") \
       || { _command_reply "$id" "not done: the hub couldn't read the pull request's review threads"; rm -f "$RUNNER_TEMP/apply-findings.jsonl"; return; }
+    # Who may ask for changes: write access, as GitHub says for each one.
+    for who in $(jq -r --arg me "$login" '[.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)
+        | .comments.nodes[].author.login // empty | select(. != $me and (endswith("[bot]") | not))] | unique[]' <<< "$threads"); do
+      if gh_user_can_write "$who"; then writers=$(jq -c --arg w "$who" '. + [$w]' <<< "$writers"); fi
+    done
     while IFS= read -r thread; do
       n=$((n + 1))
       jq -c --argjson n "$n" '{n: $n, area: "review", severity: "medium", kind: "review-comment", within_plan: true,
@@ -221,10 +233,11 @@ _apply_request() {
         title: "A reviewer'"'"'s comment on \(.path // "the pull request")\(if .line then ":\(.line)" else "" end)",
         evidence: ([.people[] | .body[0:1500]] | join("\n\n---\n\n"))[0:4000],
         suggestion: "Make the change the reviewer asks for, if it is within the approved plan; otherwise leave it and say why."}' <<< "$thread" >> "$RUNNER_TEMP/apply-findings.jsonl"
-      jq -c --argjson n "$n" '{n: $n, thread: .id, reply_to: .people[0].databaseId}' <<< "$thread" >> "$RUNNER_TEMP/apply-sources.jsonl"
-    done < <(jq -c --arg me "$login" '.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)
-      | . + {people: [.comments.nodes[] | select(.author.login != null and .author.login != $me and (.author.login | endswith("[bot]") | not)
-          and (.authorAssociation | IN("OWNER", "MEMBER", "COLLABORATOR")))]}
+      # Replies go to the thread's first comment: GitHub takes no reply to a reply.
+      jq -c --argjson n "$n" '{n: $n, thread: .id, reply_to: .root}' <<< "$thread" >> "$RUNNER_TEMP/apply-sources.jsonl"
+    done < <(jq -c --argjson writers "$writers" '.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)
+      | . + {people: [.comments.nodes[] | select(.author.login != null and (.author.login | IN($writers[])))],
+             root: .comments.nodes[0].databaseId}
       | select((.people | length) > 0) | del(.comments)' <<< "$threads")
   fi
   if [ "$n" = 0 ]; then

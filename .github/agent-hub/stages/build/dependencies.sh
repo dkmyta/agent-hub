@@ -137,6 +137,11 @@ build_dependency_preflight() {
   while IFS= read -r folder; do
     hub_managed_path "$folder/package.json" \
       && stage_fail "The plan's dependency changes are in $folder, a path the hub never changes, so nothing was built."
+    # The folder itself, or one it's inside, mustn't be a link: the step
+    # writes there before anything is sandboxed or checked.
+    if [ "$folder" != . ] && [ -e "$folder" ] && { [ -L "$folder" ] || [ "$(cd "$folder" && pwd -P)" != "$(pwd -P)/$folder" ]; }; then
+      stage_fail "The plan's dependency changes are in $folder, which is a link to another folder (or inside one), so nothing was built: make them by hand, or revise the plan."
+    fi
     if [ ! -f "$folder/package.json" ] || [ -L "$folder/package.json" ] || [ ! -f "$folder/package-lock.json" ] || [ -L "$folder/package-lock.json" ]; then
       stage_fail "The plan's dependency changes are in $folder, which isn't an npm project with a package.json and package-lock.json. The build applies dependency changes to npm projects only in this version (pnpm and Yarn projects too: their release age settings are too new to rely on), so nothing was built: make them by hand, or revise the plan."
     fi

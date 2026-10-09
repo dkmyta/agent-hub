@@ -54,9 +54,10 @@ def review_items($gates; $review; $fix):
        | {id: "R\($rr + .key + 1)", source: "fix-check", concern: .value.n, kind: .value.kind, severity: .value.severity, area: .value.area,
           fix_eligible: false, status: "open"}];
 
-# Markdown helpers for the pull request: text from Claude or the ticket gets
-# no HTML (which could also forge a marker line), and one line where a list
-# item needs it.
+# Markdown helpers for the pull request: text from Claude, the ticket — or
+# anything else not the hub's own, like a gate reason quoting a package's
+# licence from the registry — gets no HTML (which could also forge a marker
+# line), and one line where a list item needs it.
 def safe: tostring | gsub("<"; "&lt;");
 def line: safe | gsub("\\s*\\n\\s*"; " ");
 def code: "`" + (tostring | gsub("`"; "'") | gsub("\\n"; " ")) + "`";
@@ -74,7 +75,7 @@ def status_end: "<!-- /agent-hub:status -->";
 def status_lines($s; $r; $x; $p; $publish; $what):
   "", status_start,
   section("Automated review"; if $r.status == "incomplete" then
-      ["The automated code review didn't finish (\($r.reason)), so this build is unreviewed: a person reviews it without one (a decision item below)."]
+      ["The automated code review didn't finish (\($r.reason | line)), so this build is unreviewed: a person reviews it without one (a decision item below)."]
     else
       [(if $publish then ($r.summary | line) + " " else "" end)
         + "A fresh, read-only session reviewed \($what) against the plan: "
@@ -85,7 +86,7 @@ def status_lines($s; $r; $x; $p; $publish; $what):
              + (if ($x.new_concerns | length) > 0 then ", and \(plural($x.new_concerns | length; "new concern")) the fixes raised (below)" else "" end)
              + ". The hub's gates and the repository's checks passed on the fix before it was kept."]
         elif $x.status == "dropped" or $x.status == "failed" then
-          ["", "A fix pass ran, but its changes weren't kept: \($x.reason). The fix-eligible findings stay open below."]
+          ["", "A fix pass ran, but its changes weren't kept: \($x.reason | line). The fix-eligible findings stay open below."]
         else [] end)
     end),
 
@@ -106,7 +107,7 @@ def status_lines($s; $r; $x; $p; $publish; $what):
         "- **\(.id)** " + (if (.id | startswith("D")) then "decision" else "review item" end) + ", raised by a CI fix's check"
           + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " ")) (details on the ticket)"
       elif (.id | startswith("D")) then
-        "- **\(.id)** " + (if .path != "" then "\(.path | code) — " else "" end) + "decision: \(.reason)"
+        "- **\(.id)** " + (if .path != "" then "\(.path | code) — " else "" end) + "decision: \(.reason | line)"
       else .path as $path
         | "- **\(.id)** \(.path | code) — a manual change for a person"
           + (if $publish then ": \([$p.governance.manual_changes[] | select(.path == $path)][0].change // "" | line)" else " (described on the ticket)" end)

@@ -30,6 +30,8 @@
 #                        app id they're posted by (default 15368)
 #   MOCK_GH_STATUSES     commit statuses, a JSON object context → state
 #   MOCK_GH_LOG          a failed Actions job's log (default: one line)
+#   MOCK_GH_PERMISSIONS  a user's permission on the repository: JSON login →
+#                        read, write, maintain or admin (default: read)
 #   MOCK_GH_THREADS      the pull request's review threads (GraphQL nodes;
 #                        default none); replies go to thread-replies.jsonl,
 #                        resolved threads to resolved-threads.jsonl
@@ -89,7 +91,12 @@ gh_request() {
         out=$(jq -c --argjson pr "$pr" --arg sha "$sha" '. + [$pr | .head.sha = $sha]' <<< "$out")
       done <<< "$prs"
       echo "$out" ;;
-    "GET $repo/branches/"*)
+    "GET $repo/collaborators/"*/permission)
+      # MOCK_GH_PERMISSIONS: login → permission (default: read).
+      local who=${path#"$repo/collaborators/"}; who=${who%/permission}
+      jq -nc --arg who "$who" --argjson p "${MOCK_GH_PERMISSIONS:-"{}"}" '($p[$who] // "read") as $perm
+        | {permission: $perm, user: {login: $who, permissions: {push: ($perm | IN("write", "maintain", "admin")), admin: ($perm == "admin")}}}' ;;
+        "GET $repo/branches/"*)
       jq -nc --argjson names "${MOCK_GH_REQUIRED:-[\"test\"]}" \
         '{protected: true, protection: {required_status_checks: {contexts: $names, checks: [$names[] | {context: ., app_id: null}]}}}' ;;
     "GET $repo/rules/branches/"*) echo "${MOCK_GH_RULES:-[]}" ;;

@@ -292,7 +292,9 @@ request to it and rename it.
 ```
 
 The build checks the approval itself: it builds only from the newest plan
-file, and only if a person (not the automation account) made the move here,
+file, and only if a person (not the automation account) made the move here —
+with `AGENT_HUB_APPROVERS_GROUP` set, one of its members (since 2.18.0; the
+plan stage checks who approved the work order the same way) —
 the plan file predates it, and since then no plan file was added or removed
 and the work order (the description) wasn't edited by anyone but the
 automation account (whose only edit after an approval is the build's own Pull

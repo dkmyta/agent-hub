@@ -11,6 +11,11 @@
   },
   {
     "method": "GET",
+    "path": "/myself",
+    "body": null
+  },
+  {
+    "method": "GET",
     "path": "/comment?maxResults=100",
     "body": null
   },

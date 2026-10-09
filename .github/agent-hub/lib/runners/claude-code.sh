@@ -112,18 +112,29 @@ _frontmatter_fields() {
     { print }'
 }
 
+# Where the repository's guidance comes from. A stage that lets an agent edit
+# the checkout (the build) snapshots it first, from the commit the run
+# started on (_snapshot_guidance, stages/build/stage.sh), into
+# $RUNNER_TEMP/guidance: every pass then reads that — never the checkout, so
+# an agent can't write the instructions a later pass (the code review, the
+# fix check) is given. Other stages read the checkout, which no agent has
+# changed.
+_guidance_root() { if [ -d "${RUNNER_TEMP:-}/guidance/repo" ]; then echo "$RUNNER_TEMP/guidance/repo"; else echo .; fi; }
+_extensions_root() { if [ -d "${RUNNER_TEMP:-}/guidance/extensions" ]; then echo "$RUNNER_TEMP/guidance/extensions"; else echo "$EXTENSIONS_DIR"; fi; }
+
 # _load_extensions: the repository's own agents and skills (.claude/), then
 # this stage's extension folders — refusing any with something not allowed —
 # as plugins for both passes. Once per step.
 _load_extensions() {
-  local dir problems
+  local dir problems root extensions
   [ -z "${_EXTENSIONS_LOADED:-}" ] || return 0
   _EXTENSIONS_LOADED=1
-  if { [ -d .claude/agents ] || [ -d .claude/skills ]; } && [ ! -L .claude ]; then
-    _plugin .claude repository
+  root=$(_guidance_root) extensions=$(_extensions_root)
+  if { [ -d "$root/.claude/agents" ] || [ -d "$root/.claude/skills" ]; } && [ ! -L "$root/.claude" ]; then
+    _plugin "$root/.claude" repository
     echo "Repository agents and skills: .claude/."
   fi
-  for dir in "$EXTENSIONS_DIR/shared" "$EXTENSIONS_DIR/$STAGE"; do
+  for dir in "$extensions/shared" "$extensions/$STAGE"; do
     [ -d "$dir" ] || continue
     problems=$(agent_extension_problems "$dir")
     if [ -n "$problems" ]; then
@@ -139,11 +150,12 @@ _load_extensions() {
 # under a heading, to append to a prompt — restricted mode doesn't load them.
 # A link is skipped: it could point anywhere.
 _repository_guidance() {
-  local file
+  local file root
+  root=$(_guidance_root)
   for file in CLAUDE.md .claude/CLAUDE.md; do
-    [ -f "$file" ] && [ ! -L "$file" ] && [ -s "$file" ] || continue
+    [ -f "$root/$file" ] && [ ! -L "$root/$file" ] && [ -s "$root/$file" ] || continue
     printf '\n\n# Repository guidance (%s)\n\nFrom the repository'"'"'s maintainers. Follow it wherever it doesn'"'"'t conflict with the instructions above.\n\n' "$file"
-    cat "$file"
+    cat "$root/$file"
   done
 }
 

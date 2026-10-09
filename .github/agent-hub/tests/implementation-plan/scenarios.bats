@@ -424,3 +424,17 @@ uploaded_mid_run() {
   run writes
   assert_output ""
 }
+
+@test "approval: the work order's approver is a person, and in the approvers group when one is set" {
+  echo '{"startAt":0,"maxResults":100,"total":1,"isLast":true,"values":[{"author":{"accountId":"agent-hub-bot"},"items":[{"field":"status","toString":"Work Order Approved"}]}]}' \
+    > "$BATS_TEST_TMPDIR/by-automation.json"
+  run_scenario ready "CHANGELOG_FIXTURE=$BATS_TEST_TMPDIR/by-automation.json"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "was made by the automation account, not a person"
+  run_scenario ready 'VARS={"AGENT_HUB_APPROVERS_GROUP": "agent-hub-approvers"}' 'MOCK_GROUPS={"dana-lead": ["developers"]}'
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "was made by someone who isn't in agent-hub-approvers"
+  run_scenario ready 'VARS={"AGENT_HUB_APPROVERS_GROUP": "agent-hub-approvers"}' 'MOCK_GROUPS={"dana-lead": ["agent-hub-approvers"]}'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Apply: success"
+}

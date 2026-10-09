@@ -140,6 +140,18 @@ stage_nothing_to_revise() {
   exit 0
 }
 
+# stage_is_approver <account id>: when AGENT_HUB_APPROVERS_GROUP is set,
+# whether that person is in it — 0 yes, 1 no, 2 it couldn't be checked; with
+# no group set, 0 (the tracker's own workflow conditions decide who may
+# approve). The hub's own check, so an approval doesn't rest on the
+# tracker's configuration alone.
+stage_is_approver() {
+  [ -n "${APPROVERS_GROUP:-}" ] || return 0
+  local groups
+  groups=$(tracker_user_groups "$1" 2> /dev/null) || return 2
+  grep -qxF -- "$APPROVERS_GROUP" <<< "$groups" || return 1
+}
+
 # stage_progress_comment <title> <text>: the "⏳ …" comment people see while
 # the run is going; its id goes to progress-comment-id. Sets proceed=true —
 # unless the ticket is over its Claude usage caps (stage_check_caps).

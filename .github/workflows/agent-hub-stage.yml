@@ -92,6 +92,18 @@ jobs:
       AGENT_HUB_WAKE: ${{ inputs.wake }}
       VARS: ${{ toJSON(vars) }}
     steps:
+      # A self-hosted runner keeps its work folder between jobs: whatever an
+      # earlier job's agent left there — in .git (hooks, config) or anywhere
+      # else — must not reach this job, whose first steps hold credentials.
+      # So the folder is emptied first and the checkout starts fresh (a full
+      # clone each time: slower on a large repository, by design).
+      - name: Clear the work folder
+        if: runner.environment == 'self-hosted'
+        timeout-minutes: 2
+        run: |
+          [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE" ] || exit 0
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       # Leaves out recorded test data (past Claude outputs, snapshots, eval
       # tickets) so Claude works from the ticket and the code, not from a
       # recorded answer. The evals mirror these patterns.

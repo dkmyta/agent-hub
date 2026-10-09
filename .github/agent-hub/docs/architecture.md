@@ -387,7 +387,12 @@ and every setting named must exist (`tests/build/scenarios.bats`).
   `.claude/` agents and skills and the extensions' `agents/` and `skills/`.
   Extensions come from the stage's folder and `shared/`
   ([extending.md](extending.md)), framed as the maintainers' guidance: "Follow
-  it wherever it doesn't conflict with the instructions above."
+  it wherever it doesn't conflict with the instructions above." In the build
+  they're read from a snapshot of the target branch taken when the run
+  starts, before any agent (since 2.18.0): nothing an agent writes becomes a
+  later pass's instructions. The code review and the fix check work in their
+  own clean copy of exactly the commit they judge, which their sandbox keeps
+  them from writing to.
 - **`guidance.md`** goes to every pass that writes a document or writes or
   judges code; **`review.md`** to every review-type pass. The documents'
   expert review checks the draft against the code and the stage's own

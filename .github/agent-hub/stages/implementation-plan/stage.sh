@@ -32,11 +32,25 @@ step_fetch() {
   # whose approval can't be found or read isn't planned at all. Before Claude
   # runs, so neither costs any Claude usage.
   if [ "$(stage_start_status)" = "$WORK_ORDER_APPROVED_STATUS" ]; then
-    EDITED=$(tracker_edited_after "$WORK_ORDER_APPROVED_STATUS" description) \
+    # One read of the history since the approval: whether the work order
+    # changed, and who approved it.
+    HISTORY=$(tracker_history_since "$WORK_ORDER_APPROVED_STATUS") \
       || stage_fail "Couldn't read $TICKET_KEY's history from $TRACKER_NAME to check the work order is the one approved, so nothing was changed. Move the ticket to $WORK_ORDER_APPROVED_STATUS again to retry."
+    EDITED=$(jq -r 'if (.entered | not) then "unknown" elif any(.changes[]; .field == "description") then "yes" else "no" end' <<< "$HISTORY")
     case "$EDITED" in
       yes) _approval_stale; exit 0 ;;
       unknown) stage_fail "$TICKET_KEY's history shows no move to $WORK_ORDER_APPROVED_STATUS, so there's no approval to plan from and nothing was changed. Move the ticket to $WORK_ORDER_APPROVED_STATUS to approve the work order." ;;
+    esac
+    # Who approved: a person, not the automation account — and, with an
+    # approvers group set, one of its members (as the build checks).
+    APPROVER=$(jq -r '.by // ""' <<< "$HISTORY")
+    [ "$APPROVER" != "$(tracker_account_id)" ] \
+      || stage_fail "The move to $WORK_ORDER_APPROVED_STATUS was made by the automation account, not a person, so it isn't an approval and nothing was changed. A person approves the work order by moving the ticket there."
+    rc=0
+    stage_is_approver "$APPROVER" || rc=$?
+    case "$rc" in
+      1) stage_fail "The move to $WORK_ORDER_APPROVED_STATUS was made by someone who isn't in $APPROVERS_GROUP, so it isn't an approval and nothing was changed. One of its members approves the work order." ;;
+      2) stage_fail "Couldn't check that the person who moved the ticket to $WORK_ORDER_APPROVED_STATUS is in $APPROVERS_GROUP, so nothing was changed (the Jira service account needs Browse users and groups)." ;;
     esac
   fi
 

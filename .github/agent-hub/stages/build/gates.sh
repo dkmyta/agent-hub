@@ -5,7 +5,8 @@
 # commit is read — never the working tree, which something the agent left
 # running could still change — so what's checked is exactly what's pushed.
 #
-#   build_gates <base commit> <contract JSON file>   (in the repository)
+#   build_gates <base commit> <contract JSON file> [commit]   (in the repository;
+#               the commit defaults to HEAD)
 #
 # → {files: [{path, status, class, reason, added, deleted}], refused: [...], decisions: [...],
 #    totals: {files, lines}} — added and deleted are line counts (null for a
@@ -41,6 +42,13 @@ BUILD_SENSITIVE_CONFIGURATION='(^|/)\.env[^/]*$|(^|/)config/'
 BUILD_DRIFT_SENSITIVE="$BUILD_SENSITIVE_DEPENDENCIES|$BUILD_SENSITIVE_SCHEMA|$BUILD_SENSITIVE_INFRASTRUCTURE|$BUILD_SENSITIVE_WORKFLOW|$BUILD_SENSITIVE_CONFIGURATION"
 BUILD_DRIFT_SENSITIVE+='|(^|/)(tsconfig[^/]*\.json|jsconfig\.json|[^/]*\.config\.(js|cjs|mjs|ts|cts|mts|json)|\.babelrc[^/]*|\.swcrc|\.eslintrc[^/]*|\.npmrc|\.yarnrc[^/]*|\.nvmrc|\.node-version|\.tool-versions|Makefile|CODEOWNERS)$'
 BUILD_DRIFT_SENSITIVE+='|\.d\.ts$|(^|/)(types|typings|@types)/|^\.github/|^\.claude/'
+# Always a person's decision, whatever the plan says — files that change how
+# agents or package managers behave on the next run, not what the code does:
+# agents' instructions and tool configuration (the hub reads its own from the
+# base commit, but people's tools read the repository's), and package-manager
+# configuration (registries, install hooks, workspaces).
+BUILD_AGENT_INSTRUCTIONS='(^|/)(claude\.md|agents\.md|\.mcp\.json)$'
+BUILD_PACKAGE_MANAGER_CONFIG='(^|/)(\.npmrc|\.yarnrc|\.yarnrc\.yml|\.pnpmfile\.cjs|pnpm-workspace\.yaml)$'
 BUILD_GENERATED='(^|/)(dist|build|vendor|node_modules|third_party)/|\.min\.(js|css)$'
 BUILD_INCIDENTAL='(^|/)(tests?|spec|__tests__)/|\.(test|spec)\.[^/]+$|_test\.[^/]+$|(^|/)docs/[^/]+\.md$|(^|/)README[^/]*$|(^|/)CHANGELOG[^/]*$'
 BUILD_MAX_FILES=${BUILD_MAX_FILES:-50}
@@ -53,7 +61,8 @@ BUILD_MAX_FILE_LINES=${BUILD_MAX_FILE_LINES:-1000}
 source "$(dirname "${BASH_SOURCE[0]}")/../../lib/paths.sh"
 
 build_gates() {
-  local base=$1 contract=$2 path status mode added deleted line class reason total_files=0 total_lines=0 declared work limit hub_blob flagged
+  # (gates_head is read by the helpers below, which it calls.)
+  local base=$1 contract=$2 gates_head=${3:-HEAD} path status mode mode_changed added deleted line class reason total_files=0 total_lines=0 declared work limit hub_blob flagged
   local -a scope=() forbidden=() expected=()
   # It runs as a condition (`build_gates … || stage_fail …`), where errexit is
   # off, so every failure is handled here explicitly: the gates either produce
@@ -77,22 +86,29 @@ build_gates() {
   # its exact bytes, whatever characters it has.
   while IFS= read -r -d '' status && IFS= read -r -d '' mode && IFS= read -r -d '' added \
         && IFS= read -r -d '' deleted && IFS= read -r -d '' path; do
-    class="" reason=""
+    class="" reason="" mode_changed=""
+    case "$mode" in *">"*) mode_changed=${mode%%>*} mode=${mode#*>} ;; esac
     total_files=$((total_files + 1))
     [ "$added" = - ] || total_lines=$((total_lines + added + deleted))
     if hub_managed_path "$path"; then class=refused reason="a hub-managed path (.github/, .claude/, CODEOWNERS)"
     elif [ "$mode" = 120000 ]; then class=refused reason="a symbolic link"
     elif [ "$mode" = 160000 ]; then class=refused reason="a submodule"
     elif [ "$added" = - ]; then class=refused reason="a binary file"
-    elif [ "$status" != D ] && [[ "$(git cat-file blob "HEAD:$path" 2> /dev/null | head -c 64)" == "version https://git-lfs"* ]]; then
+    elif [ "$status" != D ] && [[ "$(git cat-file blob "$gates_head:$path" 2> /dev/null | head -c 64)" == "version https://git-lfs"* ]]; then
       class=refused reason="a Git LFS pointer"
     elif [ ${#forbidden[@]} -gt 0 ] && matches_any "$path" "${forbidden[@]}"; then class=decision reason="in an area the plan says must not be touched"
+    elif [[ "$(tr 'A-Z' 'a-z' <<< "$path")" =~ $BUILD_AGENT_INSTRUCTIONS ]]; then
+      class=decision reason="instructions or configuration for AI agents (CLAUDE.md, AGENTS.md, .mcp.json)"
+    elif [[ "$path" =~ $BUILD_PACKAGE_MANAGER_CONFIG ]]; then
+      class=decision reason="package-manager configuration (registries, install scripts, workspaces)"
+    elif [ -n "$mode_changed" ]; then
+      class=decision reason="its file mode changed (${mode_changed: -3} to ${mode: -3})"
     elif [[ "$path" =~ $BUILD_SENSITIVE_DEPENDENCIES ]]; then
       # The dependency step's own output passes only byte for byte (its blob
       # id), with any decision it flagged for the file.
       hub_blob=$(jq -r --arg p "$path" '.dependency_step.files[$p] // empty' "$contract")
       if [ -n "$hub_blob" ]; then
-        if [ "$status" != D ] && [ "$(git rev-parse -q --verify "HEAD:$path" 2> /dev/null)" = "$hub_blob" ]; then
+        if [ "$status" != D ] && [ "$(git rev-parse -q --verify "$gates_head:$path" 2> /dev/null)" = "$hub_blob" ]; then
           flagged=$(jq -r --arg p "$path" '[.dependency_step.decisions[]? | select(.path == $p) | .reason] | join("; ")' "$contract")
           if [ -n "$flagged" ]; then class=decision reason=$flagged
           else class=expected reason="the plan's dependency change, applied by the hub"; fi
@@ -151,7 +167,7 @@ _listed() {
 # If git can't answer, <folder>/failed is written (build_gates then fails).
 _marked_generated() {
   local file attribute value marked=1
-  git check-attr -z --source HEAD linguist-generated linguist-vendored -- "$1" > "$2/attributes" \
+  git check-attr -z --source "${gates_head:-HEAD}" linguist-generated linguist-vendored -- "$1" > "$2/attributes" \
     || { : > "$2/failed"; return 1; }
   # shellcheck disable=SC2034 # the fields read but not used
   while IFS= read -r -d '' file && IFS= read -r -d '' attribute && IFS= read -r -d '' value; do
@@ -160,7 +176,7 @@ _marked_generated() {
   return "$marked"
 }
 
-# _build_changes <base> <folder>: every changed file from <base> to HEAD into
+# _build_changes <base> <folder>: every changed file from <base> to the commit (HEAD) into
 # <folder>/changes, as NUL-separated fields: status (A, M, D), mode (the new
 # one, or the old one for a deletion), added and deleted lines ("-" for
 # binary), path. Renames count as a delete and an add. Git's -z output keeps
@@ -169,8 +185,8 @@ _marked_generated() {
 _build_changes() {
   local meta path oldmode newmode status counts added deleted rest
   : > "$2/changes"
-  git diff -z --raw --no-renames "$1" HEAD > "$2/raw" || return 1
-  git diff -z --numstat --no-renames "$1" HEAD > "$2/numstat" || return 1
+  git diff -z --raw --no-renames "$1" "${gates_head:-HEAD}" > "$2/raw" || return 1
+  git diff -z --numstat --no-renames "$1" "${gates_head:-HEAD}" > "$2/numstat" || return 1
   exec 3< "$2/raw" 4< "$2/numstat"
   # shellcheck disable=SC2034 # the fields read but not used
   while IFS= read -r -d '' meta <&3 && IFS= read -r -d '' path <&3; do
@@ -182,6 +198,9 @@ _build_changes() {
     deleted=${rest%%$'\t'*} rest=${rest#*$'\t'}
     [ "$rest" = "$path" ] || { exec 3<&- 4<&-; return 1; }
     [ "$status" != D ] || newmode=$oldmode
+    # A file's mode changed in place (made executable, or not): marked
+    # old>new, for the loop to flag.
+    if [ "$status" = M ] && [ "$oldmode" != "$newmode" ]; then newmode="$oldmode>$newmode"; fi
     printf '%s\0%s\0%s\0%s\0%s\0' "$status" "$newmode" "$added" "$deleted" "$path" >> "$2/changes"
   done
   exec 3<&- 4<&-

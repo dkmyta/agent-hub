@@ -99,3 +99,16 @@ plan() {
   run jq -e '.packages["node_modules/is-number"]' package-lock.json
   assert_failure
 }
+
+# A dependency folder that is a link (or inside one) could point outside the
+# repository: the step writes there before anything is sandboxed.
+@test "preflight: a dependency folder that is a link to another folder is refused, before npm runs" {
+  local repo="$BATS_TEST_TMPDIR/linked" outside="$BATS_TEST_TMPDIR/outside"
+  mkdir -p "$repo" "$outside" && printf '{"name": "x"}\n' > "$outside/package.json" \
+    && printf '{"lockfileVersion": 3, "packages": {}}\n' > "$outside/package-lock.json" && ln -s "$outside" "$repo/web"
+  run bash -c "cd '$repo' && stage_fail() { echo \"\$1\"; exit 1; }; hub_managed_path() { return 1; }
+    source '$HUB_DIR/stages/build/dependencies.sh' 2> /dev/null
+    build_dependency_preflight '[{\"folder\": \"web\", \"package\": \"left-pad\", \"action\": \"add\"}]'"
+  assert_failure
+  assert_output --partial "which is a link to another folder (or inside one)"
+}

@@ -61,6 +61,12 @@ context() { jq -r "$1" "$BUILD_CONTEXT"; }
 
 # step_fetch: Check the approval, read the plan's contract and the branch, and post the progress comment.
 step_fetch() {
+  # What woke the run, when not a person's approval: only the hub's own
+  # values. (Anyone who can request a run can set it.)
+  case "${AGENT_HUB_WAKE:-}" in
+    "" | ci | closed | command) ;;
+    *) stage_fail "The run was requested with an unknown wake value, so nothing was done." ;;
+  esac
   # A hub pull request was closed (agent-hub-pr-closed.yml): Done, or a
   # comment — nothing is built (closed.sh).
   if [ "${AGENT_HUB_WAKE:-}" = closed ]; then build_closed; exit 0; fi
@@ -91,11 +97,16 @@ step_fetch() {
 
   # The checkout as the workflow made it, and its git metadata kept before
   # any agent runs.
-  if [ ! -d .git ] || [ -n "$(git status --porcelain)" ]; then
+  # (With git's settings that could run a program turned off, and only the
+  # repository's own config read: this step holds the credentials.)
+  if [ ! -d .git ] || [ -n "$(GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+       -c core.untrackedCache=false status --porcelain --no-renames)" ]; then
     stage_fail "The checkout isn't a clean git repository, so nothing was built. Re-run the workflow; if it happens again, clean the runner's work folder."
   fi
   rm -rf "$BUILD_GIT" && cp -R .git "$BUILD_GIT"
+  _trust_build_git
   build_git
+  _snapshot_guidance "$(git rev-parse HEAD)"
 
   _approved_plan
   # The work order's acceptance criteria, which the build must verify.
@@ -134,7 +145,7 @@ step_fetch() {
     return
   fi
   stage_progress_comment "⏳ Building" \
-    " — implementing the approved plan; usually takes 10–30 minutes. Refresh the page to see the result. "
+    " — implementing the approved plan$(context 'if .plan.by_person then " (a plan file a person uploaded, not the plan stage: the build follows its scope and must-not-touch rules as written)" else "" end'); usually takes 10–30 minutes. Refresh the page to see the result. "
 }
 
 # stage_max_cost: the most one build run's Claude passes can cost together
@@ -211,8 +222,11 @@ _approved_plan() {
 
   # What was approved; plan.files (every plan file's id) and approved_at are
   # the approval's identity (_approval_key).
-  jq --arg sha256 "$(_sha256 "$RUNNER_TEMP/plan.md")" '.plans[-1] as $plan | {plan: {
+  jq --arg sha256 "$(_sha256 "$RUNNER_TEMP/plan.md")" --arg automation "$AUTOMATION_ACCOUNT" '.plans[-1] as $plan | {plan: {
     attachment: $plan.id, uploaded: ($plan.created // ""), uploaded_by: ($plan.author.displayName // ""),
+    # A plan file a person uploaded (not the plan stage, as the automation
+    # account): the progress comment and the pull request say so.
+    by_person: (($plan.author.accountId // "") != $automation),
     sha256: $sha256, approved_at: .history.at, approved_by: .history.by_name, files: [.plans[].id]}}' \
     <<< "$second" > "$BUILD_CONTEXT"
 }
@@ -242,6 +256,13 @@ _approval_problem() {
   # anyway isn't a person's approval.
   [ "$(jq -r '.history.by' <<< "$snapshot")" != "$AUTOMATION_ACCOUNT" ] \
     || { echo "fail The move to $PLAN_APPROVED_STATUS was made by the automation account, not a person, so it isn't an approval and nothing was built. A person approves the plan by moving the ticket there."; return; }
+  # With an approvers group set, the person must be in it.
+  local rc=0
+  stage_is_approver "$(jq -r '.history.by' <<< "$snapshot")" || rc=$?
+  case "$rc" in
+    1) echo "fail The move to $PLAN_APPROVED_STATUS was made by someone who isn't in $APPROVERS_GROUP, so it isn't an approval and nothing was built. One of its members approves the plan by moving the ticket there."; return ;;
+    2) echo "fail Couldn't check that the person who moved the ticket to $PLAN_APPROVED_STATUS is in $APPROVERS_GROUP, so nothing was built (the Jira service account needs Browse users and groups)."; return ;;
+  esac
   [ "$(jq '.plans | length' <<< "$snapshot")" -gt 0 ] \
     || { echo "fail There's no $PLAN_FILE_NAME on the ticket to build from, so nothing was built. Write the plan (move the ticket to $WORK_ORDER_APPROVED_STATUS), then approve it."; return; }
   # The newest plan file must predate the approval; times that can't be read
@@ -517,6 +538,23 @@ _verify_copy() {
     fi
     git -C "$2" checkout -q --detach "$1"
   ) 2> "$RUNNER_TEMP/verify-clone.log"
+}
+
+# build_clean_copy <commit> <folder>: a clean copy of exactly <commit> — not
+# the checkout an agent may have left files in (ignored ones too, like
+# node_modules) — with its dependencies installed from the lockfile in the
+# sandbox, as the verify step's. For the passes that judge a commit (the code
+# review, the fix check): they work there, and their sandbox keeps them from
+# writing to it. Fails, with a reason on standard error, if it can't be made.
+build_clean_copy() {
+  local folder rc
+  (build_git && _verify_copy "$1" "$2") || { echo "a copy of the commit couldn't be made"; return 1; } >&2
+  while IFS= read -r folder; do
+    [ -d "$2/$folder" ] || continue
+    rc=0
+    _install_dependencies "$2/$folder" "$RUNNER_TEMP/clean-copy-install.log" > /dev/null || rc=$?
+    [ "$rc" = 0 ] || { echo "installing its dependencies failed (exit $rc)" >&2; return 1; }
+  done < <(build_git && build_install_folders "$(context .base)")
 }
 
 # _git_said: the end of git's errors from _verify_copy, for the ticket only
@@ -835,6 +873,52 @@ build_save_review() {
   done
   tracker_set_property agent-hub-review <<< "$record" \
     || echo "::warning::Couldn't keep the review's findings on $TICKET_KEY, so /skip and /apply can't list them until the next review."
+}
+
+# _trust_build_git: the hub's git copy keeps only the settings git needs to
+# read and push this repository — never one that could run a program or
+# receive the token (hooks, credential helpers, filters, fsmonitor, aliases,
+# an ssh command…), whatever a checkout carried in.
+_trust_build_git() {
+  local key value
+  : > "$RUNNER_TEMP/build-git-config"
+  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+    case "$key" in
+      core.repositoryformatversion | core.bare | core.logallrefupdates | core.sparsecheckout | core.sparsecheckoutcone \
+        | core.ignorecase | core.precomposeunicode | core.filemode | core.symlinks | extensions.* \
+        | remote.origin.url | remote.origin.fetch | remote.origin.promisor | remote.origin.partialclonefilter)
+        git config -f "$RUNNER_TEMP/build-git-config" --add "$key" "$value" ;;
+    esac
+  done < <(git config -f "$BUILD_GIT/config" --list -z | tr '\n' '\0')
+  mv "$RUNNER_TEMP/build-git-config" "$BUILD_GIT/config"
+  rm -rf "$BUILD_GIT/hooks"
+}
+
+# _snapshot_guidance <commit>: the repository's guidance for every pass of
+# this run — CLAUDE.md, AGENTS.md, .claude/ (its CLAUDE.md, agents and
+# skills) and the hub extensions — as they are in <commit>, the target
+# branch's head when the run starts (never a pull request's head), into
+# $RUNNER_TEMP/guidance (repo/ and extensions/). The agent runner reads them
+# from there (lib/runners/claude-code.sh, _guidance_root), so nothing an
+# agent writes in the checkout becomes a later pass's instructions. Links
+# are dropped: they could point anywhere.
+_snapshot_guidance() {
+  local dir="$RUNNER_TEMP/guidance" path
+  rm -rf "$dir" && mkdir -p "$dir/repo" "$dir/extensions"
+  for path in CLAUDE.md AGENTS.md .claude; do
+    git cat-file -e "$1:$path" 2> /dev/null || continue
+    git archive "$1" -- "$path" | tar -x -C "$dir/repo" \
+      || stage_fail "Couldn't read the repository's guidance ($path) from $1, so nothing was built."
+  done
+  case "$EXTENSIONS_DIR" in
+    # An extensions folder outside the repository (the tests') is used as it is.
+    /*) [ ! -d "$EXTENSIONS_DIR" ] || cp -R "$EXTENSIONS_DIR/." "$dir/extensions/" ;;
+    *) if git cat-file -e "$1:$EXTENSIONS_DIR" 2> /dev/null; then
+         git archive --prefix=x/ "$1" -- "$EXTENSIONS_DIR" | tar -x -C "$dir" \
+           && mv "$dir/x/$EXTENSIONS_DIR"/* "$dir/extensions/" 2> /dev/null; rm -rf "$dir/x"
+       fi ;;
+  esac
+  find "$dir" -type l -delete
 }
 
 # _refuse_hard_links: stop if any file git would commit has more than one
