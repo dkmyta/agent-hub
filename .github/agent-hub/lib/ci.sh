@@ -26,6 +26,15 @@ ci_required() {
     | group_by(.name) | map({name: .[0].name, app_id: ([.[].app_id | select(. != null)] | first)})'
 }
 
+# ci_unbound_warnings <branch> <required JSON>: a warning for each required
+# check not bound to the app that posts it (app_id null) — anything that may
+# post a status under its name meets it, the build's own code in CI included,
+# with a token that can (docs/setup.md, the CI gate's repository settings).
+ci_unbound_warnings() {
+  jq -r --arg branch "$1" '.[] | select(.app_id == null)
+    | "::warning::\($branch)'"'"'s required check \(.name) isn'"'"'t bound to the app that posts it, so anything that can post a status under that name meets it. Pick its source in the branch protection or ruleset (docs/setup.md)."' <<< "$2"
+}
+
 # ci_status <commit> <required JSON>: the required checks' results on exactly
 # <commit>, as {head, state, checks: [{name, result, conclusions, runs}]}. Each
 # result is passed, failed, pending or missing, with GitHub's own conclusions

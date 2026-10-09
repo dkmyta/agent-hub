@@ -117,7 +117,7 @@ def status_lines($s; $r; $x; $p; $publish; $what):
   status_end;
 
 # reconcile_items(previous items; fresh items): a reconcile run's items
-# (docs/workflows/build.md, "Decision items: ownership"). A gate decision
+# (docs/workflows/build-design.md, "Decision items: ownership"). A gate decision
 # still there on the new head keeps its id and status; one that's gone is
 # closed. The new review's and fix check's items replace the previous
 # generation's open ones, which are closed. Manual changes (C) carry over.

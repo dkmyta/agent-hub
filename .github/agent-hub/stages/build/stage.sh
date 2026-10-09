@@ -11,9 +11,10 @@
 # validate and build in one agent pass, the commit and the repository's own
 # checks run on it by the hub (verify), the code review (review.sh), the fix
 # pass and its check, and verifying the fix (fix.sh), then the gates, the
-# secret scan and the draft pull request with its state block (apply). The
-# CI gate and hand-off come in later versions; until then a person takes the
-# draft from there.
+# secret scan and the draft pull request with its state block (apply). Later
+# runs reconcile it (reconcile.sh), wait for CI and hand it off (handoff.sh),
+# act on people's item commands (commands.sh) and follow it to Done once
+# merged (closed.sh).
 #
 # The agent can change anything in the checkout — .git included — so no
 # later step trusts it: each loads the hub from the workflow's copy, and git
@@ -84,7 +85,7 @@ step_fetch() {
   stage_set_mode new
   # Not for real tickets yet (settings.sh): stop before anything else.
   [ "$BUILD_PREVIEW" = true ] \
-    || stage_fail "The build stage isn't enabled for real tickets yet: until its agent review and CI gate arrive, a person is its only reviewer. Nothing was built. For development, set the repository variable AGENT_HUB_BUILD_PREVIEW to true."
+    || stage_fail "The build stage is in preview: it runs only where the repository variable AGENT_HUB_BUILD_PREVIEW is true, until its manual test and the runner requirements are done (docs/workflows/build.md, Status). Nothing was built."
   _require_pinned_claude
   _require_limits
   # A Node project builds only with the Node version it declares (the
@@ -809,7 +810,7 @@ step_apply() {
 
   # The draft pull request: the hub's template, then the state block. Its
   # heads say what each commit is and which check verified exactly it
-  # (docs/workflows/build.md, "Review coverage and provenance"): the build's
+  # (docs/workflows/build-design.md, "Review coverage and provenance"): the build's
   # commit (verified before the review, which saw only a verified commit)
   # and a kept fix on top (verified by Verify fix: it's the commit the
   # checks passed on, above).
@@ -1006,7 +1007,7 @@ _ticket_report() {
     | ([$state[0].items[] | select(.source == "fix-check")]) as $citems
     | def heading($t): para([strong($t)]);
     doc([para([strong("🔨 Draft pull request opened"), text(" — "), link("#\($number)"; $url),
-          text(". It’s a draft: the CI gate and the hand-off come in a later version, so a person reviews it, with the automated review’s items below — the steps are in the description, under Testing Instructions. The ticket stays in Implementation Plan Approved until then: once you’ve reviewed it, move it on yourself (the hand-off will do this later). The build’s report:")]),
+          text(". It stays a draft until the hub hands it off: once no decision item is open and every required check has passed on its latest commit, it’s marked ready for review and this ticket moves to Ready for Review. Approvers act on its items here, with /skip or /apply; the steps to review it are in its description, under Testing Instructions. The build’s report:")]),
         heading("What changed"), para($b.summary),
         heading("Acceptance criteria — how each is verified"),
         bullets([$b.verification[] | [strong(.criterion), text(" — \(.method): \(.detail)")]]),

@@ -14,7 +14,7 @@ and how the evals fit in.
   document stages (work order, plan) run it in two passes: a **draft**, then
   an **expert review** that checks and improves it (see
   [architecture.md](architecture.md#expert-review-every-stage)); both read the
-  repository and research. The build (a development preview) runs **one
+  repository and research. The build (in preview) runs **one
   pass** that edits the checkout and runs the repository's checks in the
   sandbox, then — in its own *Review* step — a **code review**: a fresh,
   read-only session whose findings become items on the pull request; when
@@ -68,8 +68,11 @@ another's), so a retry starts the pass again:
 | Build | Move the ticket back to Implementation Plan and approve it again, or re-run **Agent hub: Build** | The approved plan, from scratch (nothing was pushed) |
 
 If a stage keeps reaching its cap, raise that pass's variable (above) before
-retrying. The review pass has its own cap: if it's reached, the draft isn't
-applied either — nothing unreviewed reaches the ticket.
+retrying. The review pass has its own cap. In the work order and plan
+stages, if it's reached the draft isn't applied either — nothing unreviewed
+reaches the ticket. The build still pushes its draft pull request, with the
+review recorded as unfinished: a decision item for a person, so it's never
+handed off without one.
 
 **Typical usage** (API-equivalent; the single source for these figures — other
 docs link here):
@@ -78,7 +81,7 @@ docs link here):
 |---|---|---|
 | One work order (draft + review) | $0.30–1.50 | Clear requests cost more (research); a ticket sent back for details costs only its draft (no review), well under $0.50 |
 | One implementation plan (draft + review) | $1.50–7 | Several minutes; scales with the change. Opus costs more than Sonnet |
-| One build (build, code review, and a fix pass when needed) | Not measured yet — capped at $10, $5, and $3 + $1 | To confirm in the pipeline test ([build.md](workflows/build.md#cost-estimates-to-confirm-in-the-pipeline-test)); scales with the change and the repository's checks |
+| One build (build, code review, and a fix pass when needed) | Not measured yet — capped at $10, $5, and $3 + $1 | To confirm in the pipeline test ([build.md](workflows/build-design.md#cost-estimates-to-confirm-in-the-pipeline-test)); scales with the change and the repository's checks |
 | One eval case | As one real run of its stage | Each case runs the draft and the review |
 | Work order evals (3 cases) | $1–3 | A few minutes |
 | Implementation plan evals (3 cases) | $3–10 | 20–40 minutes |
@@ -131,8 +134,8 @@ run — retries, revisions and resubmissions included:
   runs and $60 by default), counted from there; the record keeps the full
   history.
 - **Approximate, not a bill.** The cost is Claude Code's API-equivalent
-  figure. Two stages' runs for one ticket at the same moment can each miss
-  the other's run; a run that can't record its usage says so in a warning.
+  figure. A ticket's runs never overlap (one at a time, across every
+  stage); a run that can't record its usage says so in a warning.
   On a subscription the plan's own limits still apply; with an API key, set a
   monthly spend limit in the Claude Console as well
   ([runners.md](runners.md#using-the-claude-api)).
@@ -160,7 +163,8 @@ they're worth running, their guards, and the PR notice that suggests them:
 - The kill switch (`AGENT_HUB_ENABLED=false`) stops runs **before they start**;
   a run already going finishes — cancel it in the Actions tab to stop it now.
 - A test checks that **every workflow that uses Claude** only runs on tracker
-  requests (`repository_dispatch`) or manual runs (`workflow_dispatch`) —
+  requests or manual runs (`workflow_dispatch`, and `repository_dispatch`
+  until 2.21.0) —
   never on pushes, pull requests or schedules.
 - Runs from GitHub (agent stages and evals) only use the runner in
   `AGENT_HUB_RUNS_ON`; with it offline nothing runs, but a run started meanwhile

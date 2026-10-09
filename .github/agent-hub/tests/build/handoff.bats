@@ -113,6 +113,18 @@ runs() { jq -nc --argjson r "$1" '{check_runs: $r}'; }
   assert_output --partial "more than 100 commit statuses"
 }
 
+# GATE-1: a required check any source can meet is one the build's own code
+# could meet; the gate says so.
+@test "CI: a warning for each required check not bound to an app, none for bound ones" {
+  run ci_unbound_warnings main '[{"name": "test", "app_id": 15368}, {"name": "lint", "app_id": null}, {"name": "e2e", "app_id": null}]'
+  assert_success
+  assert_equal "${#lines[@]}" 2
+  assert_line --index 0 --partial "::warning::main's required check lint isn't bound to the app that posts it"
+  assert_line --index 1 --partial "required check e2e isn't bound"
+  run ci_unbound_warnings main '[{"name": "test", "app_id": 15368}]'
+  assert_output ""
+}
+
 @test "CI: green only when every required check passed on the commit; a missing, running or failed one isn't" {
   local required='[{"name": "test", "app_id": 1}, {"name": "lint", "app_id": null}]'
   CI_RUNS=$(runs '[{"name": "test", "status": "completed", "conclusion": "success", "app": {"id": 1}}]')

@@ -7,7 +7,7 @@ a product or scope decision, it sends the ticket back with the questions.
 
 | | |
 |---|---|
-| Trigger | `repository_dispatch` `agent-hub-implementation-plan-requested` (Jira: Implementation Plan Requested or Revision Requested rule), or **Run workflow** with a ticket key |
+| Trigger | `workflow_dispatch` of `agent-hub-implementation-plan.yml` (Jira: Implementation Plan Requested or Revision Requested rule), or **Run workflow** with a ticket key; `repository_dispatch` `agent-hub-implementation-plan-requested` until 2.21.0 |
 | Runs on | `AGENT_HUB_RUNS_ON` (default `[self-hosted, claude]`) — see [runners.md](../runners.md) |
 | Model | `AGENT_HUB_IMPLEMENTATION_PLAN_MODEL` (default Opus); review `AGENT_HUB_REVIEW_MODEL` (Opus) |
 | Stage files | `stages/implementation-plan/` (steps, settings, prompt, schema, plan rendering, revisions) |
@@ -150,8 +150,16 @@ knows what changed since.
 
 **The summary** in the description: estimate, a risk line (the level and the
 sensitive kinds included — what approving agrees to), approach,
-acceptance-criteria table, ordered steps with their files, a pointer to the attachment, and the
-"Expert review: …" note.
+acceptance-criteria table, ordered steps with their files, **what the build
+may change** (since 2.20.0), a pointer to the attachment, and the "Expert
+review: …" note. *What the build may change* is read from the attached file
+the way the build will read it (its contract): the files it may change and
+how, any wider scope patterns, what it must not touch, the dependency
+changes and the manual changes left to a person — what the build's gates
+hold it to, so approving the plan approves exactly that. If the build
+couldn't read the file, it lists the problems instead (the build would stop
+on them). It's read again on every revision, and after a person re-uploads
+the file only the next plan run updates it.
 
 ## Settings
 
@@ -211,8 +219,10 @@ Shared ones (revisions, failures, retries) are in
   enabled ([build.md](build.md)); otherwise the Build Requested rule
   ([jira.md](../jira.md#rule-build-requested)) clears `needs-human` and the
   build stops at its first step, saying it isn't enabled.
-- **The full plan is an attachment**; reviewing it means opening it, and
-  editing it means downloading and re-uploading it.
+- **The full plan is an attachment**; the summary shows what the build may
+  change, but reviewing the rest means opening it, and editing it means
+  downloading and re-uploading it. A re-uploaded file isn't summarised
+  again until the next plan run, so check its scope in the file itself.
 - **The plan reflects the code when it was written.** If the code changes
   before the build, start over (move back to Work Order Approved).
 - **File paths are checked when the plan is written** (inside the

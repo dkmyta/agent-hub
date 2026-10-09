@@ -177,7 +177,7 @@ sequenceDiagram
   J->>R: ticket created / description changed
   R->>R: conditions (status, has details)
   R->>J: move to the stage's status
-  R->>G: repository_dispatch agent-hub-<stage>-requested {ticket_key}
+  R->>G: workflow_dispatch agent-hub-<stage>.yml {ticket_key}
   G->>J: fetch ticket, check status, post progress comment
   G->>C: draft — ticket as data + stage prompt + output schema
   C-->>G: draft (JSON)
@@ -189,7 +189,8 @@ sequenceDiagram
 
 1. **The tracker decides *when***. A tracker rule (in Jira, an automation
    rule) moves the ticket into the stage's status and sends
-   `repository_dispatch` with **only the ticket key**.
+   `workflow_dispatch` (since 2.20.0; `repository_dispatch` before) with
+   **only the ticket key**.
 2. **The workflow reads everything else from the tracker**, so it always sees the
    current ticket and can be re-run by hand for any ticket.
 3. **Claude only reads and decides.** It explores the repository with
@@ -205,8 +206,8 @@ sequenceDiagram
 ## The pipeline as a state machine
 
 Every stage moves a ticket between known states, for known reasons. The
-statuses are the tracker's; *(planned)* marks what the build stage doesn't do yet
-([workflows/build.md](workflows/build.md)).
+statuses are the tracker's ([workflows/build.md](workflows/build.md) for the
+build's).
 
 | State (status) | Waiting for | Leaves by | To |
 |---|---|---|---|
@@ -360,7 +361,7 @@ stage ([workflows/build.md](workflows/build.md)).
   step installs Claude Code; the agent step gets the `AGENT_HUB_ANTHROPIC_API_KEY`
   secret as `ANTHROPIC_API_KEY` (empty unless set) — so the same workflow runs
   with a subscription login or the API.
-- Claude runs only on `repository_dispatch` / `workflow_dispatch`, never on
+- Claude runs only on `workflow_dispatch` / `repository_dispatch`, never on
   push, pull request or schedule (enforced by `tests/shared/claude-usage.bats`).
 - A stage's files live in `stages/<stage>/` (see [Layout](#layout)); shared
   code lives in `lib/` and `trackers/` — reuse it, don't copy it.
@@ -485,10 +486,10 @@ the same way (the tracker side, and every path, is in
 A label or a "Changes requested" status were considered: both take two
 actions (the signal, plus the feedback) and a status adds one per stage; a
 comment command is one action and carries over to PR comments. For the
-build's pull requests (review items arrived in 2.9.0; acting on them, `/apply`, comes with step 5) the options to decide then: people commit to the
-branch; people leave review comments for the agent to apply; people ask the
-agent to apply selected mid/low-severity review findings (e.g. `/apply 2 4`);
-re-running the automated review after changes.
+build's pull requests, the commands are on the ticket too: `/skip` and
+`/apply` with item ids (2.16.0, 2.17.0; `/apply comments` takes the pull
+request's review threads), and people's own commits are reviewed again by
+the next run ([build.md](workflows/build.md#review-items-and-apply)).
 
 ### Safety
 - One `concurrency` group per ticket, shared by every stage (since 2.12.1;
@@ -634,10 +635,10 @@ replace them or show up on other work.
   uploaded then is still the newest, so it's the plan, but the summary
   describes the run's; a description edit then can be replaced by the
   run's (or, after a conflict, by the description put back).
-- **No lock across stages.** Each stage runs one at a time per ticket, and
-  checks the ticket's status before writing, but two stages' runs aren't
-  kept apart, and a ticket moved away and back during a run looks
-  unchanged.
+- **One run per ticket at a time, across every stage** (one concurrency
+  group per ticket, since 2.12.1: requests queue, never cancel), and each
+  run checks the ticket's status before writing — but a ticket moved away
+  and back during a run looks unchanged.
 - **Retries for Jira and GitHub calls, but not for every failure**
   (`lib/http.sh`, since 2.7.3). Every call has a connection and an overall
   time limit. A call the server never got or turned away (rate limits) is
@@ -684,7 +685,8 @@ replace them or show up on other work.
    see [tests/README.md](../tests/README.md). `tests/shared/stage-workflow.bats`
    checks every stage has its files, step functions and a caller.
 4. Handle revisions and reverse paths as above, where the stage revises its
-   output (the document stages; the build's revisions come later): a revision
+   output (the document stages; the build acts on items with `/apply`
+   instead): a revision
    mode, a `revise.sh` (`REVISION_DEPTH`, `revision_preview`, and applying
    `updates` section by section to the current output), the
    `revision_responses` field, the reply and resolution, a scenario per path

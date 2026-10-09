@@ -40,7 +40,7 @@ setup() {
 # One concurrency group per ticket, shared by every stage: never cancelled,
 # every request kept in the queue (each run acts on the ticket's current
 # state), so nothing for a ticket runs in parallel.
-@test "every stage has a stage workflow calling the shared one, with its own event and the ticket's shared concurrency group" {
+@test "every stage has a stage workflow calling the shared one, with its own event, the inputs the tracker sends and the ticket's shared concurrency group" {
   local stage caller
   for stage in "$HUB_DIR"/stages/*/; do
     stage=$(basename "$stage")
@@ -53,9 +53,23 @@ setup() {
       const job = Object.values(wf.jobs)[0];
       console.log(job.uses, job.with.stage, wf.on.repository_dispatch.types.join(","),
         wf.concurrency.group === "agent-hub-${{ github.repository }}-${{ github.event.client_payload.ticket_key || inputs.ticket_key }}",
-        wf.concurrency["cancel-in-progress"], wf.concurrency.queue ?? "single");' "$caller"
-    assert_output "./.github/workflows/agent-hub-stage.yml $stage agent-hub-$stage-requested true false max"
+        wf.concurrency["cancel-in-progress"], wf.concurrency.queue ?? "single",
+        // What the Jira rules send (docs/jira.md, "Web requests"): a required
+        // ticket key, and nothing else required.
+        wf.on.workflow_dispatch.inputs.ticket_key.required === true,
+        Object.entries(wf.on.workflow_dispatch.inputs).filter(([k, v]) => k !== "ticket_key" && v.required).length);' "$caller"
+    assert_output "./.github/workflows/agent-hub-stage.yml $stage agent-hub-$stage-requested true false max true 0"
   done
+}
+
+# SEC-4: the secrets live in an environment limited to the default branch, so
+# a run on another branch (with its own copy of the hub) gets none.
+@test "the stage job runs in the agent-hub environment" {
+  run node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { parse } from "yaml";
+    console.log(Object.values(parse(readFileSync(process.argv[1], "utf8")).jobs)[0].environment);' "$WORKFLOW"
+  assert_output "agent-hub"
 }
 
 # Only code stages get the machine user's token, and only in the two steps

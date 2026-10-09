@@ -21,6 +21,12 @@
 #   --arg mode summary-patch  a revision of the summary: the current
 #                       description's Implementation Plan section with only the
 #                       updated parts re-rendered (input: the description)
+#   --arg mode scope    a summary's blocks (input) with "What the build may
+#                       change" added before its pointer to the full plan:
+#                       the scope the build will hold itself to, from the
+#                       contract it reads back from the attached file
+#                       (--slurpfile contract: stages/build/contract.jq's
+#                       output), so the approval covers what's enforced
 #
 # Optional sections with nothing in them are left out; Security & Privacy
 # always appears, saying so when there's no impact.
@@ -84,6 +90,36 @@ def risk_line($plan):
   [governance_kinds[] | select(.[0] as $k | $plan.governance.includes[$k]) | .[1] | ascii_downcase] as $yes
   | para([strong("Risk: "), text("\($plan.governance.risk.level) — \($plan.governance.risk.reason) "),
       strong("Includes: "), text(if ($yes | length) > 0 then $yes | join(", ") else "none of the sensitive kinds" end)]);
+
+# Inline items separated by commas: each item a list of inline nodes.
+def inline_list($items): [range($items | length) as $i | (if $i > 0 then [text(", ")] else [] end) + $items[$i]] | add // [];
+
+# "What the build may change", from the build's reading of the attached plan
+# (its contract). A plan it can't read gets the problems instead: the build
+# would stop on them.
+def scope_block($c):
+  section("What the build may change"),
+  if ($c.problems | length) > 0 then
+    para("The build can't read the attached plan's scope, so it won't build from it until the file is fixed:"),
+    bullets($c.problems)
+  else
+    para("What the build's checks hold it to, read from the attached plan the way the build reads it. Any other change it makes is a person's decision."),
+    bullets([
+      [strong("Files: ")] + (if ($c.changes | length) == 0 then [text("none — every change is manual")]
+        else inline_list([$c.changes[] | [code(.path), text(" (\(.action))")]]) end),
+      [strong("Also in scope: ")] + (if ($c.governance.scope_patterns | length) == 0 then [text("nothing beyond those files")]
+        else inline_list([$c.governance.scope_patterns[] | [code(.)]]) end),
+      [strong("Must not touch: ")] + (if ($c.governance.must_not_touch | length) == 0 then [text("nothing named")]
+        else inline_list([$c.governance.must_not_touch[] | [code(.)]]) end),
+      [strong("Dependency changes: ")] + (if $c.governance.dependency_changes == null then [text("not listed (an older plan): any is a person's decision")]
+        elif ($c.governance.dependency_changes | length) == 0 then [text("none")]
+        else inline_list([$c.governance.dependency_changes[]
+          | [code(if .action == "remove" then .package else "\(.package)@\(.version_range)" end),
+             text(" — \(.action), \(.kind), in "), code(.folder)]]) end),
+      [strong("Manual changes, for a person: ")] + (if ($c.governance.manual_changes | length) == 0 then [text("none")]
+        else inline_list([$c.governance.manual_changes[] | [code(.path)]]) end)
+    ])
+  end;
 
 def path_list($items; $none): if ($items | length) > 0 then bullets([$items[] | [code(.)]]) else para($none) end;
 
@@ -240,6 +276,12 @@ elif $mode == "duplicated" then
      | select(. as $h | [$present[] | select(. == $h)] | length > 1)]
 elif $mode == "splice" then splice($ARGS.named.md; $ARGS.named.updates[0])
 elif $mode == "summary-patch" then summary_patch($ARGS.named.updates[0])
+elif $mode == "scope" then
+  # Before the pointer to the full plan (the last block that starts with it),
+  # or at the end.
+  ([to_entries[] | select(.value | plain_text | startswith("Full plan: ")) | .key] | last) as $at
+  | [scope_block($ARGS.named.contract[0])] as $scope
+  | if $at == null then . + $scope else .[:$at] + $scope + .[$at:] end
 else
   . as $plan
   | if $mode == "summary" then [

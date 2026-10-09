@@ -232,3 +232,36 @@ splice() { # <updates json> [plan markdown file]
   assert_line --index 2 1
   assert_line --index 3 true
 }
+
+# PLAN-1: the summary shows what the build will hold itself to — read from the
+# attached file the way the build reads it (its contract) — so an approval
+# covers what's enforced.
+scope_md() { # <contract JSON>: the scope block added to a summary with a pointer, as Markdown
+  jq -n '[{type: "paragraph", content: [{type: "text", text: "Full plan: ", marks: [{type: "strong"}]}, {type: "text", text: "attached"}]}]' \
+    | jq -L "$HUB_LIB" -f "$RENDER" --arg mode scope --arg file "" --argjson level 5 --argjson contract "[$1]" \
+    | jq -r -L "$HUB_LIB" 'include "adf"; {content: .} | to_markdown'
+}
+
+@test "summary: what the build may change — from the build's own reading of the attached plan, before the pointer" {
+  # The plan file as the stage writes it: the version line names the commit.
+  { echo "_Version: 2026-10-01 09:00 UTC — written against commit 1111111111111111111111111111111111111111._"; echo
+    render full 2 | jq -r -L "$HUB_LIB" 'include "adf"; {content: .} | to_markdown'; } > "$BATS_TEST_TMPDIR/plan.md"
+  jq -Rs -L "$HUB_LIB" -f "$HUB_DIR/stages/build/contract.jq" "$BATS_TEST_TMPDIR/plan.md" > "$BATS_TEST_TMPDIR/contract.json"
+  run scope_md "$(cat "$BATS_TEST_TMPDIR/contract.json")"
+  assert_line "##### What the build may change"
+  assert_line --regexp '^- \*\*Files:\*\* `'
+  assert_line --regexp '^- \*\*Must not touch:\*\* '
+  assert_equal "${lines[${#lines[@]}-1]}" "**Full plan:** attached"
+  # Manual changes, and an older plan with no dependency list.
+  run scope_md '{"changes": [], "governance": {"scope_patterns": ["docs/**"], "must_not_touch": [], "manual_changes": [{"path": "infra/main.tf", "change": "x"}], "dependency_changes": null}, "problems": []}'
+  assert_line "- **Files:** none — every change is manual"
+  assert_line '- **Also in scope:** `docs/**`'
+  assert_line "- **Must not touch:** nothing named"
+  assert_line "- **Dependency changes:** not listed (an older plan): any is a person's decision"
+  assert_line '- **Manual changes, for a person:** `infra/main.tf`'
+  # A plan the build can't read: its problems, not a scope.
+  run scope_md '{"changes": [], "governance": {}, "problems": ["Scope & Governance: Must not touch is missing."]}'
+  assert_line "The build can't read the attached plan's scope, so it won't build from it until the file is fixed:"
+  assert_line "- Scope & Governance: Must not touch is missing."
+  refute_line --partial "Files:"
+}

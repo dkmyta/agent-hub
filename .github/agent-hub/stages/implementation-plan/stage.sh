@@ -325,6 +325,11 @@ step_apply() {
       "$RUNNER_TEMP/review.json"
   } > "$PLAN_FILE"
 
+  # The build's own reading of the file (stages/build/contract.jq): the
+  # summary shows what it will hold the build to, so the approval covers it.
+  jq -Rs -L "$HUB_DIR/lib" -f "$HUB_DIR/stages/build/contract.jq" "$PLAN_FILE" > "$RUNNER_TEMP/plan-contract.json" \
+    || stage_fail "Couldn't read the plan's scope the way the build will, so nothing was changed."
+
   # The summary goes into the Implementation Plan section of the current
   # description (read fresh, so edits made during the run are kept);
   # the work order around it is untouched.
@@ -334,7 +339,9 @@ step_apply() {
   else
     jq -L "$HUB_DIR/lib" -f "$STAGE_DIR/render.jq" --arg mode summary \
       --arg file "$(basename "$PLAN_FILE")" --argjson level 5 "$RUNNER_TEMP/plan.json"
-  fi | jq -L "$HUB_DIR/lib" --slurpfile review "$RUNNER_TEMP/review.json" 'include "adf";
+  fi | jq -L "$HUB_DIR/lib" -f "$STAGE_DIR/render.jq" --arg mode scope --arg file "" --argjson level 5 \
+      --slurpfile contract "$RUNNER_TEMP/plan-contract.json" \
+    | jq -L "$HUB_DIR/lib" --slurpfile review "$RUNNER_TEMP/review.json" 'include "adf";
         . + [para([em("Expert review: \($review[0].note)")])]' > "$RUNNER_TEMP/plan-summary.json"
   # The description and labels as they are now are kept, to put back if the
   # plan can't be published after all (see below).

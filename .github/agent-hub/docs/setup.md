@@ -34,8 +34,23 @@ too.
 
 ## 3. Add secrets
 
-Settings → Secrets and variables → Actions → **Secrets**. The tracker's secrets
-are for Jira (GitHub Projects will use the workflow's own GitHub token):
+**In the `agent-hub` environment, limited to your default branch** (since
+2.20.0): Settings → Environments → **New environment** `agent-hub` (or open
+it, if a run already created it) → Deployment branches and tags → **Selected
+branches and tags** → add your default branch (e.g. `main`) → then add the
+secrets below under its **Environment secrets**. Every stage's job uses this
+environment, so a run someone with write access starts on another branch —
+whose copy of the hub's scripts could do anything with a secret — is refused
+before it gets one. Secrets at the repository level (Settings → Secrets and
+variables → Actions) still work, but any branch's run can read them: move
+them into the environment, and delete the repository-level copies. The
+evals' `agent-hub-evals` environment needs its own copy of
+`AGENT_HUB_ANTHROPIC_API_KEY` if you use the evals with the API. (Runs appear
+under the repository's **Deployments**: that's the environment, not a
+deployment.)
+
+The tracker's secrets are for Jira (GitHub Projects will use the workflow's
+own GitHub token):
 
 | Secret | Required | Value |
 |---|---|---|
@@ -95,9 +110,10 @@ API-equivalent dollars ([claude-usage.md](claude-usage.md)):
 | `REVIEW_MAX_BUDGET_USD` | `2.00` | `5.00` | Cap for the expert review |
 | `REVISION_MAX_BUDGET_USD` | `1.00` | `2.00` | Cap for each pass of a revision, which is scoped to the requested changes |
 
-The build (`BUILD`) is **not enabled for real tickets yet**: until the CI
-gate and hand-off (PR 4) a person takes every draft from there, so it runs only with
-`AGENT_HUB_BUILD_PREVIEW=true` — for development, like `playground/`. A Node
+The build (`BUILD`) is **in preview**: the whole flow is built, but it runs
+only with `AGENT_HUB_BUILD_PREVIEW=true` until its manual test and the
+runner requirements are done ([build.md](workflows/build.md#status); the
+production checklist in [build-design.md](workflows/build-design.md)). A Node
 project must declare its Node version (an `.nvmrc`, for example: see
 [build.md](workflows/build.md#toolchain)); its dependencies are installed
 from its lockfile, and the hub runs its checks on every build's commit
@@ -147,6 +163,28 @@ turns schedules off in a repository with no activity for 60 days (turn it
 back on under Actions). Your Jira workflow must allow Implementation Plan
 Approved → Ready for Review ([jira.md](jira.md#transitions)).
 
+**Two repository settings make what the CI gate reads trustworthy** — the
+checks run the build's code, and code that can post a check could pass
+itself:
+- **Workflow permissions: read-only by default** (Settings → Actions →
+  General → Workflow permissions → *Read repository contents and packages
+  permissions*). A workflow then can't post statuses or check runs unless it
+  asks for that permission itself; the hub's own workflows ask only for what
+  they need. (A new repository in an organisation already defaults to this.)
+- **Required checks bound to the app that posts them:** in branch protection
+  or a ruleset, pick each required check with its source — **GitHub
+  Actions** for checks from your workflows — rather than any source. A check
+  with no source can be satisfied by a status anyone with write access (or
+  any token that can write statuses) posts under that name; the hub then
+  counts it, and so does GitHub's merge protection. The CI gate warns in its
+  run log about each required check that isn't bound (since 2.20.0).
+
+**Self-hosted runners:** every stage job starts by emptying its work folder
+(since 2.18.0), so nothing an earlier job's agent left — git hooks or config
+included — reaches a later job. Nothing to set up; it means a full clone
+each job. Use a runner only for this repository, or for repositories you
+trust as much ([runners.md](runners.md)).
+
 ## 5. Set up your tracker
 
 Pick one per repository — see [trackers.md](trackers.md). The stages work the
@@ -160,14 +198,16 @@ pipeline today, use Jira.
 **Jira:** follow **[jira.md](jira.md)** — the single reference for the Jira side — and
 tick off its [installation checklist](jira.md#checklist-for-a-new-installation):
 the Task work type and intake template, statuses and transitions,
-permissions for the `AGENT_HUB_JIRA_EMAIL` account, and the three automation rules
-(Work Order Requested, Implementation Plan Requested, Revision Requested),
-each with its web request pointing at **your** repository.
+permissions for the `AGENT_HUB_JIRA_EMAIL` account, and the five automation rules
+(Work Order Requested, Implementation Plan Requested, Revision Requested,
+Build Requested and Build Command), each with its web request pointing at
+**your** repository's workflow.
 
 Those web requests need **a GitHub token for Jira**: a fine-grained token for
-**this repository only**, with **Contents: Read and write** (what
-`repository_dispatch` requires), ideally owned by a machine user — see
-[step 6](#6-plan-for-credential-expiry).
+**this repository only**, with **Actions: Read and write** and nothing else
+(it starts workflows; it can't push code), ideally owned by a machine user —
+see [step 6](#6-plan-for-credential-expiry) and
+[what it can do](jira.md#web-requests).
 
 ## 6. Plan for credential expiry
 
@@ -179,7 +219,7 @@ token), and Jira holds what it sends (the dispatch token).
 | Credential | Lives in | Expires | When it expires | To renew |
 |---|---|---|---|---|
 | Jira API token | `AGENT_HUB_JIRA_API_TOKEN` secret | On the date set when it was created | Every run fails, and the failure comment can't be posted either (it uses the same token): tickets sit in Work Order | Create a new token for the same Jira account and update the secret |
-| Dispatch token (`agent-hub-dispatch-<repo>`) | Each Jira rule's `Authorization` header | On the date set when it was created | Jira's web request fails, so no run starts | Regenerate it (same access) and update the header in every web request (six across the four rules) |
+| Dispatch token (`agent-hub-dispatch-<repo>`) | Each Jira rule's `Authorization` header | On the date set when it was created | Jira's web request fails, so no run starts | Regenerate it (same access) and update the header in every web request (seven across the five rules) |
 | Claude login | The runner machine | Occasionally | Runs fail with the failure comment | Run `claude` on the runner and log in |
 | `AGENT_HUB_ANTHROPIC_API_KEY` | Secret (API setup only) | When revoked | Runs fail with the failure comment | Create a new key and update the secret |
 | Build token (`agent-hub-build-<repo>`) | `AGENT_HUB_GITHUB_TOKEN` secret (build stage) | On the date set when it was created | Builds fail at their first step; the failure comment says so | Regenerate it for the same user (same access) and update the secret |
@@ -194,23 +234,22 @@ description:
 | | Dispatch token | Build token |
 |---|---|---|
 | Name in GitHub | `agent-hub-dispatch-<repo>` | `agent-hub-build-<repo>` |
-| Description | "Jira automation → repository_dispatch for the agent hub" | "Agent hub build: push agent-hub/* branches, open draft pull requests" |
+| Description | "Jira automation → starts the agent hub's workflows" | "Agent hub build: push agent-hub/* branches, open draft pull requests" |
 | Used by | Jira's rules, to start the stages | The build's fetch and apply steps |
 | Lives in | Jira only ([jira.md](jira.md#web-requests)) | The `AGENT_HUB_GITHUB_TOKEN` secret only |
-| Repository permissions | Contents: read and write | Contents: read and write; Pull requests: read and write |
+| Repository permissions | Actions: read and write (since 2.20.0; Contents before) | Contents: read and write; Pull requests: read and write |
 | Never | In GitHub's secrets | In Jira; in an agent step or one running the repository's code |
 
-**Don't share one token between them**, even though the build token's access
-covers dispatches: each would then carry the other's exposure (Jira holding a
-token that can open pull requests), and rotating or revoking one would break
-both.
+**Don't share one token between them**: each would then carry the other's
+exposure (Jira holding a token that can push code and open pull requests),
+and rotating or revoking one would break both.
 
 **Own them with accounts that aren't a person's**, so they don't break when
 someone leaves or changes role:
 - **Jira**: a dedicated service account for `AGENT_HUB_JIRA_EMAIL` / `AGENT_HUB_JIRA_API_TOKEN` — required, so it can be barred from approving and the hub can tell its own plan files from people's. Your own account works for testing the document stages, not the build ([jira.md](jira.md#permissions-for-the-automation-account)).
 - **GitHub**: a machine user (a GitHub account for automation) that owns the
   fine-grained token in the Jira rule, limited to the repository with
-  **Contents: Read and write**. (A GitHub App can't be used here: its tokens
+  **Actions: Read and write**. (A GitHub App can't be used here: its tokens
   must be minted by signing a JWT, which Jira automation can't do.)
 
 **Know when something fails:**

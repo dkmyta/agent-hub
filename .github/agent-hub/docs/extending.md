@@ -171,9 +171,9 @@ a project in a subfolder, or a repository that isn't a Node project:
 - **Each check** has a `name` (shown on the pull request and the ticket) and
   a `command`, run with `bash` from the repository root; a non-zero exit is
   a failure. Neither may contain a tab or a line break.
-- **Read from the plan's base commit**, as the repository was before the
+- **Read from the target branch as it was when the run started**, before the
   agent ran: a build can't change which checks judge it, and a change to
-  `checks.json` applies from the next plan written after it's merged.
+  `checks.json` applies to builds that start after it's merged.
 - **`{"checks": []}`** runs none. A file that isn't valid stops the build
   before anything is pushed; CI catches it earlier (the hub's tests read it
   as the verify step does).

@@ -6,7 +6,7 @@ enough to work with.
 
 | | |
 |---|---|
-| Trigger | `repository_dispatch` `agent-hub-work-order-requested` (Jira: Work Order Requested or Revision Requested rule), or **Run workflow** with a ticket key |
+| Trigger | `workflow_dispatch` of `agent-hub-work-order.yml` (Jira: Work Order Requested or Revision Requested rule), or **Run workflow** with a ticket key; `repository_dispatch` `agent-hub-work-order-requested` until 2.21.0 |
 | Runs on | `AGENT_HUB_RUNS_ON` (default `[self-hosted, claude]`) — see [runners.md](../runners.md) |
 | Model | `AGENT_HUB_WORK_ORDER_MODEL` (default `claude-sonnet-5`); review `AGENT_HUB_REVIEW_MODEL` (Opus) |
 | Stage files | `stages/work-order/` (steps, settings, prompt, schema, ticket layout, revisions) |

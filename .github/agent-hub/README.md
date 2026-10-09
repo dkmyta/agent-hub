@@ -2,9 +2,10 @@
 
 The agent hub pipeline: the tracker (Jira or GitHub Projects) hands tickets
 to GitHub Actions, where Claude Code does the preparation work — a work
-order, then a technical implementation plan, then the code as a draft pull
-request (the build, being built) — and the results are written back to the
-ticket. People approve each stage before the next starts.
+order, then a technical implementation plan, then the code as a pull
+request, reviewed, fixed and through your CI before a person reviews it (the
+build, in preview) — and the results are written back to the ticket. People
+approve each stage before the next starts, and merge.
 
 ```mermaid
 flowchart LR
@@ -18,10 +19,13 @@ flowchart LR
   IP -.->|/revise| IP
   PA -->|build stage: draft pull request| PA
   PA -->|build: questions| IP
-  PA -.->|build hand-off, next| R[Ready for Review]
+  PA -->|build hand-off: CI passed| R[Ready for Review]
+  R -->|person approves| A[Approved]
+  R -->|pull request merged| D[Done]
+  A -->|pull request merged| D
 ```
 
-Tickets waiting for a person (Work Order, Implementation Plan, later Ready for
+Tickets waiting for a person (Work Order, Implementation Plan, Ready for
 Review) carry the `needs-human` label; approving removes it. Any failure
 leaves the ticket where it is, with a comment linking to the run. Commenting `/revise` and what to change asks the agent to revise its
 work order or plan (or retry a failed run) — for Jira, see
@@ -44,9 +48,11 @@ with **[docs/setup.md](docs/setup.md)**.
 
 | Workflow | Trigger | What it does | Docs |
 |---|---|---|---|
-| [`agent-hub-work-order.yml`](../workflows/agent-hub-work-order.yml) | `agent-hub-work-order-requested` from the tracker, or manual | Turns an intake ticket into a structured work order, or returns it for more detail | [work-order.md](docs/workflows/work-order.md) |
-| [`agent-hub-implementation-plan.yml`](../workflows/agent-hub-implementation-plan.yml) | `agent-hub-implementation-plan-requested` from the tracker (work order approved), or manual | Researches the codebase and writes a technical implementation plan (attached, with a summary in the ticket), or returns the ticket with questions | [implementation-plan.md](docs/workflows/implementation-plan.md) |
-| [`agent-hub-build.yml`](../workflows/agent-hub-build.yml) | `agent-hub-build-requested` from the tracker (plan approved), or manual | Implements the approved plan on `agent-hub/<KEY>` and opens a draft pull request for a person to review, or returns the ticket with questions (being built: an automated review and one fix pass today; the CI gate and hand-off come next) | [build.md](docs/workflows/build.md) |
+| [`agent-hub-work-order.yml`](../workflows/agent-hub-work-order.yml) | The tracker (`workflow_dispatch`), or manual | Turns an intake ticket into a structured work order, or returns it for more detail | [work-order.md](docs/workflows/work-order.md) |
+| [`agent-hub-implementation-plan.yml`](../workflows/agent-hub-implementation-plan.yml) | The tracker (work order approved), or manual | Researches the codebase and writes a technical implementation plan (attached, with a summary in the ticket), or returns the ticket with questions | [implementation-plan.md](docs/workflows/implementation-plan.md) |
+| [`agent-hub-build.yml`](../workflows/agent-hub-build.yml) | The tracker (plan approved; `/skip` and `/apply`), the two workflows below, or manual | Implements the approved plan on `agent-hub/<KEY>` as a draft pull request, reviews and fixes it, waits for your required checks and hands it to a person; reconciles people's commits and a moved target branch; or returns the ticket with questions (in preview) | [build.md](docs/workflows/build.md) |
+| [`agent-hub-ci-sweep.yml`](../workflows/agent-hub-ci-sweep.yml) | Every 10 minutes | Wakes the build's CI gate for a hub pull request whose required checks have finished (no Claude, no secrets) | [build.md](docs/workflows/build.md) |
+| [`agent-hub-pr-closed.yml`](../workflows/agent-hub-pr-closed.yml) | A hub pull request closed | Wakes the build to move a merged, handed-off ticket to Done (no checkout, no Claude) | [build.md](docs/workflows/build.md) |
 | [`agent-hub-stage.yml`](../workflows/agent-hub-stage.yml) | Called by the stage workflows above | The steps every stage runs through: fetch the ticket, run the agent, apply the result or send the ticket back | [architecture.md](docs/architecture.md) |
 | [`agent-hub-tests.yml`](../workflows/agent-hub-tests.yml) | Pull requests and pushes to `main` that change the hub | Lint + the test suite | [tests/README.md](tests/README.md) |
 | [`agent-hub-evals.yml`](../workflows/agent-hub-evals.yml) | Manual | Live Claude evals of the agents' decisions | [evals.md](docs/evals.md) |
@@ -66,7 +72,8 @@ with **[docs/setup.md](docs/setup.md)**.
 - [Runners and Claude access](docs/runners.md) — self-hosted runner with a Claude subscription, or the Claude API
 - [Work order workflow](docs/workflows/work-order.md) — usage, tracker setup, edge cases, known gaps
 - [Implementation plan workflow](docs/workflows/implementation-plan.md) — usage, tracker setup, guardrails, edge cases
-- [Build stage](docs/workflows/build.md) (a development preview, being built) — what it does today and the full design: flow, review and fixes, CI gate, human gates, safety, the build order and decisions
+- [Build workflow](docs/workflows/build.md) (in preview) — usage, setup, each step, review items and commands, the CI gate and hand-off, safety, edge cases
+- [Build design record](docs/workflows/build-design.md) — the contracts, decisions, risks, costs and what comes after v1
 - [Workflow doc template](docs/workflows/TEMPLATE.md) — start here for a new workflow
 - [Contributing](CONTRIBUTING.md) — local setup, checks, and the definition of done
 - [Tests](tests/README.md) — what's covered and how to run it

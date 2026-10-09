@@ -5,6 +5,63 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.20.0 — 2026-10-09
+
+Dispatch, setup and docs, from the 2.17.0 reviews.
+
+- **The Jira rules start workflows directly** (`workflow_dispatch`), with a
+  token that has only **Actions: read and write** — it can start workflows,
+  but not push code, as the old **Contents: read and write** token could.
+  Each rule calls its stage's workflow
+  (`…/actions/workflows/<file>/dispatches`, body
+  `{"ref": "<default branch>", "inputs": {"ticket_key": …}}`).
+  `repository_dispatch` still works in this release, so nothing breaks while
+  the rules change; the next release removes it.
+- **Secrets in an `agent-hub` environment:** every stage's job names it, so
+  with the secrets there and the environment limited to the default branch,
+  a run someone starts on another branch — with its own copy of the hub's
+  scripts — gets none of them. GitHub creates the environment on the first
+  run; repository-level secrets keep working until you move them.
+- **The CI gate warns about a required check not bound to an app** (any
+  source can meet it, the build's own code in CI included), and setup now
+  asks for read-only default workflow permissions and app-bound required
+  checks.
+- **The plan summary shows what the build may change:** the files and how,
+  wider scope patterns, what it must not touch, the dependency changes and
+  the manual changes — read from the attached plan the way the build reads
+  it, so approving the plan approves what the build's gates enforce. A plan
+  the build can't read shows its problems instead.
+- **Docs current:** the build is described as complete and in preview
+  everywhere; `build.md` is now the workflow as built, and a new
+  `build-design.md` holds the contracts, decisions, history, after v1 and
+  the **production checklist** (including the CI sweep's and closed-PR
+  workflow's preview condition, and the approvers group as required);
+  Revision Requested limited to the people who work the tickets, and why;
+  the counts (five rules, seven web requests), the shared concurrency, where
+  `checks.json` is read from, and the build's review cap corrected. The
+  pull request's note and the ticket's report describe the hand-off instead
+  of "a later version". "Support for any device" (Windows) is on the after
+  v1 list.
+- **Tests:** setup.md must document every setting the code defines, with
+  its default; the stage workflows must take what the tracker sends; the
+  stage job's environment; the scope block; the unbound-check warning.
+
+**Updating:**
+- **Change the Jira rules** ([jira.md](docs/jira.md#web-requests)): create a
+  dispatch token with only Actions: read and write, then in each of the
+  seven web requests set the URL to its stage's workflow, the body to
+  `{"ref": "main", "inputs": {"ticket_key": "{{issue.key}}"}}` (your default
+  branch; Build Command adds `"wake": "command"`) and the new token. Check
+  each rule's audit log shows 204, then delete the old token. Before 2.21.0.
+- **Move the secrets** into the `agent-hub` environment, limit it to your
+  default branch, and delete the repository-level copies
+  ([setup.md](docs/setup.md#3-add-secrets)).
+- **Set read-only default workflow permissions, and bind each required
+  check to its app** ([setup.md](docs/setup.md)).
+- Runs now show under the repository's Deployments (the environment).
+- Links into `build.md` for its contracts, decisions, history or after v1
+  now point to `build-design.md`.
+
 ## 2.19.0 — 2026-10-09
 
 Correctness fixes from the 2.17.0 reviews, and how the hub is tested.
@@ -442,7 +499,7 @@ planted problem, the fix was kept and confirmed, $0.38).
 The build stage's contracts, written down before 4c and 4d are built, and
 faster step start-up.
 
-- **Contracts** (build.md, "Contracts"): the rules every part of the build,
+- **Contracts** (build-design.md, "Contracts"): the rules every part of the build,
   built or planned, must keep — fail before Claude; agents propose, gates
   decide, only verified candidates are published; the publication policy;
   people merge; budget as three limits (the cap, run admission, each pass's
@@ -870,7 +927,7 @@ supply-chain checks dependency bots use. The second part of 3d.
 Less Claude spend on builds that can't succeed, the runner's caches checked
 on every use, and clearer wording. The first part of 3d, after a review of
 its plan against how dependency bots, npm and CI systems handle the same
-jobs (docs/workflows/build.md, "Building it").
+jobs (docs/workflows/build-design.md, "Building it").
 
 - **Baseline before Claude.** The repository's checks now also run on the
   base commit before the agent. If one already fails there, the build would
@@ -903,7 +960,7 @@ jobs (docs/workflows/build.md, "Building it").
 - **Design, 3d-2 (the dependency step):** dependencies resolved by the hub
   before the agent, from an exact list in the plan, with a minimum release
   age, provenance and licence checks; reconciliation of an existing pull
-  request moved to PR 4 ([build.md](docs/workflows/build.md#building-it)).
+  request moved to PR 4 ([build.md](docs/workflows/build-design.md#building-it)).
 
 **Updating:** nothing to do. A repository whose checks can't pass in the
 sandbox (they need the network or a service) now finds out before Claude
@@ -1002,7 +1059,7 @@ said it ran.
   the command started; the build job's limit is now 140 minutes.
 - **The preview gate stays until the review and CI gate (PR 4)**, changing
   the earlier plan to lift it now: a person is still the build's only
-  reviewer ([build.md](docs/workflows/build.md#building-it)).
+  reviewer ([build.md](docs/workflows/build-design.md#building-it)).
 - **Tests:** the sandbox probed against the real runtime
   (`tests/shared/sandbox.bats`: an install script's child process, localhost
   for checks, the time limit), run in CI on Linux with the sandbox tools

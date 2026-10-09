@@ -36,7 +36,7 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
        else " This repository is public, so the ticket's details — the request, the acceptance criteria and how each is verified, the commands the checks ran, the steps to review it and the decision log — are on the ticket, not here." end),
   "",
   "> [!NOTE]",
-  "> A draft: the CI gate and the hand-off come in a later version, so a person reviews this before it's marked ready — with the automated review's items below.",
+  "> A draft until the hub hands it off: once the review is done, no decision item is open and every required check has passed on its latest commit, it's marked ready for review. Items for a person are below.",
 
   section("What changed"; (if $publish then [$b.summary | safe, ""] else [] end)
     + ["\(plural($g.totals.files; "file")), \(plural($g.totals.lines; "changed line")):", ""]

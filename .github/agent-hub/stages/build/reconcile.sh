@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Reconciling a build that already has the hub's pull request (4c;
-# docs/workflows/build.md, "Contracts"): instead of stopping, the run works
+# docs/workflows/build-design.md, "Contracts"): instead of stopping, the run works
 # out what the open pull request needs and does only that.
 #
 #   paused (agent-hub-paused label)        → nothing (outcome paused)

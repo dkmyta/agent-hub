@@ -1,7 +1,7 @@
 Built by the agent hub from the approved implementation plan for [PROJ-99](https://example.atlassian.net/browse/PROJ-99).
 
 > [!NOTE]
-> A draft: the CI gate and the hand-off come in a later version, so a person reviews this before it's marked ready — with the automated review's items below.
+> A draft until the hub hands it off: once the review is done, no decision item is open and every required check has passed on its latest commit, it's marked ready for review. Items for a person are below.
 
 ## What changed
 

@@ -14,7 +14,7 @@ current is part of the definition of done (CONTRIBUTING.md).
 
 | | |
 |---|---|
-| Trigger | `repository_dispatch` `agent-hub-<stage>-requested` (Jira: <rules>), or **Run workflow** with a ticket key |
+| Trigger | `workflow_dispatch` of `agent-hub-<stage>.yml` (Jira: <rules>, [web requests](../jira.md#web-requests)), or **Run workflow** with a ticket key |
 | Runs on | `AGENT_HUB_RUNS_ON` — see [runners.md](../runners.md) |
 | Model | <draft model>; review `AGENT_HUB_REVIEW_MODEL` |
 | Stage files | `stages/<stage>/` |
