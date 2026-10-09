@@ -30,6 +30,9 @@
 #                        app id they're posted by (default 15368)
 #   MOCK_GH_STATUSES     commit statuses, a JSON object context → state
 #   MOCK_GH_LOG          a failed Actions job's log (default: one line)
+#   MOCK_GH_THREADS      the pull request's review threads (GraphQL nodes;
+#                        default none); replies go to thread-replies.jsonl,
+#                        resolved threads to resolved-threads.jsonl
 #   MOCK_GH_ON_CHECKS    a script run once, when the check runs are first read —
 #                        e.g. a person pushing while the hub reads CI
 #
@@ -132,7 +135,11 @@ gh_request() {
       # MOCK_GH_RACE: a person's description, saved straight after the hub's.
       [ -z "${MOCK_GH_RACE:-}" ] || mock_gh_edit "${path##*/}" dana "$MOCK_GH_RACE"
       echo '{}' ;;
-    "POST $repo/issues/"*/comments)
+    "POST $repo/pulls/"*/comments/*/replies)
+      mkdir -p "$RUNNER_TEMP/mock-github"
+      jq -c --arg path "$path" '{to: ($path | split("/") | .[-2]), body}' <<< "$body" >> "$RUNNER_TEMP/mock-github/thread-replies.jsonl"
+      echo '{"id": 2}' ;;
+        "POST $repo/issues/"*/comments)
       local n=${path#"$repo/issues/"}; n=${n%/comments}
       mkdir -p "$RUNNER_TEMP/mock-github"
       jq -nc --argjson n "$n" --argjson req "$body" '{number: $n, body: $req.body}' >> "$RUNNER_TEMP/mock-github/comments.jsonl"
@@ -143,6 +150,22 @@ gh_request() {
         'map(if .number == $n then .labels += [$req.labels[] | {name: .}] else . end)' "$state" > "$state.new" && mv "$state.new" "$state"
       echo '[]' ;;
     "POST /graphql")
+      if jq -e '.query | test("convertPullRequestToDraft")' <<< "$body" > /dev/null; then
+        local n
+        n=$(jq -r '.variables.id | ltrimstr("PR_")' <<< "$body")
+        jq --argjson n "$n" 'map(if .number == $n then .draft = true else . end)' "$state" > "$state.new" && mv "$state.new" "$state"
+        echo '{"data": {"convertPullRequestToDraft": {"pullRequest": {"isDraft": true}}}}'
+        return 0
+      fi
+      if jq -e '.query | test("resolveReviewThread")' <<< "$body" > /dev/null; then
+        jq -c '.variables.id' <<< "$body" >> "$RUNNER_TEMP/mock-github/resolved-threads.jsonl"
+        echo '{"data": {"resolveReviewThread": {"thread": {"isResolved": true}}}}'
+        return 0
+      fi
+      if jq -e '.query | test("reviewThreads")' <<< "$body" > /dev/null; then
+        jq -nc --argjson t "${MOCK_GH_THREADS:-[]}" '{data: {repository: {pullRequest: {reviewThreads: {nodes: $t}}}}}'
+        return 0
+      fi
       if jq -e '.query | test("markPullRequestReadyForReview")' <<< "$body" > /dev/null; then
         local n
         n=$(jq -r '.variables.id | ltrimstr("PR_")' <<< "$body")

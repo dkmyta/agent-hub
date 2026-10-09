@@ -81,6 +81,14 @@ _reconcile_start() {
   # Where the pull request last met the target branch — the target's head
   # (the checkout) when it hasn't moved since.
   base=$(git merge-base "$target_head" "$head") || stage_fail "Couldn't find where $branch started from the target branch, so nothing was changed."
+  # An accepted /apply (commands.sh): a fix of the requested items on exactly
+  # the head the hub last recorded — checked again here.
+  if [ -s "$RUNNER_TEMP/apply-request.json" ]; then
+    [ "$head" = "$last" ] && [ "$head" = "$(jq -r '.head' "$RUNNER_TEMP/apply-request.json")" ] \
+      || stage_fail "Pull request #$number changed while the hub was reading the /apply, so nothing was applied. Re-run the build, then /apply again."
+    _apply_start "$number" "$head" "$base"
+    return 0
+  fi
   # Exactly as the hub left it, and up to date with the target: the CI gate
   # and, once every required check passed on this head, the hand-off
   # (handoff.sh). It ends the run. (For the sweep, the target moving isn't a
@@ -251,7 +259,10 @@ reconcile_verify() {
 reconcile_apply() {
   local base branch target number start reviewed status_file="" publish
   if ci_fixing; then ci_fix_apply; return; fi
-  stage_require_status "$PLAN_APPROVED_STATUS"
+  if applying; then apply_fix_apply; return; fi
+  # (Where the run found it: Implementation Plan Approved, or — for the CI
+  # gate and item commands — Ready for Review or Approved.)
+  stage_require_status "$(stage_start_status)"
   build_git
   _require_same_plan
   base=$(context .base) branch=$(context .branch) target=$(context .target) number=$(context .pr)
@@ -405,7 +416,9 @@ _reconcile_push() {
 # person takes over. Either way the record says what this attempt did.
 ci_fix_apply() {
   local branch target number start status after
-  stage_require_status "$PLAN_APPROVED_STATUS"
+  # (Where the run found it: Implementation Plan Approved, or — for the CI
+  # gate and item commands — Ready for Review or Approved.)
+  stage_require_status "$(stage_start_status)"
   build_git
   _require_same_plan
   branch=$(context .branch) target=$(context .target) number=$(context .pr) start=$(context .start_head)

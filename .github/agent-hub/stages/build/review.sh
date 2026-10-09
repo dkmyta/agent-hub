@@ -58,6 +58,15 @@ step_review() {
     echo "**Code review:** none — a CI fix: $(jq '.findings | length' "$CODE_REVIEW") failed required check(s) for the fix pass." >> "$GITHUB_STEP_SUMMARY"
     return 0
   fi
+  # An /apply (commands.sh): no code review — the requested items and review
+  # threads are the findings, each for the fix pass, as the command built
+  # them.
+  if reconciling && applying; then
+    jq -n --arg head "$head" --slurpfile f "$RUNNER_TEMP/apply-findings.json" \
+      '{status: "reviewed", source: "apply", head: $head, summary: "Items an approver asked for.", cost: 0, duration_ms: 0, findings: $f[0]}' > "$CODE_REVIEW"
+    echo "**Code review:** none — an /apply: $(jq '.findings | length' "$CODE_REVIEW") requested item(s) for the fix pass." >> "$GITHUB_STEP_SUMMARY"
+    return 0
+  fi
   # Reconciling a merge of mechanical drift only: the earlier review still
   # applies (reconcile.sh), and no Claude runs.
   if reconciling && ! reconcile_reviews; then

@@ -38,15 +38,21 @@ changes() {
 
 if [ "$stages" = false ]; then changes; exit 0; fi
 
-found=$(changes | while IFS= read -r line; do
-  case "$line" in
+# stage_of <line>: the stage a changed path belongs to, or all. (A function,
+# not a case statement inside a command substitution: Bash 3.2, macOS's,
+# misparses one.)
+stage_of() {
+  local stage
+  case "$1" in
     "$HUB"/lib/*) echo all ;;
-    "$HUB"/stages/*) stage=${line#"$HUB"/stages/}; echo "${stage%%/*}" ;;
+    "$HUB"/stages/*) stage=${1#"$HUB"/stages/}; echo "${stage%%/*}" ;;
     "$EXT"/shared/*) echo all ;;
-    "$EXT"/*) stage=${line#"$EXT"/}; echo "${stage%%/*}" ;;
+    "$EXT"/*) stage=${1#"$EXT"/}; echo "${stage%%/*}" ;;
     .github/workflows/agent-hub-*)
-      stage=${line#.github/workflows/agent-hub-}; stage=${stage%%.y*}
+      stage=${1#.github/workflows/agent-hub-}; stage=${stage%%.y*}
       if [ -d "$HUB/stages/$stage" ]; then echo "$stage"; else echo all; fi ;;
   esac
-done | sort -u)
+}
+
+found=$(changes | while IFS= read -r line; do stage_of "$line"; done | sort -u)
 if grep -qx all <<< "$found"; then echo all; elif [ -n "$found" ]; then echo "$found"; fi

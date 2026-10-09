@@ -1224,7 +1224,7 @@ pass_row() { # <pass name>: that row's cells, one per line
   done
   # Every setting named in the table exists in the settings files.
   local var short
-  for var in $(awk -F'|' '/^\| (Draft|Expert review|Build|Code review|Fix|Fix check|CI fix) \|/ { print $5, $6 }' "$HUB_DIR/docs/architecture.md" | grep -o 'AGENT_HUB_[A-Z_<>]*' | sort -u); do
+  for var in $(awk -F'|' '/^\| (Draft|Expert review|Build|Code review|Fix|Fix check|CI fix|Apply) \|/ { print $5, $6 }' "$HUB_DIR/docs/architecture.md" | grep -o 'AGENT_HUB_[A-Z_<>]*' | sort -u); do
     case "$var" in
       AGENT_HUB_\<STAGE\>_*) short=${var#AGENT_HUB_<STAGE>_}; grep -qE "stage_setting_into [A-Z_]+ $short " "$HUB_DIR"/stages/work-order/settings.sh || fail "$var: no stage setting $short" ;;
       AGENT_HUB_BUILD_*) short=${var#AGENT_HUB_BUILD_}; grep -qE "stage_setting_into [A-Z_]+ $short " "$HUB_DIR/stages/build/settings.sh" || fail "$var: not a build setting" ;;
@@ -1956,10 +1956,132 @@ resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment
   assert_output --partial "not done: /skip takes only item ids"
   run trace
   assert_line "--- Outcome: no change needed"
-  # An id that isn't open; /apply not yet.
-  command_run "$(command_comments '/skip R9' '/apply D1')"
+  # An id that isn't open, for either command.
+  command_run "$(command_comments '/skip R9' '/apply C9')"
   run resolutions
   assert_output --partial "/comment/700 ✅ Resolved — nothing changed; not open on pull request #101: R9"
-  assert_output --partial "/comment/701 ✅ Resolved — not done: /apply arrives in a later version of the hub"
+  assert_output --partial "/comment/701 ✅ Resolved — nothing to apply: C9 (not open)"
   assert_equal "$(jq -r '.items[0].status' <<< "$(pr_state)")" open
+}
+
+# Step 5b-2: /apply — the requested items, through the fix pass's path.
+# findings_pr: a build whose review left items open (no fix kept), its
+# record and the review it kept carried to the next run.
+findings_pr() {
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh CLAUDE_PASS_FIXTURE=claude/review-findings.json
+  keep_properties
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+}
+apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kept
+  local text=$1
+  shift
+  command_run "$(command_comments "$text")" CLAUDE_FIX_FIXTURE=claude/fix.json \
+    CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json CLAUDE_FIX_EDITS=edits/fix-trim.sh "$@"
+}
+
+@test "/apply R1: the item fixed through the fix pass's path — pushed as the hub's, attributed to the /apply, closed as fixed, answered on the ticket" {
+  findings_pr
+  local before
+  before=$(branch_head)
+  assert_equal "$(jq -r '[.items[] | select(.id == "R1")][0].status' <<< "$(pr_state)")" open
+  apply_run '/apply r1'
+  run trace
+  assert_line "Review: success"
+  assert_line "Fix: success"
+  assert_line "Verify fix: success"
+  assert_line "--- Outcome: revised"
+  # The fix pass got the item's finding from the review the hub kept, with
+  # the /apply instructions; no new code review.
+  run cat "$RUNNER_TEMP/apply-pass-prompt.md"
+  assert_output --partial "# Apply agent"
+  run cat "$RUNNER_TEMP/claude-fix-prompt.txt"
+  assert_output --partial "$(jq -r '.structured_output.findings[0].title' "$FIXTURES/claude/review-findings.json")"
+  [ ! -e "$RUNNER_TEMP/claude-pass-prompt.txt" ] || fail "a code review ran"
+  assert_equal "$(git --git-dir="$REMOTE" rev-parse "$(branch_head)^")" "$before"
+  assert_equal "$(git --git-dir="$REMOTE" log -1 --format=%s "$(branch_head)")" "Apply the items an approver asked for"
+  run jq -c --arg head "$(branch_head)" '{last: (.heads[-1] | {kind, verified: (.verified.head == $head), applied}), r1: ([.items[] | select(.id == "R1")][0].status)}' <<< "$(pr_state)"
+  assert_output '{"last":{"kind":"fix","verified":true,"applied":{"comment":"700"}},"r1":"fixed"}'
+  run resolutions
+  assert_output --partial "/comment/700 ✅ Resolved — applied in"
+  assert_output --partial "R1 fixed — src/greet.js trims the name"
+  run pr_comments
+  assert_output --partial "🔁 Applied by the agent hub (an /apply by an approver on the ticket): R1, in"
+  refute_output --partial "trims the name"
+}
+
+@test "/apply all: every open R item, never a decision" {
+  findings_pr
+  local open_r
+  open_r=$(jq -c '[.items[] | select(.status == "open" and (.id | startswith("R"))) | .id]' <<< "$(pr_state)")
+  apply_run '/apply all'
+  run jq -c '[.apply.sources[].item]' "$RUNNER_TEMP/build-context.json"
+  assert_output "$open_r"
+  refute_output --partial '"D'
+  [ "$(jq '.apply.sources | length' "$RUNNER_TEMP/build-context.json")" -gt 0 ]
+}
+
+@test "/apply comments: the unresolved review threads from people with write access, as read at the start — replied to and resolved when applied" {
+  findings_pr
+  local threads='[{"id": "T1", "isResolved": false, "path": "src/greet.js", "line": 2, "comments": {"nodes": [{"databaseId": 501, "body": "Trim the name (THREAD-MARKER-1).", "authorAssociation": "COLLABORATOR", "author": {"login": "sam"}}]}},
+    {"id": "T2", "isResolved": true, "path": "src/greet.js", "line": 1, "comments": {"nodes": [{"databaseId": 502, "body": "Done already.", "authorAssociation": "OWNER", "author": {"login": "sam"}}]}},
+    {"id": "T3", "isResolved": false, "path": "README.md", "line": 1, "comments": {"nodes": [{"databaseId": 503, "body": "Rewrite everything.", "authorAssociation": "NONE", "author": {"login": "stranger"}}]}}]'
+  apply_run '/apply comments' "MOCK_GH_THREADS=$threads"
+  run trace
+  assert_line "--- Outcome: revised"
+  run cat "$RUNNER_TEMP/claude-fix-prompt.txt"
+  assert_output --partial "THREAD-MARKER-1"
+  refute_output --partial "Rewrite everything"
+  run cat "$RUNNER_TEMP/mock-github/thread-replies.jsonl"
+  assert_output --partial '"to":"501"'
+  assert_output --partial "✅ Applied by the agent hub in"
+  refute_output --partial "trims"
+  run cat "$RUNNER_TEMP/mock-github/resolved-threads.jsonl"
+  assert_output '"T1"'
+}
+
+@test "/apply: refused after anyone else's push, for a manual change or a hub decision, or with other words — nothing applied" {
+  findings_pr
+  apply_run '/apply R1 please'
+  run resolutions
+  assert_output --partial "not done: /apply takes only item ids"
+  apply_run '/apply C9 D3'
+  run resolutions
+  assert_output --partial "nothing to apply: C9 (not open), D3"
+  run trace
+  assert_line "Agent: skipped"
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  apply_run '/apply R1'
+  run resolutions
+  assert_output --partial "not done: pull request #101 has commits the hub hasn't checked"
+  run trace
+  assert_line "Agent: skipped"
+}
+
+@test "/apply after the hand-off: back to draft, the ticket stays in Ready for Review; once CI passes on the new commit, handed off again" {
+  findings_pr
+  # Hand it off first (its decision items accepted).
+  command_run "$(command_comments '/skip D1 D2')"
+  keep_properties
+  carry_prs
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  run trace
+  assert_line "--- Outcome: handed off"
+  keep_properties
+  carry_prs
+  apply_run '/apply R2' "MOCK_STATUS=Ready for Review" CLAUDE_FIX_FIXTURE=claude/fix.json \
+    'CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json'
+  run trace
+  assert_line "--- Outcome: revised"
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" true
+  [ ! -e "$RUNNER_TEMP/mock-status" ] || fail "the ticket was moved"
+  run pr_comments
+  assert_output --partial "a draft until every required check passes on the new commit"
+  keep_properties
+  carry_prs
+  reconcile_run AGENT_HUB_WAKE=ci "MOCK_STATUS=Ready for Review" 'MOCK_GH_CHECKS={"test": "success"}'
+  run trace
+  assert_line "--- Outcome: handed off"
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" false
+  [ ! -e "$RUNNER_TEMP/mock-status" ] || fail "the ticket was moved again"
 }

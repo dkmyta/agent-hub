@@ -36,7 +36,7 @@ if [ "$1" = --help ]; then [ "${CLAUDE_NO_RESTRICTED:-}" = 1 ] || echo "  --rest
 
 case " $* " in
   *fix-check-pass-prompt.md*) pass=fix-check ;;
-  *fix-pass-prompt.md*) pass=fix ;;
+  *fix-pass-prompt.md* | *apply-pass-prompt.md*) pass=fix ;;
   *pass-prompt.md*) pass=pass ;;
   *review-prompt.md*) pass=review ;;
   *) pass=draft ;;
