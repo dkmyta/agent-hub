@@ -1,5 +1,5 @@
 Clear the work folder | id: - | if: runner.environment == 'self-hosted' | env: - | continue-on-error: false | timeout: 2
-actions/checkout | id: - | if: - | env: - | continue-on-error: false | timeout: -
+actions/checkout | id: - | if: - | env: - | continue-on-error: false | timeout: 10
 Copy the hub | id: - | if: - | env: - | continue-on-error: false | timeout: 1
 Find the toolchain | id: toolchain | if: inputs.code-stage | env: - | continue-on-error: false | timeout: 1
 Set up Node | id: - | if: inputs.code-stage | env: - | continue-on-error: false | timeout: 5

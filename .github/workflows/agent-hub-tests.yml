@@ -3,7 +3,7 @@ name: "Agent hub: Tests"
 # The agent hub's own checks: the same checks as its local hooks
 # (.github/agent-hub/.pre-commit-config.yaml), which contributors can skip,
 # plus its test suite on both jq versions, and the stages' scenarios on macOS
-# with its own Bash 3.2. In a repository that has the hub
+# with its own Bash 3.2 (on main, the whole suite). In a repository that has the hub
 # copied in, they only run when a pull request changes hub files
 # (.github/agent-hub/, .github/workflows/agent-hub-*,
 # .github/ISSUE_TEMPLATE/agent-hub-*) or the repository's extensions
@@ -178,13 +178,18 @@ jobs:
 
   # A self-hosted Mac runner has macOS's own Bash 3.2 unless someone installs
   # a newer one, so every stage's scenarios — the most shell code — also run
-  # with it. The rest of the suite runs above, on Linux.
+  # with it on pull requests; on main, the whole suite does (the rest runs
+  # above, on Linux, for pull requests).
   test-macos:
     name: Test (macOS, Bash 3.2)
     needs: changes
     if: needs.changes.outputs.hub == 'true'
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
+    # A language other than C, as on people's machines: the suite mustn't
+    # depend on the locale.
+    env:
+      LANG: en_CA.UTF-8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -213,8 +218,16 @@ jobs:
       - run: npm ci --prefix .github/agent-hub/tests --ignore-scripts
 
       - name: Stage scenarios
+        if: github.event_name == 'pull_request'
         working-directory: .github/agent-hub/tests
         run: lib/run-tests.sh --timing work-order/scenarios.bats implementation-plan/scenarios.bats build/scenarios.bats shared/stage-workflow.bats
+
+      # On main, the whole suite: the unit tests under Bash 3.2 and macOS's
+      # tools too.
+      - name: Whole suite
+        if: github.event_name != 'pull_request'
+        working-directory: .github/agent-hub/tests
+        run: npm test
 
   # The checks to require: each passes if its jobs passed, or were skipped
   # because the hub didn't change. Changing the jq versions never changes the

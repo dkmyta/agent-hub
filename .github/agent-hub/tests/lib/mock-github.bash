@@ -9,7 +9,9 @@
 #   MOCK_GH_LOGIN        the token's user (default: agent-hub-bot)
 #   MOCK_GH_VISIBILITY   public or private (default: private)
 #   MOCK_GH_EDITS_PAGE   edits per page of edit history (default: 100)
-#   MOCK_GH_FAIL         "METHOD path" of a call that should fail
+#   MOCK_GH_FAIL         "METHOD path" of a call that should fail; for
+#                        GraphQL, "POST /graphql <name>" fails only the
+#                        query or mutation that names <name>
 #   MOCK_GH_HISTORY      a recorded edit-history response to serve for the
 #                        GraphQL query instead of the mock's own (from
 #                        shared/fixtures/github-edit-history)
@@ -28,13 +30,16 @@
 #                        conclusion (success, failure, …) or status (queued,
 #                        in_progress); default none. MOCK_GH_CHECKS_APP: the
 #                        app id they're posted by (default 15368)
-#   MOCK_GH_STATUSES     commit statuses, a JSON object context → state
+#   MOCK_GH_STATUSES     commit statuses, a JSON object context → state;
+#                        MOCK_GH_STATUS_TOTAL: the total GitHub reports
+#                        (default: as many as there are)
 #   MOCK_GH_LOG          a failed Actions job's log (default: one line)
 #   MOCK_GH_PERMISSIONS  a user's permission on the repository: JSON login →
 #                        read, write, maintain or admin (default: read)
 #   MOCK_GH_THREADS      the pull request's review threads (GraphQL nodes;
 #                        default none); replies go to thread-replies.jsonl,
-#                        resolved threads to resolved-threads.jsonl
+#                        resolved threads to resolved-threads.jsonl;
+#                        MOCK_GH_THREADS_MORE=1: more than one page of them
 #   MOCK_GH_ON_CHECKS    a script run once, when the check runs are first read —
 #                        e.g. a person pushing while the hub reads CI
 #
@@ -66,7 +71,9 @@ gh_request() {
   path=${url#"$GH_API"}
   jq -nc --arg method "$method" --arg path "$path" --arg body "$body" --arg ci "${GH_READ_CI:-}" \
     '{method: $method, path: $path, body: (if $body == "" then null else ($body | fromjson) end)} + (if $ci == "1" then {ci: true} else {} end)' >> "$GH_CALLS"
-  if [ "$method $path" = "${MOCK_GH_FAIL:-}" ]; then
+  if [ "$method $path" = "${MOCK_GH_FAIL:-}" ] \
+     || { [ "$method $path" = "${MOCK_GH_FAIL% *}" ] && [ "${MOCK_GH_FAIL##* }" != "$path" ] \
+          && jq -e --arg name "${MOCK_GH_FAIL##* }" '.query | contains($name)' <<< "$body" > /dev/null 2>&1; }; then
     echo '{"message": "Mock GitHub failure"}'
     return 22
   fi
@@ -81,7 +88,7 @@ gh_request() {
       sha=$(git --git-dir="${REMOTE:-/nonexistent}" rev-parse "refs/heads/$branch" 2> /dev/null || true)
       jq -c --arg b "$branch" --arg repo "$GITHUB_REPOSITORY" --arg sha "$sha" \
         '[.[] | select(.head.ref == $b) | . + {node_id: "PR_\(.number)", head: {ref: .head.ref, sha: $sha, repo: {full_name: $repo}}} | del(.versions)]' "$state" ;;
-    "GET $repo/pulls?state=open&per_page=100")
+    "GET $repo/pulls?state=open&per_page=100&page=1")
       # Each head's commit from the test's remote, as GitHub reports it.
       local prs pr out="[]" sha
       prs=$(jq -c --arg repo "$GITHUB_REPOSITORY" '.[] | select(.state == "open") | . + {node_id: "PR_\(.number)", head: {ref: .head.ref, repo: {full_name: $repo}}} | del(.versions)' "$state")
@@ -116,7 +123,8 @@ gh_request() {
       # The job's log: MOCK_GH_LOG, or a short one.
       printf '%s\n' "${MOCK_GH_LOG:-2026-10-08T10:00:00Z not ok 1 greets by name}" ;;
         "GET $repo/commits/"*/status*)
-      jq -nc --argjson s "${MOCK_GH_STATUSES:-"{}"}" '{statuses: [$s | to_entries[] | {context: .key, state: .value}]}' ;;
+      jq -nc --argjson s "${MOCK_GH_STATUSES:-"{}"}" --arg total "${MOCK_GH_STATUS_TOTAL:-}" \
+        '{statuses: [$s | to_entries[] | {context: .key, state: .value}]} | .total_count = (if $total == "" then (.statuses | length) else ($total | tonumber) end)' ;;
     "POST $repo/actions/workflows/"*/dispatches)
       mkdir -p "$RUNNER_TEMP/mock-github"
       jq -c --arg wf "${path#"$repo/actions/workflows/"}" '. + {workflow: ($wf | rtrimstr("/dispatches"))}' <<< "$body" >> "$RUNNER_TEMP/mock-github/dispatches.jsonl"
@@ -170,7 +178,8 @@ gh_request() {
         return 0
       fi
       if jq -e '.query | test("reviewThreads")' <<< "$body" > /dev/null; then
-        jq -nc --argjson t "${MOCK_GH_THREADS:-[]}" '{data: {repository: {pullRequest: {reviewThreads: {nodes: $t}}}}}'
+        jq -nc --argjson t "${MOCK_GH_THREADS:-[]}" --arg more "${MOCK_GH_THREADS_MORE:-}" \
+          '{data: {repository: {pullRequest: {reviewThreads: ({nodes: $t} + if $more == "" then {} else {pageInfo: {hasNextPage: true}} end)}}}}'
         return 0
       fi
       if jq -e '.query | test("markPullRequestReadyForReview")' <<< "$body" > /dev/null; then

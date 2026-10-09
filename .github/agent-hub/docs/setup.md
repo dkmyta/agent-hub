@@ -75,10 +75,11 @@ use its default. (The defaults are in `lib/settings.sh` and each stage's
 | `AGENT_HUB_NEEDS_CLARIFICATION_LABEL` | `needs-clarification` | Label for tickets the plan stage sent back with questions |
 | `AGENT_HUB_TICKET_MAX_RUNS` | `10` | Runs that used Claude, per ticket across every stage, before a person must lift the cap ([claude-usage.md](claude-usage.md#per-ticket-caps)) |
 | `AGENT_HUB_TICKET_MAX_COST_USD` | `60.00` | API-equivalent dollars per ticket across every stage, likewise |
+| `AGENT_HUB_PASS_OVERSHOOT_USD` | `1.00` | Dollars allowed per Claude pass on top of its budget, since a pass stops only after the turn that crosses it: added when a run is admitted against the cap, and to the estimate for a pass that had no report ([claude-usage.md](claude-usage.md#per-ticket-caps)) |
 | `AGENT_HUB_OVER_CAP_LABEL` | `agent-hub-over-cap` | Label on a ticket at its caps; removing it lifts them |
 | `AGENT_HUB_REVISE_COMMAND` | `/revise` | Comments starting with this word ask an agent to revise (or retry); must match the Revision Requested rule |
 | `AGENT_HUB_REVIEW_MODEL` | `claude-opus-5-5` | Model for the expert review of every draft (needs Claude Code 2.1.280+) |
-| `AGENT_HUB_REVIEW_FALLBACK_MODEL` | `claude-sonnet-5` | Used when the review model is overloaded or unsupported |
+| `AGENT_HUB_REVIEW_FALLBACK_MODEL` | `claude-sonnet-5-5` | Used when the review model is overloaded or unsupported |
 | `AGENT_HUB_JIRA_NOTIFY_USERS` | `true` | `false` silences watcher notifications for description updates (needs Jira admin) |
 
 **Per stage**, named `AGENT_HUB_<STAGE>_<setting>`, where `<STAGE>` is the
@@ -88,8 +89,8 @@ API-equivalent dollars ([claude-usage.md](claude-usage.md)):
 
 | Setting | Work order (`WORK_ORDER`) | Implementation plan (`IMPLEMENTATION_PLAN`) | Purpose |
 |---|---|---|---|
-| `MODEL` | `claude-sonnet-5` | `claude-opus-5-5` | Model for the draft (Opus needs Claude Code 2.1.280+) |
-| `FALLBACK_MODEL` | `claude-opus-5-5` | `claude-sonnet-5` | Used when the model is overloaded or unsupported |
+| `MODEL` | `claude-sonnet-5-5` | `claude-opus-5-5` | Model for the draft (Opus needs Claude Code 2.1.280+) |
+| `FALLBACK_MODEL` | `claude-opus-5-5` | `claude-sonnet-5-5` | Used when the model is overloaded or unsupported |
 | `MAX_BUDGET_USD` | `2.00` | `5.00` | Cap for the draft |
 | `REVIEW_MAX_BUDGET_USD` | `2.00` | `5.00` | Cap for the expert review |
 | `REVISION_MAX_BUDGET_USD` | `1.00` | `2.00` | Cap for each pass of a revision, which is scoped to the requested changes |
@@ -102,9 +103,9 @@ project must declare its Node version (an `.nvmrc`, for example: see
 from its lockfile, and the hub runs its checks on every build's commit
 ([extending.md](extending.md#the-builds-checks) to choose them). Its
 settings: `MODEL` (`claude-opus-5-5`), `FALLBACK_MODEL`
-(`claude-sonnet-5`) and `MAX_BUDGET_USD` (`10.00`, one pass: it validates and
+(`claude-sonnet-5-5`) and `MAX_BUDGET_USD` (`10.00`, one pass: it validates and
 builds), `REVIEW_MAX_BUDGET_USD` (`5.00`, the code review, on the shared
-review model), and for the fix pass `FIX_MODEL` (`claude-sonnet-5`),
+review model), and for the fix pass `FIX_MODEL` (`claude-sonnet-5-5`),
 `FIX_FALLBACK_MODEL` (`claude-opus-5-5`), `FIX_MAX_BUDGET_USD` (`3.00`) and
 `FIX_CHECK_MAX_BUDGET_USD` (`1.00`), plus:
 
@@ -128,7 +129,13 @@ raise: 15 minutes for **Install dependencies**, 30 for **Verify** (the
 verify copy's install and every check together), 30 for **Review**, 40 for
 **Fix** (the fix pass and its check) and 30 for **Verify fix**. They're part of the hub's
 workflow (`agent-hub-stage.yml`, which updates replace), so a repository
-whose install and checks need longer than that isn't supported yet.
+whose install and checks need longer than that isn't supported yet. The
+settings above are per command, and a step runs several: **Install
+dependencies** also installs the verify copy and runs the baseline checks
+(a failing one twice), so with four checks the defaults can add up to more
+than the step allows. Size `INSTALL_MINUTES` and `CHECK_MINUTES` to your
+repository's real times. If GitHub does stop a step at its own limit, the
+ticket's failure comment says what was running (since 2.19.0).
 
 **The build's CI gate** (since 2.13.0) needs the target branch to **require
 your CI's checks** — branch protection or a ruleset (Settings → Branches or

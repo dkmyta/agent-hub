@@ -69,8 +69,10 @@ A change to a stage, prompt, schema, workflow or shared library is done when:
 1. **Tests pass**, and any snapshot changes (`npm run update-snapshots --prefix
    .github/agent-hub/tests`) have been reviewed line by line in the diff — they show exactly how
    tickets, comments and tracker calls change.
-2. **New behaviour has a test**: a scenario for a new path through the
-   workflow, a unit test for a new library function.
+2. **New behaviour has the right kind of test** ([tests/README.md](tests/README.md#which-kind-of-test-a-change-gets)):
+   a unit test of the rule's own function unless it could fail only because
+   of how steps or external writes interact — then a scenario — and hostile
+   input at any trust boundary it touches.
 3. **Reverse paths are handled** for anything a stage produces for people:
    a `/revise` revision mode, retry after failure, and sending back — each
    with a scenario (see [docs/architecture.md](docs/architecture.md#revisions-and-reverse-paths-every-stage)).

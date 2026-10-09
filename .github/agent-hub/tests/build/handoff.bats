@@ -97,6 +97,22 @@ runs() { jq -nc --argjson r "$1" '{check_runs: $r}'; }
   assert_output '[]'
 }
 
+# COR-4: results past what can be read fail the read — never a partial
+# answer that could miss a failed check.
+@test "CI: more check runs than can be read, or more statuses than one page, fail rather than answer from part of them" {
+  local required='[{"name": "test", "app_id": null}]'
+  # Every page full: 1,000 runs and still more.
+  CI_RUNS=$(jq -nc '{check_runs: [range(100) | {name: "c\(.)", status: "completed", conclusion: "success", app: {id: 1}}]}')
+  run ci_status abc "$required"
+  assert_failure
+  assert_output --partial "more than 1,000 check runs"
+  CI_RUNS=$(runs '[{"name": "test", "status": "completed", "conclusion": "success", "app": {"id": 1}}]')
+  CI_STATUSES='{"total_count": 101, "statuses": [{"context": "test", "state": "success"}]}'
+  run ci_status abc "$required"
+  assert_failure
+  assert_output --partial "more than 100 commit statuses"
+}
+
 @test "CI: green only when every required check passed on the commit; a missing, running or failed one isn't" {
   local required='[{"name": "test", "app_id": 1}, {"name": "lint", "app_id": null}]'
   CI_RUNS=$(runs '[{"name": "test", "status": "completed", "conclusion": "success", "app": {"id": 1}}]')

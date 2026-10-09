@@ -54,6 +54,17 @@ handoff_problems() {
 _reconcile_ci() {
   local number=$1 head=$2 base=$3 target required ci state at waited
   target=$(context .target)
+  # Handed off already, at this very commit, and ready for review: nothing
+  # more to do (a re-run, or a repeated wake-up; an /apply since would have
+  # cleared it). One still a draft stopped part-way: it's finished below.
+  if jq -e --arg head "$head" '.handoff.head == $head' "$RECONCILE_STATE" > /dev/null \
+     && jq -e '.draft == false' "$RUNNER_TEMP/reconcile-pr.json" > /dev/null 2>&1; then
+    echo "Pull request #$number was handed off at ${head:0:7}; nothing to do."
+    echo "[$TICKET_KEY]($TICKET_URL): pull request #$number was already handed off at ${head:0:7}; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+    echo "proceed=false" >> "$GITHUB_OUTPUT"
+    stage_outcome "no change needed"
+    exit 0
+  fi
   required=$(ci_required "$target") \
     || stage_fail "Couldn't read which checks $target requires from GitHub, so nothing was changed."
   ci=$(ci_status "$head" "$required") \

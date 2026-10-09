@@ -8,7 +8,7 @@ HOME_STATUS=$WORK_ORDER_STATUS
 FAILURE_TITLE='❌ Work order generation failed'
 
 # Each is the repository variable AGENT_HUB_WORK_ORDER_<name> (stage_setting).
-stage_setting_into CLAUDE_MODEL MODEL claude-sonnet-5
+stage_setting_into CLAUDE_MODEL MODEL claude-sonnet-5-5
 # Used automatically when the model is overloaded.
 stage_setting_into CLAUDE_FALLBACK_MODEL FALLBACK_MODEL claude-opus-5-5
 # Stops a runaway run; exceeding it fails the run with the failure comment.

@@ -30,17 +30,26 @@ source "$HUB_DIR/lib/ci.sh"
 # isn't the last one the hub recorded (a person pushed: a run they start
 # re-checks it — the sweep only wakes the CI gate).
 build_ci_sweep() {
-  local prs pr key head state required ci result base default woken=0 seen=0
+  local prs='[]' batch page=1 pr key head state required ci result base default woken=0 seen=0
   default=$(gh_api GET "/repos/$GITHUB_REPOSITORY" | jq -r '.default_branch // empty') && [ -n "$default" ] \
     || { echo "::error::Couldn't read the repository's default branch."; return 1; }
-  prs=$(gh_api GET "/repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100") \
-    || { echo "::error::Couldn't list the pull requests."; return 1; }
+  # Every open pull request, a page at a time: none is skipped unseen.
+  while :; do
+    batch=$(gh_api GET "/repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100&page=$page") \
+      || { echo "::error::Couldn't list the pull requests."; return 1; }
+    prs=$(jq -c --argjson b "$batch" '. + $b' <<< "$prs")
+    [ "$(jq 'length' <<< "$batch")" = 100 ] || break
+    if [ "$page" -ge 10 ]; then
+      echo "::error::There are more than 1,000 open pull requests, so the sweep can't read them all."; return 1
+    fi
+    page=$((page + 1))
+  done
   while IFS= read -r pr; do
     seen=$((seen + 1))
     key=$(jq -r --arg prefix "$BUILD_BRANCH_PREFIX" '.head.ref | ltrimstr($prefix)' <<< "$pr")
     [[ "$key" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || { echo "#$(jq -r .number <<< "$pr"): not a ticket branch; skipped."; continue; }
     head=$(jq -r '.head.sha' <<< "$pr") base=$(jq -r '.base.ref' <<< "$pr")
-    state=$(jq -r '.body // ""' <<< "$pr" | state_read 2> /dev/null) || { echo "$key: no readable record; skipped."; continue; }
+    state=$(jq -r '.body // "" | gsub("\r\n"; "\n")' <<< "$pr" | state_read 2> /dev/null) || { echo "$key: no readable record; skipped."; continue; }
     if jq -e --arg label "$BUILD_PAUSED_LABEL" 'any(.labels[]?; .name == $label)' <<< "$pr" > /dev/null; then
       echo "$key: paused; skipped."; continue
     fi
@@ -61,7 +70,10 @@ build_ci_sweep() {
         continue
       fi
     fi
-    if jq -e --arg head "$head" --arg result "$result" '.ci.head == $head and .ci.result == $result' <<< "$state" > /dev/null 2>&1; then
+    # Handled already — unless a hand-off of this head stopped part-way (it's
+    # recorded, but the pull request is still a draft): woken to finish it.
+    if jq -e --arg head "$head" --arg result "$result" '.ci.head == $head and .ci.result == $result
+         and (.handoff.head // "") != $head' <<< "$state" > /dev/null 2>&1; then
       echo "$key: $result on ${head:0:7}, already handled."
       continue
     fi

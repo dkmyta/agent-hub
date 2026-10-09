@@ -11,14 +11,14 @@ FAILURE_TITLE='❌ Build failed'
 # Writing code needs the strongest model and the largest budget
 # (API-equivalent dollars; docs/claude-usage.md).
 stage_setting_into CLAUDE_MODEL MODEL claude-opus-5-5
-stage_setting_into CLAUDE_FALLBACK_MODEL FALLBACK_MODEL claude-sonnet-5
+stage_setting_into CLAUDE_FALLBACK_MODEL FALLBACK_MODEL claude-sonnet-5-5
 stage_setting_into CLAUDE_MAX_BUDGET_USD MAX_BUDGET_USD 10.00
 # The code review: a fresh session on the shared review model
 # (AGENT_HUB_REVIEW_MODEL), with its own budget (stages/build/review.sh).
 stage_setting_into BUILD_REVIEW_MAX_BUDGET_USD REVIEW_MAX_BUDGET_USD 5.00
 # The fix pass and its fix check (stages/build/fix.sh): small, targeted
 # passes on a faster model, each with its own budget.
-stage_setting_into BUILD_FIX_MODEL FIX_MODEL claude-sonnet-5
+stage_setting_into BUILD_FIX_MODEL FIX_MODEL claude-sonnet-5-5
 stage_setting_into BUILD_FIX_FALLBACK_MODEL FIX_FALLBACK_MODEL claude-opus-5-5
 stage_setting_into BUILD_FIX_MAX_BUDGET_USD FIX_MAX_BUDGET_USD 3.00
 stage_setting_into BUILD_FIX_CHECK_MAX_BUDGET_USD FIX_CHECK_MAX_BUDGET_USD 1.00

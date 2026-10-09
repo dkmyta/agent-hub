@@ -83,6 +83,23 @@ real_srt() {
   assert_line "HOME=$(cd "$RUNNER_TEMP/sandbox" && pwd -P)/home"
 }
 
+# WF-3: a step can hold several commands, each with the hub's limit; if
+# GitHub stops the step itself, limit-reason says what was running.
+@test "sandbox_run: while a command runs, limit-reason says what (install or checks); afterwards it's gone" {
+  export RUNNER_TOOL_CACHE="$BATS_TEST_TMPDIR/toolcache"
+  mkdir -p "$(with_sandbox 'sandbox_dir')/node_modules/.bin"
+  ln -s "$TESTS_DIR/lib/bin/srt" "$(with_sandbox 'sandbox_dir')/node_modules/.bin/srt"
+  run with_sandbox "sandbox_run check '$WORK' 1 '$BATS_TEST_TMPDIR/log' 'cat \"$RUNNER_TEMP/limit-reason\" > seen-check.txt'"
+  assert_success
+  run with_sandbox "sandbox_run install '$WORK' 1 '$BATS_TEST_TMPDIR/log' 'cat \"$RUNNER_TEMP/limit-reason\" > seen-install.txt; exit 4'"
+  assert_failure 4
+  run cat "$WORK/seen-check.txt"
+  assert_output --partial "AGENT_HUB_BUILD_CHECK_MINUTES"
+  run cat "$WORK/seen-install.txt"
+  assert_output --partial "AGENT_HUB_BUILD_INSTALL_MINUTES"
+  [ ! -e "$RUNNER_TEMP/limit-reason" ] || fail "limit-reason was left after the command"
+}
+
 @test "sandbox_run: a command out of time ends with everything it started (124)" {
   real_srt
   run with_sandbox "sandbox_run check '$WORK' 0.05 '$BATS_TEST_TMPDIR/log' 'sleep 60 & echo \$! > child.pid; sleep 60'"

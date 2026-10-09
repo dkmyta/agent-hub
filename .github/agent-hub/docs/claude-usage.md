@@ -95,22 +95,28 @@ run — retries, revisions and resubmissions included:
 |---|---|---|
 | `AGENT_HUB_TICKET_MAX_RUNS` | `10` | Runs that used Claude |
 | `AGENT_HUB_TICKET_MAX_COST_USD` | `60.00` | Their API-equivalent cost |
+| `AGENT_HUB_PASS_OVERSHOOT_USD` | `1.00` | Allowed per pass on top of its budget |
 
 - **Counted by the hub, on the ticket.** After each run that used Claude, the
   hub adds the run and its cost to a record it keeps on the ticket (in Jira,
   an issue property: JSON on the ticket that Jira's screens don't show), with
   each stage's share. A pass with no cost report — cut off by a time limit or
-  cancelled — counts at its whole budget, and the total is marked
+  cancelled — counts at its whole budget plus the overshoot allowance (below), and the total is marked
   *estimated*. Each run summary ends with the ticket's total. Runs that stop
   before Claude (a wrong status, a check that fails first) don't count.
 - **Checked before Claude is used — for the whole run.** A run may use
   Claude only if the ticket's spend so far plus the most the run can cost
   fits within the cap. "The most" is the sum of the configured maximum of
-  every pass the run may execute — not an estimate: a work order or plan is
-  its draft and review budgets ($4 and $10 by default; their revision budgets
-  when revising), a build its build, review, fix and fix check ($19) — or,
-  reconciling a pull request that already exists, only the review, fix and
-  fix check ($9), a CI fix only the fix pass and its check ($4), and nothing
+  every pass the run may execute, each plus `AGENT_HUB_PASS_OVERSHOOT_USD`
+  ($1): Claude Code stops a pass only after the turn that crosses its
+  budget, so a pass can go over it (measured at 3.4× a $0.05 budget — an
+  added allowance, not a multiple, since the overshoot is about one turn
+  whatever the budget). Not an estimate: a work order or plan is its draft
+  and review budgets ($4 and $10 by default, so $6 and $12; their revision budgets
+  when revising), a build its build, review, fix and fix check ($19, so
+  $23) — or, reconciling a pull request that already exists, only the
+  review, fix and fix check ($12), a CI fix only the fix pass and its check
+  ($6), and nothing
   for one that only merges in a target branch's
   mechanical drift: a run that uses no Claude isn't admitted or counted. So a
   run that starts can always finish within the cap, and a ticket stops once

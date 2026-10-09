@@ -49,6 +49,7 @@ _reconcile_start() {
   local number=$1 branch pr state head last base people target_head
   branch=$(context .branch) target_head=$(context .base)
   pr=$(gh_pr_find "$branch") || stage_fail "Couldn't read pull request #$number from GitHub, so nothing was changed."
+  printf '%s\n' "$pr" > "$RUNNER_TEMP/reconcile-pr.json"
   if jq -e --arg label "$BUILD_PAUSED_LABEL" 'any(.labels[]?; .name == $label)' <<< "$pr" > /dev/null; then
     echo "::notice::Pull request #$number has the $BUILD_PAUSED_LABEL label, so the hub leaves it alone."
     echo "[$TICKET_KEY]($TICKET_URL): pull request #$number is paused ($BUILD_PAUSED_LABEL); nothing was done." >> "$GITHUB_STEP_SUMMARY"

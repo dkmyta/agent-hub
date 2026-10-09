@@ -64,6 +64,11 @@ build_command() {
   before=$state
   : > "$RUNNER_TEMP/command-log.jsonl"
   rm -f "$RUNNER_TEMP/apply-request.json"
+  # Answers wait until the record is written (_command_flush): a command is
+  # never marked done on the ticket while the pull request still says
+  # otherwise.
+  : > "$RUNNER_TEMP/command-replies.jsonl"
+  COMMAND_DEFER=1
   while IFS= read -r cmd; do
     # One /apply per run: the commands after it wait for the next run (each
     # comment wakes one).
@@ -71,8 +76,10 @@ build_command() {
     _command_handle "$cmd" "$number" "$pr"
   done <<< "$commands"
 
+  COMMAND_DEFER=""
   state=$(cat "$RUNNER_TEMP/command-state.json")
   if [ "$state" = "$before" ]; then
+    _command_flush
     # An accepted /apply: the run carries on (step_fetch) as its fix.
     [ ! -s "$RUNNER_TEMP/apply-request.json" ] || return 0
     _command_end "no change needed" "$(grep -c . <<< "$commands") command(s) answered; no item changed"
@@ -90,6 +97,8 @@ build_command() {
   else
     gh_state_write "$number" "$(cat "$RUNNER_TEMP/state.json")" 2> "$RUNNER_TEMP/state-error"
   fi || stage_fail "Pull request #$number's description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error")), so the items weren't changed. A person checks it."
+  # The record holds: now the commands are answered.
+  _command_flush
   jq -r -s '"🧾 Items updated by an approver on the ticket: " + ([.[] | "\(.id) \(.status)"] | join(", ")) + "."' "$RUNNER_TEMP/command-log.jsonl" \
     | gh_pr_comment "$number" || echo "::warning::Couldn't comment on pull request #$number."
   tracker_set_property agent-hub-items < <(tracker_property agent-hub-items | jq -c --slurpfile log "$RUNNER_TEMP/command-log.jsonl" '.log = ((.log // []) + $log)') \
@@ -144,16 +153,33 @@ _command_handle() {
 }
 
 # _command_reply <comment id> <what>: the command is answered — marked
-# resolved, saying what was done — so it's never handled twice.
+# resolved, saying what was done — so it's never handled twice. While the
+# commands are being read (COMMAND_DEFER), answers are queued for
+# _command_flush, after the record is written.
 _command_reply() {
+  if [ -n "${COMMAND_DEFER:-}" ]; then
+    jq -nc --arg id "$1" --arg what "$2" '{id: $id, what: $what}' >> "$RUNNER_TEMP/command-replies.jsonl"
+    return 0
+  fi
   _resolve_matching "$RUNNER_TEMP/comments-seen.json" "$2" '.id == $args[0]' "$1" > /dev/null \
     || echo "::warning::Couldn't mark comment $1 as handled."
+}
+
+# _command_flush: the queued answers, sent.
+_command_flush() {
+  local reply
+  while IFS= read -r reply; do
+    [ -n "$reply" ] || continue
+    _command_reply "$(jq -r '.id' <<< "$reply")" "$(jq -r '.what' <<< "$reply")"
+  done < "$RUNNER_TEMP/command-replies.jsonl"
+  : > "$RUNNER_TEMP/command-replies.jsonl"
 }
 
 # _command_refuse_all <commands> <why>: every command is answered with why
 # nothing was done. Ends the run.
 _command_refuse_all() {
   local cmd
+  COMMAND_DEFER=""
   while IFS= read -r cmd; do _command_reply "$(jq -r '.id' <<< "$cmd")" "not done: $2"; done <<< "$1"
   _command_end "no change needed" "$2"
 }
@@ -180,7 +206,7 @@ _apply_request() {
   # the current review.
   head=$(gh_branch_head "$BUILD_BRANCH_PREFIX$TICKET_KEY") || { _command_reply "$id" "not done: the hub couldn't read the branch from GitHub"; return; }
   if [ "$head" != "$(jq -r '.heads[-1].head // ""' "$RUNNER_TEMP/command-state.json")" ]; then
-    _command_reply "$id" "not done: pull request #$number has commits the hub hasn't checked — re-run the build to have them verified and reviewed, then /apply what that review lists"; return
+    _command_reply "$id" "not done: pull request #$number has commits the hub hasn't checked — re-run the build (Actions → Agent hub: Build → Run workflow, with $TICKET_KEY) to have them verified and reviewed, then /apply what that review lists"; return
   fi
   record=$(tracker_property agent-hub-review 2> /dev/null) || record='{}'
   : > "$RUNNER_TEMP/apply-findings.jsonl"
@@ -217,10 +243,17 @@ _apply_request() {
   if grep -qx comments <<< "$words"; then
     local writers="[]" who
     login=$(gh_login) && threads=$(gh_graphql 'query($owner: String!, $name: String!, $number: Int!) {
-        repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes {
-          id isResolved path line comments(first: 30) { nodes { databaseId body authorAssociation author { login } } } } } } } }' \
+        repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { pageInfo { hasNextPage } nodes {
+          id isResolved path line comments(first: 100) { totalCount nodes { databaseId body authorAssociation author { login } } } } } } } }' \
         "$(jq -nc --arg o "$GH_OWNER" --arg n "$GH_NAME" --argjson num "$number" '{owner: $o, name: $n, number: $num}')") \
       || { _command_reply "$id" "not done: the hub couldn't read the pull request's review threads"; rm -f "$RUNNER_TEMP/apply-findings.jsonl"; return; }
+    # All of them or none: past one page, the threads (or a thread's
+    # comments) left unread could be the very ones that matter.
+    if jq -e '.repository.pullRequest.reviewThreads | (.pageInfo.hasNextPage // false)
+        or any(.nodes[]; (.comments.totalCount // 0) > (.comments.nodes | length))' <<< "$threads" > /dev/null; then
+      _command_reply "$id" "not done: the pull request has more than 100 review threads, or a thread more than 100 comments — too many to read in full; resolve the ones that are done and ask again"
+      rm -f "$RUNNER_TEMP/apply-findings.jsonl"; return
+    fi
     # Who may ask for changes: write access, as GitHub says for each one.
     for who in $(jq -r --arg me "$login" '[.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)
         | .comments.nodes[].author.login // empty | select(. != $me and (endswith("[bot]") | not))] | unique[]' <<< "$threads"); do

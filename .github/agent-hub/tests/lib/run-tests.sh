@@ -9,6 +9,10 @@ cd "$(dirname "$0")/.."
 # The tests never use Claude: whatever the shell exported, no eval mode
 # (lib/run-evals.sh sets these, after a typed confirmation).
 unset REAL_CLAUDE RUN_EVALS EVALS_CONFIRM EVALS_SPENT_FILE
+# One sort order on every machine (some languages sort run.sh before
+# SKILL.md): collation only, so text is still read as UTF-8.
+if [ -n "${LC_ALL:-}" ]; then export LANG=$LC_ALL; unset LC_ALL; fi
+export LC_COLLATE=C
 
 jobs=${AGENT_HUB_TEST_JOBS:-$(getconf _NPROCESSORS_ONLN 2> /dev/null || echo 1)}
 if [ "$jobs" -gt 1 ] && command -v parallel > /dev/null; then

@@ -1083,7 +1083,7 @@ pushed_head_subject() { local remote; remote=$(git -C "$STEP_CWD" remote get-url
   run awk '$0 == "--tools" { getline; print }' "$args"
   assert_output "Read,Grep,Glob,Edit,Write,Bash,Agent,Skill"
   run awk '$0 == "--model" || $0 == "--max-budget-usd" { getline; print }' "$args"
-  assert_output $'claude-sonnet-5\n3.00'
+  assert_output $'claude-sonnet-5-5\n3.00'
   args="$RUNNER_TEMP/claude-fix-check-args.txt"
   run awk '$0 == "--tools" { getline; print }' "$args"
   assert_output "Read,Grep,Glob,Bash,Agent,Skill"
@@ -1185,16 +1185,17 @@ assert_fully_discarded() {
 
 # The build's run maximum is every pass it may run, each at its configured
 # maximum: build $10 + review $5 + fix $3 + fix check $1 = $19.
-@test "caps: a build is admitted only with room for all its passes (19 dollars by default)" {
-  run_scenario ready CLAUDE_EDITS=edits/greet.sh 'MOCK_LEDGER={"runs":1,"cost_usd":41}'
+# CLA-1: with $1 per pass for going over, a default build is still admitted.
+@test "caps: a build is admitted only with room for all its passes (19 dollars by default, 23 with the overshoot allowance)" {
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh 'MOCK_LEDGER={"runs":1,"cost_usd":37}'
   run trace
   assert_line "Agent: success"
   fresh_repo
-  run_scenario ready CLAUDE_EDITS=edits/greet.sh 'MOCK_LEDGER={"runs":1,"cost_usd":41.01}'
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh 'MOCK_LEDGER={"runs":1,"cost_usd":37.01}'
   run trace
   assert_line "Agent: skipped"
   run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
-  assert_output --partial "A run of this stage can cost up to \$19.00, so it stopped before using Claude."
+  assert_output --partial "A run of this stage can cost up to \$23.00, so it stopped before using Claude."
 }
 
 # The agent passes (docs/architecture.md, "Agent passes") are one table the
@@ -1429,14 +1430,14 @@ SH
   assert_equal "$(git --git-dir="$REMOTE" log -1 --format=%s refs/heads/agent-hub/PROJ-99)" "Sam's change"
 }
 
-@test "reconcile: admitted on review, fix and fix check only (9 dollars by default), with no build pass" {
+@test "reconcile: admitted on review, fix and fix check only (9 dollars by default, 12 with the overshoot allowance), with no build pass" {
   built_pr
   person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
-  reconcile_run 'MOCK_LEDGER={"runs":1,"cost_usd":51}'
+  reconcile_run 'MOCK_LEDGER={"runs":1,"cost_usd":48}'
   run trace
   assert_line "Review: success"
   fresh_checkout
-  reconcile_run 'MOCK_LEDGER={"runs":1,"cost_usd":51.01}'
+  reconcile_run 'MOCK_LEDGER={"runs":1,"cost_usd":48.01}'
   run trace
   assert_line "Agent: skipped"
   assert_line "--- Outcome: blocked"
@@ -2062,6 +2063,22 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
   assert_output '"T1"'
 }
 
+# COR-4: the review threads are read in full or not used at all.
+@test "/apply comments: more review threads than one page, or a thread with more comments than one, is refused — nothing applied" {
+  findings_pr
+  local thread='{"id": "T1", "isResolved": false, "path": "src/greet.js", "line": 2, "comments": {"nodes": [{"databaseId": 501, "body": "Trim the name.", "authorAssociation": "COLLABORATOR", "author": {"login": "sam"}}]}}'
+  apply_run '/apply comments' "MOCK_GH_THREADS=[$thread]" MOCK_GH_THREADS_MORE=1 'MOCK_GH_PERMISSIONS={"sam": "write"}'
+  run resolutions
+  assert_output --partial "not done: the pull request has more than 100 review threads"
+  run trace
+  assert_line "Agent: skipped"
+  apply_run '/apply comments' "MOCK_GH_THREADS=[$(jq -c '.comments.totalCount = 101' <<< "$thread")]" 'MOCK_GH_PERMISSIONS={"sam": "write"}'
+  run resolutions
+  assert_output --partial "or a thread more than 100 comments"
+  run trace
+  assert_line "Agent: skipped"
+}
+
 @test "/apply: refused after anyone else's push, for a manual change or a hub decision, or with other words — nothing applied" {
   findings_pr
   apply_run '/apply R1 please'
@@ -2159,4 +2176,62 @@ SH
   assert_line "Review: success"
   run cat "$RUNNER_TEMP/review-pass-prompt.md"
   refute_output --partial "PR-HEAD-GUIDANCE"
+}
+
+# C1: after the hand-off, a person's re-run is how people's commits get checked.
+@test "after the hand-off: a person's re-run reconciles people's commits; with nothing new, it changes nothing" {
+  built_pr
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  run trace
+  assert_line "--- Outcome: handed off"
+  carry_prs
+  # Nothing new: no second hand-off, no comment.
+  reconcile_run "MOCK_STATUS=Ready for Review" 'MOCK_GH_CHECKS={"test": "success"}'
+  run trace
+  assert_line "--- Outcome: no change needed"
+  [ ! -e "$RUNNER_TEMP/mock-github/comments.jsonl" ] || fail "handed off twice"
+  # A person pushed: the re-run verifies and reviews their commits.
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  reconcile_run "MOCK_STATUS=Ready for Review"
+  run trace
+  assert_line "Review: success"
+  assert_line "--- Outcome: revised"
+  # A ticket past the approval with no pull request: nothing to build.
+  fresh_repo
+  run_scenario ready "MOCK_STATUS=Ready for Review"
+  run trace
+  assert_line "--- Outcome: no change needed"
+  assert_line "Agent: skipped"
+}
+
+# COR-2: a command is answered only once the record says the same.
+@test "/skip: when the record can't be written, the command isn't marked done" {
+  run_scenario decision-item
+  keep_properties
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  command_run "$(command_comments '/skip D1')" 'MOCK_GH_FAIL=PATCH /repos/example/repo/pulls/101'
+  run trace
+  echo "$output" >&3; assert_line "--- Outcome: failed"
+  run resolutions
+  assert_output ""
+  assert_equal "$(jq -r '.items[0].status' <<< "$(pr_state)")" open
+}
+
+# COR-3: a hand-off that stopped part-way is finished, not left as handled.
+@test "sweep: a hand-off recorded but not finished (still a draft) is woken, and the gate finishes it" {
+  built_pr
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)" 'MOCK_GH_FAIL=POST /graphql markPullRequestReadyForReview'
+  run trace
+  assert_line "--- Outcome: failed"
+  assert_equal "$(jq -r '.handoff.head == .heads[-1].head' <<< "$(pr_state)")" true
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" true
+  sweep 'MOCK_GH_CHECKS={"test": "success"}'
+  run dispatched
+  assert_output --partial '"ticket_key":"PROJ-99"'
+  carry_prs
+  reconcile_run AGENT_HUB_WAKE=ci 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  run trace
+  assert_line "--- Outcome: handed off"
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" false
 }

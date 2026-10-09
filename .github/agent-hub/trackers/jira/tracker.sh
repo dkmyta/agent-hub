@@ -128,12 +128,20 @@ tracker_comments() {
 # count, the automation included. A page of 100 at a time; fails (rather than
 # read only some) on an API error or past 5,000 entries.
 tracker_history_since() {
-  local start=0 page all='[]'
+  local start=0 page count all='[]'
   while :; do
     page=$(jira "$ISSUE_URL/changelog?startAt=$start&maxResults=100") || return 1
     all=$(jq -c --argjson page "$page" '. + $page.values' <<< "$all")
-    [ "$(jq -r '.isLast // ((.startAt + (.values | length)) >= .total)' <<< "$page")" = true ] && break
-    start=$((start + 100))
+    # isLast when Jira gives it (false means more, so not `//`); else the
+    # count against the total. A page shorter than asked for is followed from
+    # where it ended; an empty page that isn't the last can't go on.
+    [ "$(jq -r 'if (.isLast | type) == "boolean" then .isLast else (.startAt + (.values | length)) >= .total end' <<< "$page")" = true ] && break
+    count=$(jq -r '.values | length' <<< "$page")
+    if [ "$count" = 0 ]; then
+      echo "::error::Jira returned an empty page of $TICKET_KEY's history before the end, so it can't all be read." >&2
+      return 1
+    fi
+    start=$((start + count))
     if [ "$start" -ge 5000 ]; then
       echo "::error::$TICKET_KEY has more than 5,000 history entries, so they can't all be read." >&2
       return 1

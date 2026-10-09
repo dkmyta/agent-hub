@@ -283,7 +283,7 @@ $RUNNER_TEMP/plugins/extension-work-order"
 @test "Claude runs with the pinned model, a fallback and a budget cap" {
   claude_step ready.json
   assert_success
-  assert_equal "$(arg --model)" claude-sonnet-5
+  assert_equal "$(arg --model)" claude-sonnet-5-5
   assert [ -n "$(arg --fallback-model)" ]
   assert_regex "$(arg --max-budget-usd)" '^[0-9]+(\.[0-9]+)?$'
 }
@@ -465,7 +465,7 @@ $RUNNER_TEMP/plugins/repository"
   assert_success
   local plugin="$RUNNER_TEMP/plugins/repository"
   # The plugin holds only the hub's manifest, agents and skills.
-  run bash -c 'cd "$1" && find . -type f -o -type l | sort' _ "$plugin"
+  run bash -c 'cd "$1" && find . -type f -o -type l | LC_ALL=C sort' _ "$plugin"
   assert_output "./.claude-plugin/plugin.json
 ./agents/hostile.md
 ./skills/style/SKILL.md

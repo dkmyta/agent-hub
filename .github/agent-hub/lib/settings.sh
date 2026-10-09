@@ -58,7 +58,7 @@ setting_into AGENT_RUNNER AGENT_HUB_RUNNER claude-code
 # Expert review of every draft that goes ahead (docs/architecture.md): a
 # strong model reviewing a draft catches what the drafter missed.
 setting_into REVIEW_CLAUDE_MODEL AGENT_HUB_REVIEW_MODEL claude-opus-5-5
-setting_into REVIEW_CLAUDE_FALLBACK_MODEL AGENT_HUB_REVIEW_FALLBACK_MODEL claude-sonnet-5
+setting_into REVIEW_CLAUDE_FALLBACK_MODEL AGENT_HUB_REVIEW_FALLBACK_MODEL claude-sonnet-5-5
 
 # The only sites Claude may fetch pages from (web search is unrestricted), so
 # a malicious ticket can't get repository content sent to an arbitrary URL.
@@ -91,6 +91,11 @@ setting_into NEEDS_CLARIFICATION_LABEL AGENT_HUB_NEEDS_CLARIFICATION_LABEL needs
 # allows one more cap's worth (docs/claude-usage.md, "Per-ticket caps").
 setting_into TICKET_MAX_RUNS AGENT_HUB_TICKET_MAX_RUNS 10
 setting_into TICKET_MAX_COST_USD AGENT_HUB_TICKET_MAX_COST_USD 60.00
+# Claude Code stops a pass after the turn that crosses its budget, so a pass
+# can cost more than its --max-budget-usd: this much is allowed for each pass,
+# on top of its budget, when a run is admitted against the cap and when a
+# pass with no report is counted.
+setting_into PASS_OVERSHOOT_USD AGENT_HUB_PASS_OVERSHOOT_USD 1.00
 setting_into OVER_CAP_LABEL AGENT_HUB_OVER_CAP_LABEL agent-hub-over-cap
 
 # Comments starting with this are change requests (or retries); the tracker's

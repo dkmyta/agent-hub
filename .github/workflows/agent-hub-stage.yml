@@ -108,6 +108,9 @@ jobs:
       # tickets) so Claude works from the ticket and the code, not from a
       # recorded answer. The evals mirror these patterns.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        # A full clone for the build: a step limit of its own, so a slow one
+        # fails the step (and is reported) rather than the whole job.
+        timeout-minutes: 10
         with:
           persist-credentials: false
           # The build reads the history since the plan's base commit.

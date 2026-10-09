@@ -212,11 +212,15 @@ gh_pr_body_versions() {
     cursor=$(jq -c '.userContentEdits.pageInfo.endCursor' <<< "$page")
   done
   # Edits come newest first; the current description is the last version.
+  # Line endings are normalised to \n — a description saved in GitHub's web
+  # editor has \r\n — so a person's edit elsewhere in the description never
+  # makes the state block look changed.
   edits=$(jq -c --argjson page "$page" '
-    if length == 0 then [{editor: ($page.author.login // ""), body: ($page.body // ""), deleted: false, deleted_by: null}]
+    def lf: gsub("\r\n"; "\n");
+    if length == 0 then [{editor: ($page.author.login // ""), body: ($page.body // "" | lf), deleted: false, deleted_by: null}]
     else sort_by(.editedAt) | map({editor: (.editor.login // ""), deleted: (.deletedAt != null),
-      body: (if .deletedAt != null then null else (.diff // "") end), deleted_by: .deletedBy.login}) end' <<< "$edits")
-  if ! jq -e --argjson page "$page" 'last | .deleted or .body == ($page.body // "")' <<< "$edits" > /dev/null; then
+      body: (if .deletedAt != null then null else (.diff // "" | lf) end), deleted_by: .deletedBy.login}) end' <<< "$edits")
+  if ! jq -e --argjson page "$page" 'last | .deleted or .body == ($page.body // "" | gsub("\r\n"; "\n"))' <<< "$edits" > /dev/null; then
     echo "::error::GitHub's edit history for pull request #$1 doesn't end with its current description." >&2
     return 1
   fi

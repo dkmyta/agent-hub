@@ -13,7 +13,7 @@ GET /comment?maxResults=100
 GET /properties
 POST /comment — comment: ⏳ Generating work order
 GET /properties
-PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":2.8084,"estimated":true,"stages":{"work-order":{"runs":1,"cost_usd":2.8084}}}
+PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":3.8084,"estimated":true,"stages":{"work-order":{"runs":1,"cost_usd":3.8084}}}
 GET ?fields=status
 PUT /comment/5001 — comment: ❌ Work order generation failed
 PUT  — {"update":{"labels":[{"add":"needs-human"}]}}

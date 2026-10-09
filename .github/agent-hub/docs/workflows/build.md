@@ -672,7 +672,8 @@ pull requests (a revision, step 5, will reuse it).
   on it. A kept fix is
   recorded as `kind: ci-fix`, verified on exactly its commit, and CI runs
   again on it; one that wasn't kept changes nothing and a person takes
-  over. Admitted on the fix pass and its check ($4 by default).
+  over. Admitted on the fix pass and its check ($4 of budgets by default, $6
+  with the per-pass overshoot allowance).
 - **v1 reads the pull request's head only**, where GitHub Actions posts a
   pull request's checks; CI that reports only on the test merge commit, and
   `C` items for failing checks that aren't required, are after v1.
@@ -733,7 +734,8 @@ again just before anything is written:
 Then the hub records the hand-off, marks the pull request ready for review
 (CODEOWNERS are requested by GitHub then), moves the ticket to **Ready for
 Review** with `needs-human`, and comments on both. A hand-off that stops
-part-way is finished by the next run (each write is safe to repeat). A
+part-way is finished by the next run (each write is safe to repeat) — the CI
+sweep wakes one recorded but still a draft (2.19.0). A
 record from before 2.13.0 doesn't list the reviewed commit, so it's never
 handed off — a person reviews it. Reviewers from a setting are after v1.
 
@@ -876,7 +878,7 @@ and the next revision reviews the whole pull request.
 
 | Situation | What happens |
 |---|---|
-| The hub's pull request is open (2.11.0, `stages/build/reconcile.sh`) | **Reconciled:** with the `agent-hub-paused` label, nothing; a record (state block) someone else edited, or a branch that no longer builds on the hub's last push, stops for a person; built from an earlier plan than the one approved now, superseded — a comment on the pull request and the ticket, `needs-human`, a person decides; nobody pushed since the hub and the target hasn't moved, nothing to do; a target that moved is merged in (2.12.0: mechanical drift keeps the review and uses no Claude, semantic drift is reviewed again, a conflict goes to a person — [Sync](#sync-with-the-target-branch)); otherwise people's commits are verified, the whole change reviewed again and fixed once where allowed, the fix pushed without force (rejected if anyone pushed meanwhile), and the description's status section and record rewritten — the rest of it kept — with a comment on the pull request and the full report on the ticket. No build pass: admitted on the review, fix and fix check ($9 by default) |
+| The hub's pull request is open (2.11.0, `stages/build/reconcile.sh`) | **Reconciled:** with the `agent-hub-paused` label, nothing; a record (state block) someone else edited, or a branch that no longer builds on the hub's last push, stops for a person; built from an earlier plan than the one approved now, superseded — a comment on the pull request and the ticket, `needs-human`, a person decides; nobody pushed since the hub and the target hasn't moved, nothing to do; a target that moved is merged in (2.12.0: mechanical drift keeps the review and uses no Claude, semantic drift is reviewed again, a conflict goes to a person — [Sync](#sync-with-the-target-branch)); otherwise people's commits are verified, the whole change reviewed again and fixed once where allowed, the fix pushed without force (rejected if anyone pushed meanwhile), and the description's status section and record rewritten — the rest of it kept — with a comment on the pull request and the full report on the ticket. No build pass: admitted on the review, fix and fix check ($9 of budgets by default, $12 with the per-pass overshoot allowance). A run a person starts for a ticket already in Ready for Review or Approved reconciles its pull request the same way — a person's commits after the hand-off are checked again (2.19.0); a new build starts only from Implementation Plan Approved |
 | `agent-hub/<KEY>` exists with no hub pull request (e.g. a failed earlier build) | Stop; a person decides |
 | Non-descendant history or a force-push | Earlier generation and review provenance invalid; stop; a person |
 | Branch deleted | Stop; a person |
@@ -920,8 +922,10 @@ and the next revision reviews the whole pull request.
   (a decision as the gates flagged it); a manual change, the "review didn't
   finish" decision or an item without a kept finding can't be applied.
 - **Only on the head the hub last recorded and reviewed:** after anyone
-  else's push, `/apply` is refused (re-run the build to have it reviewed,
-  then apply what that review lists). One `/apply` per run.
+  else's push, `/apply` is refused: run the build again (Actions → Agent
+  hub: Build → Run workflow, with the ticket key — also for a ticket in
+  Ready for Review or Approved, since 2.19.0) to have it reviewed, then apply
+  what that review lists. One `/apply` per run.
 - **What follows:** a kept fix is the hub's (`kind: fix`, verified on exactly
   its commit, with the `/apply` it answers); each item the fix check found
   resolved is closed as *fixed*; each thread gets a reply — the commit, or
@@ -932,7 +936,8 @@ and the next revision reviews the whole pull request.
   Ready for Review (the hub never moves a ticket back into Implementation
   Plan Approved: its own move there wouldn't be an approval); the CI gate
   and hand-off also run for a ticket in Ready for Review, and mark it ready
-  again. Admitted on the fix pass and its check ($4).
+  again. Admitted on the fix pass and its check ($6 with the overshoot
+  allowance).
 - **Deferred** (after v1, only if real use shows the need): a relay numbering
   each pull request comment as an `M` item, commands on the pull request
   itself, a reviewers setting, post-merge CI.
