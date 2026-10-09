@@ -122,7 +122,10 @@ ends as *no change needed* — a normal outcome.
    Implementation Plan Approved, which a person (not the automation account)
    made. That attachment must still exist and still be the newest plan file,
    no plan attachment may have been added or deleted after the approval, and
-   the work order (the description) mustn't have been edited since. The
+   the work order (the description) mustn't have been edited since — except by
+   the automation account, whose only edit after an approval is the build's
+   own Pull Request section (2.16.1: before, every run after a build took it
+   for a change to the work order). The
    history and the attachments are read together and read again after the
    plan downloads, before the push and before any send-back: the approval and
    the set of plan files must be exactly as first read. Otherwise the approval

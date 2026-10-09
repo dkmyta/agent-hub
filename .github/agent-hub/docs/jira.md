@@ -294,7 +294,9 @@ request to it and rename it.
 The build checks the approval itself: it builds only from the newest plan
 file, and only if a person (not the automation account) made the move here,
 the plan file predates it, and since then no plan file was added or removed
-and the work order (the description) wasn't edited — checked again before it
+and the work order (the description) wasn't edited by anyone but the
+automation account (whose only edit after an approval is the build's own Pull
+Request section) — checked again before it
 pushes or sends the ticket back. To retry a build, move
 the ticket back to Implementation Plan and approve it again.
 

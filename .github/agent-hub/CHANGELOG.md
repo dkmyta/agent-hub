@@ -5,6 +5,22 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.16.1 — 2026-10-08
+
+A fix found while building 5b-2.
+
+- **The build's own edit no longer makes its approval look stale.** After it
+  opens the pull request, the build writes the description's Pull Request
+  section. The approval check counted every description change after the
+  approval as "the work order was edited", so every later run on the ticket
+  — reconciling, syncing, the CI gate and hand-off, item commands — would
+  have sent the ticket back to be approved again. Changes by the automation
+  account no longer count; a person's edit still does. (Not seen in the
+  playground runs, which never reached a second run on a built ticket; the
+  tests' recorded history had no such edit — it has one now.)
+
+**Updating:** Nothing.
+
 ## 2.16.0 — 2026-10-08
 
 Step 5, second part, first half (5b-1): `/skip` on the ticket, and what
