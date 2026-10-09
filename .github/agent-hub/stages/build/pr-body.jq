@@ -40,7 +40,7 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
 
   section("What changed"; (if $publish then [$b.summary | safe, ""] else [] end)
     + ["\(plural($g.totals.files; "file")), \(plural($g.totals.lines; "changed line")):", ""]
-    + [$g.files[] | "- \(.path | code) — \(.status | status_word), \(line_counts) — \(.class)" + (if .reason != "" then ": \(.reason)" else "" end)]),
+    + [$g.files[] | "- \(.path | code) — \(.status | status_word), \(line_counts) — \(.class)" + (if .reason != "" then ": \(.reason | line)" else "" end)]),
 
   section("Acceptance criteria"; [$b.verification | to_entries[]
     | if $publish then "\(.key + 1). \(.value.criterion | line) — **\(.value.method)**: \(.value.detail | line)"
@@ -86,6 +86,7 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
 
   section("Risk and governance"; ["- Risk: **\($p.governance.risk.level)**" + (if $publish then " — \($p.governance.risk.reason | line)" else "" end),
     "- Declared in the plan: " + ([$p.governance.includes | to_entries[] | select(.value) | .key | gsub("_"; " ")] | if length > 0 then join(", ") else "none of the sensitive kinds" end),
-    "- Plan: attachment \($c.plan.attachment) on the ticket (sha256 \($c.plan.sha256[0:12]))"]),
+    "- Plan: attachment \($c.plan.attachment) on the ticket (sha256 \($c.plan.sha256[0:12]))"
+      + (if $c.plan.by_person then " — **uploaded by a person, not written by the plan stage**: its scope and must-not-touch rules are theirs" else "" end)]),
 
   section("Run"; ["\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0) + ($x.cost // 0))) · \(($o.duration_ms // 0) + ($r.duration_ms // 0) + ($x.duration_ms // 0) | duration) of Claude time · hub \($s.hub_version) · [run summary](\($run))"])

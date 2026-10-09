@@ -192,3 +192,24 @@ x.js")" "decision: outside the plan's scope"
     src/types/user.ts lib/api.d.ts db/migrations/002.sql Dockerfile .github/workflows/ci.yml .github/agent-hub-extensions/build/checks.json \
     config/app.json .env.example)"
 }
+
+@test "always a person's decision: agents' instructions, package-manager configuration and a changed file mode — even when the plan lists the file" {
+  mkdir -p docs/sub
+  echo guide > CLAUDE.md
+  echo guide > docs/sub/AGENTS.md
+  echo '{}' > .mcp.json
+  echo 'registry=https://example.invalid/' > .npmrc
+  printf 'packages:\n  - "*"\n' > pnpm-workspace.yaml
+  echo two >> src/app.js && chmod +x src/app.js
+  git add . && git commit -qm build
+  jq '.changes += [{path: "CLAUDE.md", action: "create"}]' "$BATS_TEST_TMPDIR/contract.json" > "$BATS_TEST_TMPDIR/c.json" \
+    && mv "$BATS_TEST_TMPDIR/c.json" "$BATS_TEST_TMPDIR/contract.json"
+  run gates
+  assert_success
+  assert_equal "$(class_of CLAUDE.md)" "decision: instructions or configuration for AI agents (CLAUDE.md, AGENTS.md, .mcp.json)"
+  assert_equal "$(class_of docs/sub/AGENTS.md)" "decision: instructions or configuration for AI agents (CLAUDE.md, AGENTS.md, .mcp.json)"
+  assert_equal "$(class_of .mcp.json)" "decision: instructions or configuration for AI agents (CLAUDE.md, AGENTS.md, .mcp.json)"
+  assert_equal "$(class_of .npmrc)" "decision: package-manager configuration (registries, install scripts, workspaces)"
+  assert_equal "$(class_of pnpm-workspace.yaml)" "decision: package-manager configuration (registries, install scripts, workspaces)"
+  assert_equal "$(class_of src/app.js)" "decision: its file mode changed (644 to 755)"
+}

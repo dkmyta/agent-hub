@@ -107,6 +107,16 @@ gh_pr_draft() { _gh_mutation 'mutation($id: ID!) { convertPullRequestToDraft(inp
 # gh_thread_resolve <thread id>: mark a review thread resolved.
 gh_thread_resolve() { _gh_mutation 'mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }' "$(jq -nc --arg id "$1" '{id: $id}')"; }
 
+# gh_user_can_write <login>: whether the user has write access (write,
+# maintain or admin) to this repository — what GitHub says, not the
+# association a comment shows (MEMBER is any org member; COLLABORATOR includes
+# read-only collaborators).
+gh_user_can_write() {
+  gh_api GET "/repos/$GITHUB_REPOSITORY/collaborators/$(jq -rn --arg l "$1" '$l | @uri')/permission" \
+    | jq -e '(.user.permissions // {}) as $p | ($p.push == true) or ($p.maintain == true) or ($p.admin == true)
+             or (.permission | IN("write", "admin"))' > /dev/null
+}
+
 # gh_thread_reply <number> <comment id> < text: reply on a review comment's
 # thread.
 gh_thread_reply() { jq -Rsc '{body: .}' | gh_api POST "/repos/$GITHUB_REPOSITORY/pulls/$1/comments/$2/replies" > /dev/null; }

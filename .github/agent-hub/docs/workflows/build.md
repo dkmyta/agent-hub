@@ -430,7 +430,17 @@ A fresh, read-only Claude session in the same job — independence comes from
 the session, the tools and the inputs, so the exact unpushed change needs no
 transport. It sees the approved plan, the change set, the **whole** diff and
 the verification results, never the build's reasoning, and can read the
-repository and run tests, but not edit. A diff over 400 KB is replaced by
+repository and run tests, but not edit. Since 2.18.0 it works in **its own
+clean copy** of exactly the verified commit (dependencies installed from the
+lockfile, as the verify step's), never the checkout the build agent left —
+whose ignored files (`node_modules`, say) could steer what its tests show —
+and its sandbox keeps it from writing to that copy. Its guidance
+(`CLAUDE.md`, the extensions) is the target branch's from when the run
+started, never what the build agent wrote. Findings in the `security` area
+are always a person's decision, whatever their kind (`policy.json`,
+`decision_areas`). The fix check, likewise, judges the fix pass's candidate
+**committed** (the Fix step commits it; Verify fix checks that commit) in its
+own clean copy. A diff over 400 KB is replaced by
 its list of files, which the reviewer then reads itself (reviewing in file
 groups is a refinement for later, if real builds need it). Every area, every
 time:
@@ -881,7 +891,11 @@ and the next revision reviews the whole pull request.
 
 - **Commenting on a ticket never authorises a change** (a permanent rule):
   the commenter must be in `AGENT_HUB_APPROVERS_GROUP`, checked by the hub
-  from the tracker; unset, or not checkable, and nothing is done.
+  from the tracker; unset, or not checkable, and nothing is done. A comment
+  someone else edited (Jira's "Edit All Comments") isn't its author's
+  command, and is refused (2.18.0). `/apply comments` takes review threads
+  only from people GitHub says have write access (2.18.0) — not from every
+  org member or read-only collaborator.
 - **Only item ids.** The command's first paragraph may hold only the command
   and ids; anything else refuses the whole command — item commands aren't a
   way to give the agent instructions.

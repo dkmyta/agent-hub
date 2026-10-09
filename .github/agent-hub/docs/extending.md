@@ -83,13 +83,19 @@ Extensions add knowledge, never permissions:
   starts, with a failure comment naming it. CI catches it earlier: the hub's
   tests check every extension folder, and that its name is `shared` or a
   stage (a typo like `work_order/` would otherwise never load).
-- **Experts get the same restrictions as the agent**, whatever their own
-  `tools:` line says: read-only, inside the repository, no shell, no writing
-  or editing, no hooks or MCP servers, and web pages only from the allowed
-  documentation sites. A `tools: Write` line has no effect.
-- **Ticket text can't change them.** They come from the branch the run uses
-  — the default branch for tracker requests, or the branch picked for a
-  manual **Run workflow** — reviewed like code; a ticket is only ever data.
+- **Experts get the same restrictions as the session that calls them**,
+  whatever their own `tools:` line says: no hooks or MCP servers, and no
+  writing or editing where the session can't. In the document stages that's
+  read-only, inside the repository, no shell, and web pages only from the
+  allowed documentation sites; in the build's sessions experts share the
+  session's sandboxed shell. A `tools: Write` line has no effect.
+- **Neither ticket text nor an agent can change them.** They come from the
+  branch the run uses — the default branch for tracker requests, or the
+  branch picked for a manual **Run workflow** — reviewed like code; a ticket
+  is only ever data. In the build, every pass reads them as that branch had
+  them when the run started (never the checkout the build agent edits, or a
+  pull request's head), and a change to `CLAUDE.md`, `AGENTS.md` or
+  `.mcp.json` in a build is a decision for a person (since 2.18.0).
 
 Treat them as code: they steer what the agents write, so changes go through
 pull requests and review. Never put secrets in them.

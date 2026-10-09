@@ -26,11 +26,14 @@ _review_incomplete() {
   echo "**Code review:** didn't finish — $1." >> "$GITHUB_STEP_SUMMARY"
 }
 
-# review_policy < findings JSON: each finding with its policy outcome.
+# review_policy < findings JSON: each finding with its policy outcome — a
+# decision kind or a decision area (a security finding, whatever its kind),
+# or one outside the plan, is a person's decision. (The fix check's new
+# concerns go through it too; /apply's findings don't: an approver chose them.)
 review_policy() {
   jq -c --slurpfile p "$STAGE_DIR/review/policy.json" '$p[0] as $p
     | to_entries | map(.value + {n: (.key + 1), policy: (
-        if (.value.kind | IN($p.decision_kinds[])) or (.value.within_plan | not) then "decision"
+        if (.value.kind | IN($p.decision_kinds[])) or (.value.area | IN(($p.decision_areas // [])[])) or (.value.within_plan | not) then "decision"
         elif (.value.kind | IN($p.fix_kinds[])) and (.value.severity | IN($p.fix_severities[])) then "fix"
         else "review" end)})'
 }
@@ -85,8 +88,13 @@ step_review() {
     "$(jq -r 'if (.checks | length) == 0 then "The repository declares no checks." else .checks[] | "\(.name) (\(.command)): \(.result)" end' "$RUNNER_TEMP/verify.json")" \
     "$(cat "$diff")")
 
-  agent_pass review "$REVIEW_CLAUDE_MODEL" "$REVIEW_CLAUDE_FALLBACK_MODEL" "$BUILD_REVIEW_MAX_BUDGET_USD" \
-    "$STAGE_DIR/review/prompt.md" "$STAGE_DIR/review/schema.json" "$input" > "$output"
+  # In its own clean copy of exactly the verified commit — not the checkout,
+  # where the build agent may have left files (ignored ones too) — which its
+  # sandbox keeps it from writing to.
+  build_clean_copy "$head" "$RUNNER_TEMP/review-copy" 2> "$RUNNER_TEMP/review-copy-error" \
+    || { _review_incomplete "a clean copy of the commit couldn't be made for it ($(head -n 1 "$RUNNER_TEMP/review-copy-error"))" "$head"; return 0; }
+  (cd "$RUNNER_TEMP/review-copy" && agent_pass review "$REVIEW_CLAUDE_MODEL" "$REVIEW_CLAUDE_FALLBACK_MODEL" "$BUILD_REVIEW_MAX_BUDGET_USD" \
+    "$STAGE_DIR/review/prompt.md" "$STAGE_DIR/review/schema.json" "$input") > "$output"
 
   if [ ! -s "$output" ] || ! jq -e '.is_error == false and (.structured_output.findings | type == "array")
        and (.structured_output.summary | type == "string")' "$output" > /dev/null 2>&1; then

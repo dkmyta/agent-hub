@@ -256,12 +256,16 @@ run_scenario() {
   export MOCK_GH_VISIBILITY=private MOCK_GH_FAIL="" MOCK_GH_PRS_FIXTURE="" MOCK_GH_HISTORY=""
   # The build's CI gate, CI fixes, closed pull requests and item commands.
   export AGENT_HUB_WAKE="" MOCK_GH_CHECKS="" MOCK_GH_REQUIRED="" MOCK_GH_RULES="" MOCK_GH_STATUSES="" MOCK_GH_LOG="" \
-    MOCK_GH_ON_CHECKS="" MOCK_GROUPS="" MOCK_PROPERTIES_FROM="" MOCK_GH_THREADS=""
+    MOCK_GH_ON_CHECKS="" MOCK_GROUPS="" MOCK_PROPERTIES_FROM="" MOCK_GH_THREADS="" MOCK_GH_PERMISSIONS=""
   export TRANSITIONS_FIXTURE=transitions.json ATTACHMENTS_FIXTURE="" ATTACHMENTS_LATER_FIXTURE="" ATTACHMENTS_LATER_FROM="" ATTACHMENT_CONTENT_FIXTURE=""
   set -a  # scenario.env overrides the defaults above
   # shellcheck source=/dev/null
   source "$dir/scenario.env"
   set +a
+  # The suite's own repository variables, as they were before this test's
+  # first run: an override of VARS lasts for its run only.
+  : "${SUITE_VARS=${VARS:-}}"
+  export VARS=$SUITE_VARS
   for arg in "${overrides[@]}"; do export "${arg?}"; done
   for var in TICKET_FIXTURE TICKET_LATER_FIXTURE CHANGELOG_FIXTURE CHANGELOG_PAGE2_FIXTURE COMMENTS_FIXTURE COMMENTS_LATER_FIXTURE TRANSITIONS_FIXTURE CLAUDE_FIXTURE ATTACHMENTS_FIXTURE ATTACHMENTS_LATER_FIXTURE ATTACHMENT_CONTENT_FIXTURE CLAUDE_REVIEW_FIXTURE CLAUDE_PASS_FIXTURE CLAUDE_FIX_FIXTURE CLAUDE_FIX_EDITS CLAUDE_FIX_CHECK_FIXTURE CLAUDE_EDITS MOCK_GH_PRS_FIXTURE; do
     case "${!var}" in none | approve | "" | /*) ;; *) export "$var=$FIXTURES/${!var}" ;; esac

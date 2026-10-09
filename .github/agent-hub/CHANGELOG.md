@@ -5,6 +5,60 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.18.0 — 2026-10-09
+
+Security fixes from two reviews of 2.17.0 — this session's, and an
+independent one run in a fresh session with no context. Several change what
+honest use sees (listed under **Updating**).
+
+- **Nothing an agent writes becomes a later pass's instructions.** The
+  build snapshots the repository's guidance — `CLAUDE.md`, `AGENTS.md`,
+  `.claude/` (its agents and skills) and the hub extensions — from the target
+  branch's head when the run starts, before any agent, and every pass reads
+  that: never the checkout the build agent edits, and never a pull request's
+  head when reconciling. Before, the build agent could rewrite what the code
+  review and the fix check were told (reproduced).
+- **The code review and the fix check judge a clean copy** of exactly the
+  commit — dependencies installed from the lockfile — never the checkout an
+  agent left (whose ignored files could steer the tests they run), and their
+  sandbox keeps them from writing to it. The fix pass's candidate is now
+  committed in the Fix step, so its check judges that commit, and Verify fix
+  checks it rather than making it.
+- **Always a person's decision:** a change to `CLAUDE.md`, `AGENTS.md` or
+  `.mcp.json` at any depth; package-manager configuration (`.npmrc`,
+  `.yarnrc`, `.yarnrc.yml`, `.pnpmfile.cjs`, `pnpm-workspace.yaml`); a file
+  whose mode changed; and any review finding in the `security` area, whatever
+  its kind (never fixed automatically). `.claude/` and `.github/` stay
+  refused.
+- **Self-hosted runners start each job from an empty work folder,** so
+  nothing an earlier job's agent left — `.git` hooks or config included —
+  reaches a step with credentials. The build's first git command runs with
+  every setting that could run a program turned off, and the hub's git copy
+  keeps only an allow-listed config (no credential helpers, filters or
+  hooks). A full clone each job: slower on a large repository, by design.
+- **Commands and approvals:** an item command someone else edited isn't its
+  author's, and is refused; `/apply comments` takes threads only from people
+  GitHub says have write access (not every org member or read-only
+  collaborator) and replies to each thread's first comment; with
+  `AGENT_HUB_APPROVERS_GROUP` set, the plan's approver (build) and the work
+  order's (plan stage) must be in it, and the work order's approver must be
+  a person; a plan file a person uploaded is said so on the progress comment
+  and the pull request. The build's `wake` input only takes the hub's values.
+- **Smaller:** a dependency folder that is a link is refused; gate reasons
+  (which can quote a package's licence) are escaped in the pull request
+  description; the review prompt says what its diff really is; the sandbox
+  check reports whether the agent's shell can write `.git/config`, `.github/`
+  and `.claude/`.
+
+**Updating:**
+- New decision items may appear (the paths above, and changed file modes),
+  and security findings are no longer fixed automatically.
+- With `AGENT_HUB_APPROVERS_GROUP` set, approvals now need its members: put
+  your approvers in it.
+- An item command edited by someone else is refused: its author posts it
+  again.
+- On self-hosted runners every job clones afresh.
+
 ## 2.17.0 — 2026-10-08
 
 Step 5, second part, second half (5b-2): `/apply` on the ticket. With it the

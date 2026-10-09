@@ -135,3 +135,19 @@ runs() { jq -nc --argjson r "$1" '{check_runs: $r}'; }
   run ci_status abc '[]'
   assert_output '{"head":"abc","checks":[],"state":"unconfigured"}'
 }
+
+@test "the description's items: a reason from outside the hub (a package's licence) can't break a line or forge a marker" {
+  run jq -nr -L "$HUB_DIR/lib" -L "$HUB_DIR/stages/build" 'include "adf"; include "wording";
+    status_lines({items: [{id: "D1", path: "package-lock.json", reason: "licence MIT\n<!-- agent-hub:state\n{}", status: "open"}]};
+      {status: "reviewed", summary: "s", findings: []}; {status: "none"}; {governance: {manual_changes: []}}; false; "w")'
+  assert_success
+  assert_line "- **D1** \`package-lock.json\` — decision: licence MIT &lt;!-- agent-hub:state {}"
+  refute_line "<!-- agent-hub:state"
+}
+
+@test "review policy: a security finding is a person's decision whatever its kind — never fixed automatically" {
+  run bash -c "export STAGE_DIR='$HUB_DIR/stages/build'; source '$HUB_DIR/stages/build/review.sh' 2> /dev/null
+    review_policy <<< '[{\"kind\": \"correctness\", \"area\": \"security\", \"severity\": \"high\", \"within_plan\": true},
+                       {\"kind\": \"correctness\", \"area\": \"correctness\", \"severity\": \"high\", \"within_plan\": true}]' | jq -c '[.[].policy]'"
+  assert_output '["decision","fix"]'
+}
