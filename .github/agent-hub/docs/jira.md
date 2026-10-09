@@ -302,8 +302,8 @@ the ticket back to Implementation Plan and approve it again.
 
 ## Rule: Build Command
 
-Since 2.16.0. Wakes the build when someone comments **`/skip`** (or, from a
-later version, **`/apply`**) on a ticket whose pull request the build opened
+Since 2.16.0. Wakes the build when someone comments **`/skip`** or
+**`/apply`** (2.17.0) on a ticket whose pull request the build opened
 — to act on its items (the pull request's **Items for a person**: `D1`,
 `R2`, `C1`). The rule only wakes the build; the build reads the ticket's
 open commands itself and answers each one, and **acts only for members of
@@ -331,6 +331,15 @@ request whose only blocker was a decision item can be handed off). The line
 holds only the command and item ids; anything else and the whole command is
 refused (a reason can go in a following paragraph, for people). Who accepted
 or skipped what is kept on the ticket, not on the pull request.
+
+`/apply R2 D1` fixes those items; `/apply all` every open R item (never a
+decision); `/apply comments` the pull request's unresolved review threads
+from people with write access (they can be combined: `/apply R2 comments`).
+The fix goes through the same checks as the review's fix pass, CI runs again
+on it, and a pull request already handed off goes back to draft until it's
+handed off again — the ticket stays in Ready for Review. `/apply` works only
+on the commit the hub last checked: after someone else's push, re-run the
+build first.
 
 ## Permissions for the automation account
 

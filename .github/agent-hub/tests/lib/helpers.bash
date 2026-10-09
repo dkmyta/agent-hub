@@ -256,7 +256,7 @@ run_scenario() {
   export MOCK_GH_VISIBILITY=private MOCK_GH_FAIL="" MOCK_GH_PRS_FIXTURE="" MOCK_GH_HISTORY=""
   # The build's CI gate, CI fixes, closed pull requests and item commands.
   export AGENT_HUB_WAKE="" MOCK_GH_CHECKS="" MOCK_GH_REQUIRED="" MOCK_GH_RULES="" MOCK_GH_STATUSES="" MOCK_GH_LOG="" \
-    MOCK_GH_ON_CHECKS="" MOCK_GROUPS="" MOCK_PROPERTIES_FROM=""
+    MOCK_GH_ON_CHECKS="" MOCK_GROUPS="" MOCK_PROPERTIES_FROM="" MOCK_GH_THREADS=""
   export TRANSITIONS_FIXTURE=transitions.json ATTACHMENTS_FIXTURE="" ATTACHMENTS_LATER_FIXTURE="" ATTACHMENTS_LATER_FROM="" ATTACHMENT_CONTENT_FIXTURE=""
   set -a  # scenario.env overrides the defaults above
   # shellcheck source=/dev/null

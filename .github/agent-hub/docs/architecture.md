@@ -216,7 +216,7 @@ statuses are the tracker's; *(planned)* marks what the build stage doesn't do ye
 | Work Order Approved | The plan agent | Plan written · needs a decision | Implementation Plan (`needs-human`) · Work Order (`needs-clarification`) |
 | Implementation Plan | A person | Approves · re-plans · changes the work order | Implementation Plan Approved · Work Order Approved · Work Order |
 | Implementation Plan Approved | The build agent | Hand-off (every required check green on the head the hub verified, provenance holds, no open decision items; since 2.13.0) · plan unclear · plan changed since approval · failed past its caps | Ready for Review (`needs-human`) · Implementation Plan (`needs-clarification`) · Implementation Plan (re-approval) · stays (`needs-human`) |
-| Ready for Review | A person | Approves and merges the pull request (the build moves the ticket to Done: since 2.15.0) · `/apply` (a revision, stays; *planned*) | Done (or Approved, by a person) |
+| Ready for Review | A person | Approves and merges the pull request (the build moves the ticket to Done: since 2.15.0) · `/skip`, `/apply` (a fix on the same branch: back to draft, the ticket stays here until it's handed off again; since 2.17.0) | Done (or Approved, by a person) |
 | Approved | A person | Merges the pull request | Done (the build, since 2.15.0) |
 
 **Every run ends in one of these outcomes**, named the same way in every
@@ -380,6 +380,7 @@ and every setting named must exist (`tests/build/scenarios.bats`).
 | Code review | Review | `review` | `AGENT_HUB_REVIEW_MODEL` | `AGENT_HUB_BUILD_REVIEW_MAX_BUDGET_USD` | The work order and plan, the hub's check results, the diff the hub computed | `guidance.md`, `review.md` | Findings (`stages/build/review/schema.json`) |
 | Fix | Fix | `build` | `AGENT_HUB_BUILD_FIX_MODEL` | `AGENT_HUB_BUILD_FIX_MAX_BUDGET_USD` | The work order and plan, the fix-eligible findings | `guidance.md` | What it fixed (`stages/build/fix/schema.json`); the code, in the checkout |
 | Fix check | Fix | `review` | `AGENT_HUB_BUILD_FIX_MODEL` | `AGENT_HUB_BUILD_FIX_CHECK_MAX_BUDGET_USD` | The work order and plan, the findings and what the fix pass did, the hub's diff of the fix | `guidance.md`, `review.md` | Verdicts, and new concerns (`stages/build/fix-check/schema.json`) |
+| Apply | Fix | `build` | `AGENT_HUB_BUILD_FIX_MODEL` | `AGENT_HUB_BUILD_FIX_MAX_BUDGET_USD` | The work order and plan, the items an approver asked for with `/apply` (each review finding from the review kept on the ticket; a decision as the gates flagged it; a reviewer's unresolved thread, as read when the run starts) — the fix pass, with `apply/prompt.md`, then its fix check | `guidance.md` | As the fix pass (`stages/build/fix/schema.json`); the code, in the checkout |
 | CI fix | Fix | `build` | `AGENT_HUB_BUILD_FIX_MODEL` | `AGENT_HUB_BUILD_FIX_MAX_BUDGET_USD` | The work order and plan, the failed required checks with what they reported (the check's summary; an Actions job's log tail) — the fix pass, with `ci-fix/prompt.md`, then its fix check (above) | `guidance.md` | As the fix pass (`stages/build/fix/schema.json`); the code, in the checkout |
 
 - **Every pass** also gets the repository's `CLAUDE.md` and, as a plugin, its

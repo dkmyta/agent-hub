@@ -64,9 +64,19 @@ step_fetch() {
   # A hub pull request was closed (agent-hub-pr-closed.yml): Done, or a
   # comment — nothing is built (closed.sh).
   if [ "${AGENT_HUB_WAKE:-}" = closed ]; then build_closed; exit 0; fi
-  # A person's /skip or /apply on the ticket (commands.sh).
-  if [ "${AGENT_HUB_WAKE:-}" = command ]; then build_command; exit 0; fi
-  stage_fetch "$PLAN_APPROVED_STATUS" || exit 0
+  # A person's /skip or /apply on the ticket (commands.sh): it ends the run,
+  # unless an /apply was accepted — then the run carries on as a fix of the
+  # requested items.
+  [ "${AGENT_HUB_WAKE:-}" != command ] || build_command
+  # A build starts from Implementation Plan Approved. The CI gate and item
+  # commands also run for a ticket already handed off (Ready for Review, or
+  # Approved): an /apply sends its pull request back to draft, and the gate
+  # hands it off again. The hub never moves a ticket back into Implementation
+  # Plan Approved — its own move there wouldn't be an approval.
+  case "${AGENT_HUB_WAKE:-}" in
+    ci | command) stage_fetch "$PLAN_APPROVED_STATUS" "$READY_FOR_REVIEW_STATUS" "$APPROVED_STATUS" || exit 0 ;;
+    *) stage_fetch "$PLAN_APPROVED_STATUS" || exit 0 ;;
+  esac
   stage_set_mode new
   # Not for real tickets yet (settings.sh): stop before anything else.
   [ "$BUILD_PREVIEW" = true ] \
@@ -110,6 +120,11 @@ step_fetch() {
     cat "$RUNNER_TEMP/plan.md"
   } >> "$RUNNER_TEMP/ticket.md"
   if reconciling; then
+    if applying; then
+      stage_progress_comment "⏳ Applying to pull request #$(context .pr)" \
+        " — what an approver asked for with /apply ($(context '.apply.sources | length') item(s) or review thread(s)), through the fix pass, verified before it's pushed. Refresh the page to see the result. "
+      return
+    fi
     if ci_fixing; then
       stage_progress_comment "⏳ Fixing CI on pull request #$(context .pr)" \
         " — required checks failed ($(context '.ci_fix.checks | join(", ")')), so the hub is trying a fix ($(context .ci_fix.attempt) of $BUILD_CI_FIX_ATTEMPTS), verified before it's pushed. Refresh the page to see the result. "
@@ -130,7 +145,7 @@ stage_max_cost() {
   # drift has no review either: no Claude at all.
   if reconciling; then
     # A CI fix: the fix pass and its check only.
-    if ci_fixing; then stage_sum_usd "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return; fi
+    if ci_fixing || applying; then stage_sum_usd "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return; fi
     reconcile_reviews || { echo 0; return; }
     stage_sum_usd "$BUILD_REVIEW_MAX_BUDGET_USD" "$BUILD_FIX_MAX_BUDGET_USD" "$BUILD_FIX_CHECK_MAX_BUDGET_USD"; return
   fi

@@ -40,7 +40,11 @@ _numbered_findings() {
 }
 
 # _fix_instructions: the fix pass's instructions folder — ci-fix for a CI fix.
-_fix_instructions() { if reconciling && ci_fixing; then echo ci-fix; else echo fix; fi; }
+_fix_instructions() {
+  if reconciling && ci_fixing; then echo ci-fix
+  elif reconciling && applying; then echo apply
+  else echo fix; fi
+}
 
 # _fix_diff <commit>: the checkout's changes since <commit> — new files too —
 # from the trusted metadata, without touching its index.
@@ -149,7 +153,7 @@ _commit_fix() {
   ! git diff --cached --quiet || { echo "it changed nothing"; return 1; }
   GIT_AUTHOR_NAME=$(context .committer.name) GIT_AUTHOR_EMAIL=$(context .committer.email) \
     GIT_COMMITTER_NAME=$(context .committer.name) GIT_COMMITTER_EMAIL=$(context .committer.email) \
-    git commit -q -m "$(if [ "$(_fix_instructions)" = ci-fix ]; then echo "Fix the failing required checks"; else echo "Fix the automated review's findings"; fi)" \
+    git commit -q -m "$(case "$(_fix_instructions)" in ci-fix) echo "Fix the failing required checks" ;; apply) echo "Apply the items an approver asked for" ;; *) echo "Fix the automated review's findings" ;; esac)" \
       -m "Refs: $TICKET_KEY" || { echo "it couldn't be committed"; return 1; }
   # The gates on the whole change, as Apply will run them. A fix is kept only
   # if it adds nothing for a person: no file the hub never pushes, and no

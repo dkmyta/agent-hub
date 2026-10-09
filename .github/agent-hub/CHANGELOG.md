@@ -5,6 +5,45 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.17.0 — 2026-10-08
+
+Step 5, second part, second half (5b-2): `/apply` on the ticket. With it the
+build stage's loop is complete: plan → build → review → CI → people's review
+→ merge → Done.
+
+- **`/apply R2 D1`, `/apply all`, `/apply comments`** (combinable): a fix of
+  exactly the requested items, **through the fix pass's own path** — each
+  item or review thread becomes one bounded finding for the fix pass (new
+  instructions, `stages/build/apply/prompt.md`), then the fix check, the
+  Verify-fix gate and a push that's never forced. Never a free-text
+  instruction to the agent.
+  - `all` is every open R item, never a decision; a decision only by its id.
+  - `comments` is the pull request's unresolved review threads from people
+    with write access (owner, member, collaborator), read when the run
+    starts — the snapshot the fix is attributed to.
+  - Each finding comes from the review the hub keeps on the ticket (a
+    decision as the gates flagged it). A manual change, the "review didn't
+    finish" decision, or an item whose finding the hub didn't keep can't be
+    applied, and the reply says so.
+- **Only on the head the hub last recorded and reviewed;** after anyone
+  else's push it's refused — re-run the build first. Approvers only, item
+  ids only, as for `/skip`. One `/apply` per run.
+- **Afterwards:** the kept fix is the hub's (`kind: fix`, verified on its
+  commit, with the `/apply` it answers); items the fix check found resolved
+  are closed as *fixed*; each thread gets a reply (the commit, or "not
+  applied" — Claude's words only on the ticket) and is resolved when
+  applied; the `/apply` is answered on the ticket item by item. CI and the
+  hand-off gate run again on the new SHA.
+- **After a hand-off:** the pull request goes back to draft and the ticket
+  stays in Ready for Review — the hub never moves a ticket back into
+  Implementation Plan Approved, since its own move there wouldn't be an
+  approval. The CI gate and hand-off now also run for a ticket in Ready for
+  Review (or Approved) and mark the pull request ready again.
+- Admitted on the fix pass and its check ($4).
+
+**Updating:** Nothing more than 2.16.0's (the Build Command rule, the
+approvers group, Browse users and groups).
+
 ## 2.16.1 — 2026-10-08
 
 A fix found while building 5b-2.

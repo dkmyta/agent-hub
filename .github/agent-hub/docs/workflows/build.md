@@ -875,12 +875,9 @@ and the next revision reviews the whole pull request.
 
 ## Review items and `/apply`
 
-*Built so far* (step 5, agreed 2026-10-08 with an external review):
-**`/skip`** on the ticket (2.16.0, 5b-1; `stages/build/commands.sh`, the
-tracker's Build Command rule); **`/apply`** — item ids, `all` (R items
-only, never D) and `comments` (the pull request's unresolved review threads,
-as read when the run starts), through the fix pass's path — is next (5b-2).
-As built:
+*Built* (step 5, agreed 2026-10-08 with an external review): **`/skip`**
+(2.16.0, 5b-1) and **`/apply`** (2.17.0, 5b-2) on the ticket
+(`stages/build/commands.sh`, the tracker's Build Command rule). As built:
 
 - **Commenting on a ticket never authorises a change** (a permanent rule):
   the commenter must be in `AGENT_HUB_APPROVERS_GROUP`, checked by the hub
@@ -898,6 +895,30 @@ As built:
   did what, when, on which head, is kept on the ticket (`agent-hub-items`).
   The CI gate's last result is cleared, so the CI sweep runs it again — a
   pull request whose only blocker was a decision item is then handed off.
+- **`/apply R2 D1`, `/apply all`, `/apply comments`:** a fix of exactly the
+  requested items, **through the fix pass's own path** — R item / review
+  thread → a bounded finding → the fix pass (`apply/prompt.md`) → the fix
+  check → the Verify-fix gate → a push never forced. Never a free-text
+  instruction. `all` is every open R item, never a decision (a decision only
+  by its id); `comments` is the pull request's unresolved review threads
+  from people with write access, as read when the run starts — the snapshot
+  the fix is attributed to. Each finding comes from the review the hub kept
+  (a decision as the gates flagged it); a manual change, the "review didn't
+  finish" decision or an item without a kept finding can't be applied.
+- **Only on the head the hub last recorded and reviewed:** after anyone
+  else's push, `/apply` is refused (re-run the build to have it reviewed,
+  then apply what that review lists). One `/apply` per run.
+- **What follows:** a kept fix is the hub's (`kind: fix`, verified on exactly
+  its commit, with the `/apply` it answers); each item the fix check found
+  resolved is closed as *fixed*; each thread gets a reply — the commit, or
+  that it wasn't applied (Claude's words only on the ticket) — and is
+  resolved when applied; the `/apply` is answered on the ticket item by
+  item. CI and the hand-off gate run again on the new SHA. A pull request
+  that was already handed off goes **back to draft**, the ticket staying in
+  Ready for Review (the hub never moves a ticket back into Implementation
+  Plan Approved: its own move there wouldn't be an approval); the CI gate
+  and hand-off also run for a ticket in Ready for Review, and mark it ready
+  again. Admitted on the fix pass and its check ($4).
 - **Deferred** (after v1, only if real use shows the need): a relay numbering
   each pull request comment as an `M` item, commands on the pull request
   itself, a reviewers setting, post-merge CI.
@@ -1249,6 +1270,7 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template), `wording.jq` (wording the pull request and the ticket's report share, and the items); later `ci-fix/` |
 | `stages/build/fix.sh`, `stages/build/fix/`, `stages/build/fix-check/` | The fix pass, the fix check and Verify fix (2.10.0); each pass's `prompt.md` and `schema.json` |
 | `stages/build/closed.sh`, `.github/workflows/agent-hub-pr-closed.yml` | A hub pull request closed (2.15.0): Done only if the hub handed it off and it was merged; otherwise a comment |
+| `stages/build/commands.sh`, `stages/build/apply/` | Item commands from the ticket (2.16.0–2.17.0): `/skip` and `/apply`, the approvers check, the `/apply` fix's instructions |
 | `stages/build/ci-fix/` | The CI-fix pass's instructions (2.14.0); its schema is the fix pass's |
 | `stages/build/handoff.sh`, `lib/ci.sh` | The CI gate and the hand-off (2.13.0): the required checks for exactly the head, the hand-off rule (`handoff_problems`), reporting to a person once per head |
 | `stages/build/sweep.sh`, `.github/workflows/agent-hub-ci-sweep.yml` | The CI sweep (2.13.0): every 10 minutes, requests the build (CI gate only) for the hub's draft pull requests whose checks have finished |

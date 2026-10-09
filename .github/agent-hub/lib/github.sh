@@ -90,6 +90,27 @@ gh_pr_ready() {
     || { echo "::error::GitHub GraphQL error: $(jq -c '[.errors[].type // .errors[].message]' <<< "$response")" >&2; return 1; }
 }
 
+# _gh_mutation <query> <variables JSON>: a GraphQL change that's safe to
+# repeat (marking ready or draft, resolving a thread); fails on any error.
+_gh_mutation() {
+  local response
+  response=$(jq -nc --arg query "$1" --argjson variables "$2" '{query: $query, variables: $variables}' \
+    | HTTP_IDEMPOTENT=1 gh_request -X POST -H "Content-Type: application/json" "$GH_API/graphql" -d @-) || return 1
+  jq -e '(.errors // []) | length == 0' <<< "$response" > /dev/null \
+    || { echo "::error::GitHub GraphQL error: $(jq -c '[.errors[].type // .errors[].message]' <<< "$response")" >&2; return 1; }
+}
+
+# gh_pr_draft <node id>: back to a draft (an /apply on a pull request that was
+# handed off: it isn't merged on the old result while CI runs again).
+gh_pr_draft() { _gh_mutation 'mutation($id: ID!) { convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { isDraft } } }' "$(jq -nc --arg id "$1" '{id: $id}')"; }
+
+# gh_thread_resolve <thread id>: mark a review thread resolved.
+gh_thread_resolve() { _gh_mutation 'mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }' "$(jq -nc --arg id "$1" '{id: $id}')"; }
+
+# gh_thread_reply <number> <comment id> < text: reply on a review comment's
+# thread.
+gh_thread_reply() { jq -Rsc '{body: .}' | gh_api POST "/repos/$GITHUB_REPOSITORY/pulls/$1/comments/$2/replies" > /dev/null; }
+
 GH_OWNER=${GITHUB_REPOSITORY%%/*}
 GH_NAME=${GITHUB_REPOSITORY#*/}
 

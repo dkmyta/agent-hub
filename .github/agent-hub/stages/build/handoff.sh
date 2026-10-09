@@ -27,6 +27,9 @@
 #     the target with mechanical drift verified on exactly that commit — a
 #     person's commit, or any other, needs a full review first;
 #   - the review finished, and no decision item is open.
+# (And, outside the record, the ticket still where the run found it:
+# Implementation Plan Approved, or Ready for Review or Approved when an
+# /apply sent a handed-off pull request back to draft.)
 handoff_problems() {
   jq -r --arg head "$1" '
     (.heads // []) as $heads | (.review.head // "") as $reviewed
@@ -198,7 +201,7 @@ _handoff() {
   # again just before anything is written.
   [ "$(gh_branch_head "$(context .branch)")" = "$head" ] \
     || stage_fail "Someone pushed to $(context .branch) while the hub was checking it, so it wasn't handed off. The next check picks up the new commits."
-  stage_require_status "$PLAN_APPROVED_STATUS"
+  stage_require_status "$(stage_start_status)"
   _require_same_plan
   pr=$(gh_pr_find "$(context .branch)") && [ "$(jq -r '.number' <<< "$pr")" = "$number" ] \
     || stage_fail "Couldn't read pull request #$number from GitHub, so it wasn't handed off."
@@ -210,7 +213,11 @@ _handoff() {
     gh_pr_ready "$(jq -r '.node_id' <<< "$pr")" \
       || stage_fail "Pull request #$number couldn't be marked ready for review. Mark it ready by hand, or re-run the build."
   fi
-  stage_move "$(stage_transition_id "$READY_FOR_REVIEW_STATUS")" "$READY_FOR_REVIEW_STATUS"
+  # A ticket already in Ready for Review (or Approved) — an /apply after an
+  # earlier hand-off sent the pull request back to draft — stays there.
+  if [ "$(stage_start_status)" = "$PLAN_APPROVED_STATUS" ]; then
+    stage_move "$(stage_transition_id "$READY_FOR_REVIEW_STATUS")" "$READY_FOR_REVIEW_STATUS"
+  fi
   printf '✅ Ready for review: every required check passed on %s, the commit the hub verified and reviewed (with any fix and merge since, verified on exactly their commits). Over to a person for the code review.\n' "$(_short "$head")" \
     | gh_pr_comment "$number" || echo "::warning::Couldn't comment on pull request #$number."
   jq -n -L "$HUB_DIR/lib" --arg number "$number" --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$number" \
