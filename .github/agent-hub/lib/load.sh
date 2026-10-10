@@ -42,5 +42,10 @@ case "$1" in
   sandbox) source "$HUB_DIR/lib/sandbox/sandbox.sh" ;;
   *) echo "::error::lib/load.sh: unknown part '$1' (tracker, agent or sandbox)"; exit 1 ;;
 esac
+# A step that runs commands starts with no note of what an earlier step was
+# running when it stopped (sandbox_run's limit-reason): that note is for the
+# failure report of the step GitHub stopped, never a later one's. (The steps
+# that only read and write the ticket keep it, for the report.)
+case "$1" in agent | sandbox) rm -f "${RUNNER_TEMP:-/nonexistent}/limit-reason" ;; esac
 source "$HUB_DIR/lib/stage.sh"
 source "$STAGE_DIR/stage.sh"

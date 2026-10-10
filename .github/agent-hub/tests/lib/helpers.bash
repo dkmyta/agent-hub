@@ -343,12 +343,13 @@ run_scenario() {
       assert_snapshot "$dir/expected/attached-$(basename "$file")" "$file.snapshot"
     done
     # A pull request the run opened: its description (commit ids, the hub
-    # version and times masked).
+    # version, times and the review record's hash masked).
     if jq -e 'select(.method == "POST" and (.path | endswith("/pulls")))' "$GH_CALLS" > /dev/null 2>&1; then
       jq -r 'select(.method == "POST" and (.path | endswith("/pulls"))) | .body.body' "$GH_CALLS" \
         | sed -E -e 's/(^|[^0-9a-f])[0-9a-f]{40}([^0-9a-f]|$)/\1<commit>\2/g' \
             -e 's/"hub_version":"[0-9.]+"/"hub_version":"<version>"/g' -e 's/hub [0-9]+\.[0-9]+\.[0-9]+/hub <version>/' \
             -e 's/"at":"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z"/"at":"<time>"/g' \
+            -e 's/"record":"[0-9a-f]{64}"/"record":"<hash>"/g' \
         > "$RUNNER_TEMP/pr-body.snapshot"
       assert_snapshot "$dir/expected/pr-body.md" "$RUNNER_TEMP/pr-body.snapshot"
     fi

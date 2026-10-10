@@ -173,6 +173,22 @@ runs() { jq -nc --argjson r "$1" '{check_runs: $r}'; }
   refute_line "<!-- agent-hub:state"
 }
 
+# SEC-2 (2.20.0 review): Claude's text in the description can't make GitHub
+# fetch anything (an image), pass for a link, or mention anyone — the
+# characters are shown as they are. A literal backslash stays one.
+@test "the description's text from outside the hub: no images, links, mentions or HTML — shown as written" {
+  run jq -nr -L "$HUB_DIR/lib" -L "$HUB_DIR/stages/build" 'include "adf"; include "wording";
+    "see ![x](https://a.example/p.png?d=SECRET) and [docs](https://e.example) @org/team a\\b <img src=x>" | safe'
+  assert_output 'see !\[x\](https://a.example/p.png?d=SECRET) and \[docs\](https://e.example) \@org/team a\\b &lt;img src=x>'
+}
+
+# SEC-6: a package's licence and version come from its author, through the
+# registry: one line, escaped, like every other text from outside the hub.
+@test "the description's dependency lines: the licence and version go through the escaping, never raw" {
+  run grep -nE '\\\(\.(license|version)( //[^|)]*)?\)' "$HUB_DIR/stages/build/pr-body.jq"
+  assert_output ""
+}
+
 @test "review policy: a security finding is a person's decision whatever its kind — never fixed automatically" {
   run bash -c "export STAGE_DIR='$HUB_DIR/stages/build'; source '$HUB_DIR/stages/build/review.sh' 2> /dev/null
     review_policy <<< '[{\"kind\": \"correctness\", \"area\": \"security\", \"severity\": \"high\", \"within_plan\": true},

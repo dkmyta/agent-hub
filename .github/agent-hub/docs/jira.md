@@ -276,7 +276,8 @@ ticket's caps — so keep it hidden in every rule, and revoke it if it leaks.
 `{"event_type": "agent-hub-<stage>-requested", "client_payload": {...}}`
 and a token with **Contents: Read and write** — which can also push code.
 The workflows still accept those requests in 2.20.0, so the rules keep
-working while you change them; the next release removes them. To change:
+working while you change them; 2.22.0 removes them (after the first full
+manual test, not 2.21.0 as first announced). To change:
 create the new token, update every rule's URL, body and header, check each
 rule once (the audit log shows 204), then delete the old token.
 
@@ -468,7 +469,7 @@ moves trigger them, but they never make them.
 
 - [ ] Task work type with the intake template
 - [ ] Statuses and board columns above; transitions allowed
-- [ ] A dedicated service account with the permissions below (Member, Jira
+- [ ] A dedicated service account with the permissions above (Member, Jira
       access only)
 - [ ] Both "…Approved" transitions restricted to approvers
       ([how](#restrict-approvals-to-people))

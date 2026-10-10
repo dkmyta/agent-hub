@@ -77,12 +77,26 @@ Things to know:
 - **The machine is trusted**: a self-hosted runner can reach anything the
   machine can. The agent hub pipeline never runs on `pull_request` events, so code
   from forks never runs on it — a test enforces this. Keep it that way.
+- **Everyone with write access can run code on it.** Anyone who can push a
+  branch can push a workflow of their own with `runs-on: [self-hosted,
+  claude]`, and it runs as the runner's user, outside any sandbox — able to
+  read the Claude login in `~/.claude` (or the macOS keychain) and anything
+  else that user can. The `agent-hub` environment keeps GitHub's secrets
+  from runs on other branches; it can't protect what's on the machine. So
+  treat the runner's Claude login as shared with everyone who has write
+  access. Where that's too wide: in an organisation, a runner group limited
+  to this repository's hub workflows on the default branch; otherwise the
+  Claude API on GitHub-hosted runners (nothing kept on a machine).
 
 ## Using the Claude API
 
 1. **Create an API key** in the [Claude Console](https://console.anthropic.com)
-   (set a monthly spend limit there as well) and add it as the repository
-   secret **`AGENT_HUB_ANTHROPIC_API_KEY`**. The workflows pass it only to the agent step.
+   (set a monthly spend limit there as well) and add it as the secret
+   **`AGENT_HUB_ANTHROPIC_API_KEY`** in the **`agent-hub` environment**,
+   limited to the default branch ([setup.md](setup.md#3-add-secrets)) — not
+   at the repository level, where a run on any branch could read it. The
+   workflows pass it only to the agent steps. (For the evals with the API,
+   the `agent-hub-evals` environment needs its own copy.)
 2. **Choose where it runs**:
    - **GitHub-hosted runners**: set the variable **`AGENT_HUB_RUNS_ON`** to
      `["ubuntu-latest"]`. The workflows install Claude Code on the runner
@@ -100,12 +114,13 @@ Things to know:
 
 ### Switching between them
 
-- **To the API:** add the `AGENT_HUB_ANTHROPIC_API_KEY` secret; for
+- **To the API:** add the `AGENT_HUB_ANTHROPIC_API_KEY` secret to the
+  `agent-hub` environment; for
   GitHub-hosted runners, set `AGENT_HUB_RUNS_ON` to `["ubuntu-latest"]`
   (and `AGENT_HUB_CLAUDE_CODE_VERSION` to an exact version); then the sandbox
   check above.
 - **Back to the subscription:** delete `AGENT_HUB_RUNS_ON` (or set it to your
-  runner's labels) and the `AGENT_HUB_ANTHROPIC_API_KEY` secret — an empty
+  runner's labels) and the environment's `AGENT_HUB_ANTHROPIC_API_KEY` secret — an empty
   secret means no key — and check the "Claude access:" line of the next run.
 - Nothing else changes: the stages, budgets, extensions and Jira rules are
   the same either way.
@@ -192,9 +207,16 @@ repository's settings say. A version without it stops the run, saying so.
 ## The sandbox (build stage)
 
 The build stage runs commands — the repository's tests, linters
-and builds — in Claude Code's sandbox: they read only the repository and a
-temp folder, write only those, reach only localhost, and get no secrets in
-their environment (an API key included). If the sandbox can't start, the
+and builds — in Claude Code's sandbox: they can't read the home folder or the
+runner's own folders — its install folder, temp folder and tool cache,
+wherever it's installed (since 2.21.0) — apart from the repository, their
+temp folder and the toolchain; they write only the repository and that temp
+folder, reach only localhost, and get no secrets in their environment (an
+API key included). **The rest of the machine stays readable**: system
+folders, `/etc`, `/tmp`, and anything else outside those folders — so keep
+secrets of your own off the runner machine (a dedicated machine or OS user:
+[below](#before-running-the-build-on-real-tickets)), since what a command
+reads could be written into the pull request. If the sandbox can't start, the
 command doesn't run. The hub's own steps that run the repository's code
 without an agent — installing its dependencies, and re-running its checks
 on the build's commit — use the same sandbox runtime (`srt`, which the hub
@@ -293,15 +315,25 @@ version (see [Claude Code version](#claude-code-version)) and report it.
 
 ### Before running the build on real tickets
 
-The sandbox keeps commands away from your files, credentials and the
-internet, but two things remain within reach on the runner machine:
+The sandbox keeps commands away from the home folder, the runner's own
+folders and the internet, but these remain within reach on the runner
+machine:
 
+- **The rest of the file system**: system folders, `/etc`, `/tmp` and
+  anything outside the home folder and the runner's folders is readable by
+  commands, and whatever they read could end up in the pull request.
 - **Anything listening on localhost** — local databases, dev servers, admin
   pages — because commands may use localhost (tests often start a local
   server).
 - **Whatever Claude Code itself can read**: only commands are sandboxed;
   Claude Code's own file tools are bounded by restricted mode (the repository
   only) and the hub's deny rules, not by the sandbox.
+- **Processes a command leaves running (macOS):** the hub's own steps end
+  everything a command started when it finishes (since 2.21.0); Claude Code's
+  sandbox on macOS may not, so a background process an agent's command
+  starts can outlive it. On Linux the sandbox ends them.
+- **Everyone with write access**, through a workflow of their own
+  ([above](#self-hosted-runner-with-a-claude-subscription)).
 
 On a personal machine that's acceptable for developing and testing the hub,
 not for real tickets. Before then, use one of: a **dedicated macOS or Linux

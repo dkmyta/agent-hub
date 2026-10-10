@@ -202,10 +202,16 @@ AGENT_DENIED_PATHS=$(hub_managed_json)
 # package caches in it) — the job's own, removed with it.
 agent_sandbox_dir() { mkdir -p "$RUNNER_TEMP/agent-tmp" && echo "$RUNNER_TEMP/agent-tmp"; }
 
+# The folders the sandbox denies reading (lib/paths.sh), when this file is
+# loaded on its own.
+# shellcheck source=lib/paths.sh
+declare -F sandbox_denied_reads > /dev/null || source "$(dirname "${BASH_SOURCE[0]}")/../paths.sh"
+
 # agent_settings <profile>: the --settings JSON for a profile. For build and
 # review, Claude Code's sandbox for every shell command and what it starts:
-# no reading the home folder (where the runner's credentials live) except the
-# repository, the temp folder and the toolchain; writes only to the
+# no reading the home folder or the runner's own folders (sandbox_denied_reads
+# in lib/paths.sh: credentials, the hub's copies, other steps' files) except
+# the repository, the temp folder and the toolchain; writes only to the
 # repository and the temp folder (review: only the temp folder, with the
 # repository denied outright — Claude Code otherwise lets commands write the
 # working directory); network to localhost only; it fails rather than run a command
@@ -219,14 +225,14 @@ agent_settings() {
   # first on the commands' PATH — so the agent runs the repository's checks
   # with the same Node as the hub's verify step and CI.
   if command -v node > /dev/null; then toolchain=$(cd "$(dirname "$(command -v node)")/.." && pwd -P); fi
-  jq -nc --arg home "$HOME" --arg repo "$(pwd -P)" --arg temp "$temp" --arg profile "$1" \
+  jq -nc --argjson unreadable "$(sandbox_denied_reads)" --arg repo "$(pwd -P)" --arg temp "$temp" --arg profile "$1" \
       --arg toolchain "$toolchain" --arg path "$PATH" --argjson denied "$AGENT_DENIED_PATHS" '{
     disableAllHooks: true, disableBundledSkills: true,
     env: {PATH: $path},
     permissions: {deny: [$denied[] | "Edit(./\(.))", "Write(./\(.))"]},
     sandbox: {
       enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true,
-      filesystem: ({denyRead: [$home], allowRead: ([$repo, $temp] + (if $toolchain != "" then [$toolchain] else [] end)),
+      filesystem: ({denyRead: $unreadable, allowRead: ([$repo, $temp] + (if $toolchain != "" then [$toolchain] else [] end)),
         allowWrite: (if $profile == "build" then [$repo, $temp] else [$temp] end)}
         + (if $profile == "review" then {denyWrite: [$repo]} else {} end)),
       network: {allowedDomains: ["localhost", "127.0.0.1"], allowLocalBinding: true}}}'

@@ -50,7 +50,9 @@ real_srt() {
   run with_sandbox "sandbox_settings install '$WORK'"
   assert_success
   assert_equal "$(jq -c '.network' <<< "$output")" '{"allowedDomains":["registry.npmjs.org","registry.yarnpkg.com","repo.yarnpkg.com"],"deniedDomains":[],"allowLocalBinding":false}'
-  assert_equal "$(jq -c '.filesystem.denyRead' <<< "$output")" "[\"$HOME\"]"
+  # The home folder and the runner's own folders (sandbox_denied_reads).
+  assert_equal "$(jq -c '.filesystem.denyRead' <<< "$output")" "$(bash -c "source '$HUB_DIR/lib/paths.sh'; sandbox_denied_reads")"
+  assert_equal "$(jq -r --arg h "$(cd "$HOME" && pwd -P)" --arg t "$(cd "$RUNNER_TEMP" && pwd -P)" '.filesystem.denyRead | index($h) != null and index($t) != null' <<< "$output")" true
   assert_equal "$(jq -r '.filesystem.allowWrite | join(" ")' <<< "$output")" "$(cd "$WORK" && pwd -P) $(cd "$RUNNER_TEMP/sandbox" && pwd -P)"
   # The Node the commands run with is readable, wherever it's installed.
   assert_equal "$(jq -r '.filesystem.allowRead[2]' <<< "$output")" "$(cd "$(dirname "$(command -v node)")/.." && pwd -P)"
@@ -66,6 +68,34 @@ real_srt() {
   # npm's signature check: the registries and Sigstore's trust metadata.
   run with_sandbox "sandbox_settings verify '$WORK'"
   assert_equal "$(jq -c '.network.allowedDomains' <<< "$output")" '["registry.npmjs.org","registry.yarnpkg.com","repo.yarnpkg.com","tuf-repo-cdn.sigstore.dev"]'
+}
+
+# SEC-1 (2.20.0 review): not just the home folder — the runner's own folders
+# too, wherever the runner is installed.
+@test "denied reads: the home folder, the runner's temp folder and tool cache, and its install folder only when it is one" {
+  local root="$BATS_TEST_TMPDIR/opt/actions-runner"
+  mkdir -p "$root/_work/repo" "$BATS_TEST_TMPDIR/cache"
+  run env RUNNER_WORKSPACE="$root/_work/repo" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_TOOL_CACHE="$BATS_TEST_TMPDIR/cache" \
+    bash -c "source '$HUB_DIR/lib/paths.sh'; sandbox_denied_reads"
+  assert_equal "$(jq -r --arg r "$(cd "$root" && pwd -P)" 'index($r)' <<< "$output")" null
+  touch "$root/.runner"
+  run env RUNNER_WORKSPACE="$root/_work/repo" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_TOOL_CACHE="$BATS_TEST_TMPDIR/cache" \
+    bash -c "source '$HUB_DIR/lib/paths.sh'; sandbox_denied_reads"
+  assert_equal "$(jq -c 'sort' <<< "$output")" "$(jq -nc --arg h "$(cd "$HOME" && pwd -P)" --arg r "$(cd "$root" && pwd -P)" \
+    --arg t "$(cd "$RUNNER_TEMP" && pwd -P)" --arg c "$(cd "$BATS_TEST_TMPDIR/cache" && pwd -P)" '[$h, $r, $t, $c] | unique')"
+}
+
+@test "real sandbox: the runner's folders outside the home folder are unreadable — its temp folder's other files, its install folder" {
+  real_srt
+  local root="$BATS_TEST_TMPDIR/opt/actions-runner"
+  mkdir -p "$root/_work/repo" && touch "$root/.runner" && echo runner-key > "$root/.credentials"
+  echo step-file > "$RUNNER_TEMP/github-credentials"
+  export RUNNER_WORKSPACE="$root/_work/repo"
+  run with_sandbox "sandbox_run check '$WORK' 1 '$BATS_TEST_TMPDIR/log' 'cat \"$root/.credentials\"; cat \"$RUNNER_TEMP/github-credentials\"; echo probe-finished'"
+  run cat "$BATS_TEST_TMPDIR/log"
+  refute_output --partial runner-key
+  refute_output --partial step-file
+  assert_output --partial probe-finished
 }
 
 @test "sandbox_run: only the variables the commands need; the output in the log; the command's exit code" {
@@ -98,6 +128,17 @@ real_srt() {
   run cat "$WORK/seen-install.txt"
   assert_output --partial "AGENT_HUB_BUILD_INSTALL_MINUTES"
   [ ! -e "$RUNNER_TEMP/limit-reason" ] || fail "limit-reason was left after the command"
+}
+
+# SEC-4 (2.20.0 review): a finished command takes what it started with it —
+# nothing keeps the sandbox's write access after the step (macOS's sandbox
+# doesn't end them itself).
+@test "sandbox_run: a command that finishes ends what it left running in the background" {
+  real_srt
+  run with_sandbox "sandbox_run check '$WORK' 1 '$BATS_TEST_TMPDIR/log' 'nohup sh -c \"sleep 3; echo late > late.txt\" > /dev/null 2>&1 & echo started'"
+  assert_success
+  sleep 5
+  [ ! -e "$WORK/late.txt" ] || fail "a background process outlived the command and wrote late.txt"
 }
 
 @test "sandbox_run: a command out of time ends with everything it started (124)" {

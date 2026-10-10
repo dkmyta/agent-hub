@@ -88,7 +88,7 @@ build_command() {
   # CI sweep wakes it), the description's items from the kept review, a
   # comment on the pull request, and who did what on the ticket.
   jq -c 'del(.ci)' <<< "$state" > "$RUNNER_TEMP/state.json"
-  record=$(tracker_property agent-hub-review 2> /dev/null) || record='{}'
+  record=$(_review_record "$RUNNER_TEMP/command-state.json")
   if jq -e '.review.status != null' <<< "$record" > /dev/null 2>&1; then
     jq -nr -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile state "$RUNNER_TEMP/state.json" --argjson rec "$record" \
       'include "wording"; status_lines($state[0]; $rec.review; $rec.fix; {governance: {manual_changes: ($rec.manual_changes // [])}}; $rec.publish; $rec.what)' \
@@ -165,6 +165,23 @@ _command_reply() {
     || echo "::warning::Couldn't mark comment $1 as handled."
 }
 
+# _review_record <state file>: the review's record from the ticket
+# (agent-hub-review: the findings' full text) — only while it's the one the
+# pull request's record names (review.record, a hash: build_review_record),
+# since anyone who can edit the ticket can edit the property. Otherwise {}:
+# nothing is applied or re-rendered from it until the next review.
+_review_record() {
+  local record want
+  want=$(jq -r '.review.record // ""' "$1")
+  record=$(tracker_property agent-hub-review 2> /dev/null) || { echo '{}'; return; }
+  if [ -n "$want" ] && [ "$(review_record_hash <<< "$record")" = "$want" ]; then
+    printf '%s\n' "$record"
+  else
+    echo "::warning::$TICKET_KEY's record of the review isn't the one the pull request's record names (changed on the ticket, or from before 2.21.0), so it isn't used." >&2
+    echo '{}'
+  fi
+}
+
 # _command_flush: the queued answers, sent.
 _command_flush() {
   local reply
@@ -208,7 +225,7 @@ _apply_request() {
   if [ "$head" != "$(jq -r '.heads[-1].head // ""' "$RUNNER_TEMP/command-state.json")" ]; then
     _command_reply "$id" "not done: pull request #$number has commits the hub hasn't checked — re-run the build (Actions → Agent hub: Build → Run workflow, with $TICKET_KEY) to have them verified and reviewed, then /apply what that review lists"; return
   fi
-  record=$(tracker_property agent-hub-review 2> /dev/null) || record='{}'
+  record=$(_review_record "$RUNNER_TEMP/command-state.json")
   : > "$RUNNER_TEMP/apply-findings.jsonl"
   : > "$RUNNER_TEMP/apply-sources.jsonl"
   # The items: open in the current record, by id (a decision only that way)
@@ -343,7 +360,7 @@ apply_fix_apply() {
     | .items |= map(if (.id | IN($fixed[])) then .status = "fixed" | .by_command = $req.comment | .at = $at else . end)' \
     "$RECONCILE_STATE" > "$RUNNER_TEMP/state.json"
   local record
-  record=$(tracker_property agent-hub-review 2> /dev/null) || record='{}'
+  record=$(_review_record "$RECONCILE_STATE")
   if jq -e '.review.status != null' <<< "$record" > /dev/null 2>&1; then
     jq -nr -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile state "$RUNNER_TEMP/state.json" --argjson rec "$record" \
       'include "wording"; status_lines($state[0]; $rec.review; $rec.fix; {governance: {manual_changes: ($rec.manual_changes // [])}}; $rec.publish; $rec.what)' \

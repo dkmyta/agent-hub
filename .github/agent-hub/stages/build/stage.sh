@@ -63,10 +63,15 @@ context() { jq -r "$1" "$BUILD_CONTEXT"; }
 # step_fetch: Check the approval, read the plan's contract and the branch, and post the progress comment.
 step_fetch() {
   # What woke the run, when not a person's approval: only the hub's own
-  # values. (Anyone who can request a run can set it.)
+  # values. (Anyone who can request a run can set it.) Anything else is a
+  # bad request, not the ticket's failure: an error in the run log, and
+  # nothing on the ticket.
   case "${AGENT_HUB_WAKE:-}" in
     "" | ci | closed | command) ;;
-    *) stage_fail "The run was requested with an unknown wake value, so nothing was done." ;;
+    *) echo "::error::The run was requested with an unknown wake value, so nothing was done (the hub sets it: empty, ci, closed or command)."
+       echo "proceed=false" >> "$GITHUB_OUTPUT"
+       stage_outcome "no change needed"
+       exit 0 ;;
   esac
   # A hub pull request was closed (agent-hub-pr-closed.yml): Done, or a
   # comment — nothing is built (closed.sh).
@@ -752,7 +757,9 @@ stage_failure_details() {
 
 # step_apply: Check and push the verified build, and open its draft pull request.
 step_apply() {
-  local base branch target publish refused findings rc=0 number title url reviewed
+  # (A note left by a sandboxed step that was stopped isn't this step's reason: load.sh.)
+  rm -f "$RUNNER_TEMP/limit-reason"
+  local base branch target publish refused findings rc=0 number title url reviewed record
   if reconciling; then reconcile_apply; return; fi
   stage_require_status "$PLAN_APPROVED_STATUS"
   build_git
@@ -814,8 +821,9 @@ step_apply() {
   # commit (verified before the review, which saw only a verified commit)
   # and a kept fix on top (verified by Verify fix: it's the commit the
   # checks passed on, above).
+  record=$(build_review_record "the build's commit")
   jq -n --slurpfile context "$BUILD_CONTEXT" --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile review "$CODE_REVIEW" \
-      --slurpfile fix "$FIX_RESULT" \
+      --slurpfile fix "$FIX_RESULT" --arg record "$record" \
       --slurpfile contract "$RUNNER_TEMP/contract.json" --arg ticket "$TICKET_KEY" \
       --arg version "$(cat "$HUB_DIR/VERSION")" --arg head "$(git rev-parse HEAD)" -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording";
     $context[0] as $c | {schema: 1, ticket: $ticket, generation: 1, hub_version: $version,
@@ -829,7 +837,7 @@ step_apply() {
       flags: [$contract[0].governance.includes | to_entries[] | select(.value) | .key],
       items: (review_items($gates[0]; $review[0]; $fix[0])
         + [$contract[0].governance.manual_changes | to_entries[] | {id: "C\(.key + 1)", path: .value.path, status: "open"}]),
-      review: ($review[0] | {status, head, cost: (.cost // 0)}),
+      review: ($review[0] | {status, head, cost: (.cost // 0), record: $record}),
       fix: ($fix[0] | {status, before, after}),
       totals: $gates[0].totals}' > "$RUNNER_TEMP/state.json"
   url=""
@@ -853,19 +861,20 @@ step_apply() {
   url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$number"
   _ticket_report "$number" "$url"
   _ticket_delivery "$number" "$url" "$branch"
-  build_save_review "the build's commit"
+  build_save_review
   echo "[$TICKET_KEY]($TICKET_URL): draft pull request #$number opened from $branch, with $(jq '[.items[] | select(.id | startswith("D"))] | length' "$RUNNER_TEMP/state.json") decision item(s) and $(jq '[.items[] | select(.id | startswith("R"))] | length' "$RUNNER_TEMP/state.json") review item(s)." >> "$GITHUB_STEP_SUMMARY"
   stage_outcome written
 }
 
-# build_save_review <what was reviewed>: the latest full review and fix pass,
-# kept in a private issue property on the ticket (agent-hub-review) — the
-# findings' full text, which a public pull request can't hold — for /skip and
-# /apply to re-render the pull request's items and act on them (commands.sh).
-# Trimmed to fit Jira's 32 KB per property. A failure only warns: items can
-# still be skipped, but the description's list isn't rewritten until the next
-# review.
-build_save_review() {
+# build_review_record <what was reviewed>: the latest full review and fix
+# pass, as kept in a private issue property on the ticket (agent-hub-review,
+# build_save_review) — the findings' full text, which a public pull request
+# can't hold — for /skip and /apply to re-render the pull request's items and
+# act on them (commands.sh). Trimmed to fit Jira's 32 KB per property. Into
+# review-record.json; prints its hash, which the pull request's record keeps
+# (review.record): anyone who can edit the ticket can edit the property, so
+# /skip and /apply use it only while it still matches (review_record_hash).
+build_review_record() {
   local record limit
   for limit in 600 150 0; do
     record=$(jq -nc --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --slurpfile contract "$RUNNER_TEMP/contract.json" \
@@ -878,7 +887,19 @@ build_save_review() {
        manual_changes: $contract[0].governance.manual_changes, publish: $publish, what: $what}')
     [ "${#record}" -gt 30000 ] || break
   done
-  tracker_set_property agent-hub-review <<< "$record" \
+  printf '%s\n' "$record" > "$RUNNER_TEMP/review-record.json"
+  review_record_hash < "$RUNNER_TEMP/review-record.json"
+}
+
+# review_record_hash < record: the record's hash, the same whatever the order
+# of its keys (Jira hands a property back as it likes).
+review_record_hash() { jq -cS . > "$RUNNER_TEMP/review-record.canonical" && _sha256 "$RUNNER_TEMP/review-record.canonical"; }
+
+# build_save_review: the record build_review_record made, on the ticket. A
+# failure only warns: items can still be skipped, but the description's list
+# isn't rewritten, nor findings applied, until the next review.
+build_save_review() {
+  tracker_set_property agent-hub-review < "$RUNNER_TEMP/review-record.json" \
     || echo "::warning::Couldn't keep the review's findings on $TICKET_KEY, so /skip and /apply can't list them until the next review."
 }
 
@@ -887,16 +908,20 @@ build_save_review() {
 # receive the token (hooks, credential helpers, filters, fsmonitor, aliases,
 # an ssh command…), whatever a checkout carried in.
 _trust_build_git() {
-  local key value
+  local entry key value
   : > "$RUNNER_TEMP/build-git-config"
-  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+  # Each entry is "key\nvalue", or just "key" for one with no value (which
+  # none of the kept ones is).
+  while IFS= read -r -d '' entry; do
+    [[ "$entry" == *$'\n'* ]] || continue
+    key=${entry%%$'\n'*} value=${entry#*$'\n'}
     case "$key" in
       core.repositoryformatversion | core.bare | core.logallrefupdates | core.sparsecheckout | core.sparsecheckoutcone \
         | core.ignorecase | core.precomposeunicode | core.filemode | core.symlinks | extensions.* \
         | remote.origin.url | remote.origin.fetch | remote.origin.promisor | remote.origin.partialclonefilter)
         git config -f "$RUNNER_TEMP/build-git-config" --add "$key" "$value" ;;
     esac
-  done < <(git config -f "$BUILD_GIT/config" --list -z | tr '\n' '\0')
+  done < <(git config -f "$BUILD_GIT/config" --list -z)
   mv "$RUNNER_TEMP/build-git-config" "$BUILD_GIT/config"
   rm -rf "$BUILD_GIT/hooks"
 }
@@ -921,8 +946,12 @@ _snapshot_guidance() {
     # An extensions folder outside the repository (the tests') is used as it is.
     /*) [ ! -d "$EXTENSIONS_DIR" ] || cp -R "$EXTENSIONS_DIR/." "$dir/extensions/" ;;
     *) if git cat-file -e "$1:$EXTENSIONS_DIR" 2> /dev/null; then
-         git archive --prefix=x/ "$1" -- "$EXTENSIONS_DIR" | tar -x -C "$dir" \
-           && mv "$dir/x/$EXTENSIONS_DIR"/* "$dir/extensions/" 2> /dev/null; rm -rf "$dir/x"
+         # (Read like the guidance: the passes run without the repository's
+         # checklists only if it has none, never because they couldn't be read.)
+         { git archive --prefix=x/ "$1" -- "$EXTENSIONS_DIR" | tar -x -C "$dir"; } \
+           && { [ -z "$(ls -A "$dir/x/$EXTENSIONS_DIR")" ] || mv "$dir/x/$EXTENSIONS_DIR"/* "$dir/extensions/"; } \
+           || stage_fail "Couldn't read the repository's extensions ($EXTENSIONS_DIR) from $1, so nothing was built."
+         rm -rf "$dir/x"
        fi ;;
   esac
   find "$dir" -type l -delete
@@ -1123,6 +1152,8 @@ _ticket_delivery() {
 
 # step_return: Send the ticket back: the build can't go ahead as approved.
 step_return() {
+  # (A note left by a sandboxed step that was stopped isn't this step's reason: load.sh.)
+  rm -f "$RUNNER_TEMP/limit-reason"
   stage_require_status "$PLAN_APPROVED_STATUS"
   _require_same_plan
   case "$(jq -r '.structured_output.status' "$BUILD_OUTPUT")" in

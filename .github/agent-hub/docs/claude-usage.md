@@ -129,6 +129,12 @@ run — retries, revisions and resubmissions included:
   before its progress comment: the ticket gets the `agent-hub-over-cap` label
   (`AGENT_HUB_OVER_CAP_LABEL`) and `needs-human`, and a ⛔ comment with the
   totals and how to go on. Nothing else changes.
+- **Any ticket editor can lift it, or reset the count:** removing the
+  label isn't limited to approvers, and the usage record is an issue
+  property anyone who can edit the ticket can change. The caps stop runaway
+  spending, not a person set on spending; limit who can edit tickets (and
+  who can comment `/revise`: [jira.md](jira.md#rule-revision-requested)) if
+  that matters.
 - **A person lifts it** by removing the `agent-hub-over-cap` label, then
   retrying as usual. The next run allows one more cap's worth (another 10
   runs and $60 by default), counted from there; the record keeps the full
@@ -164,7 +170,7 @@ they're worth running, their guards, and the PR notice that suggests them:
   a run already going finishes — cancel it in the Actions tab to stop it now.
 - A test checks that **every workflow that uses Claude** only runs on tracker
   requests or manual runs (`workflow_dispatch`, and `repository_dispatch`
-  until 2.21.0) —
+  until 2.22.0) —
   never on pushes, pull requests or schedules.
 - Runs from GitHub (agent stages and evals) only use the runner in
   `AGENT_HUB_RUNS_ON`; with it offline nothing runs, but a run started meanwhile

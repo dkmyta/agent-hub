@@ -4,7 +4,7 @@ run-name: "Build: ${{ github.event.client_payload.ticket_key || inputs.ticket_ke
 # Stage 3 of the agent-hub pipeline. The tracker (the Jira "Build Requested"
 # rule, on the move to Implementation Plan Approved) starts it with
 # workflow_dispatch and only the ticket key (repository_dispatch's
-# `agent-hub-build-requested` is still accepted until 2.21.0); the shared stage
+# `agent-hub-build-requested` is still accepted until 2.22.0); the shared stage
 # workflow does the rest with this stage's files in
 # .github/agent-hub/stages/build, as a code stage: the steps without an agent
 # get the machine user's token to push the branch and open a draft pull

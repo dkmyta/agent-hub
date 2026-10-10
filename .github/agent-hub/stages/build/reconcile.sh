@@ -302,8 +302,13 @@ reconcile_apply() {
   # verified: reconcile_verify ran the checks on exactly it (and a fix on
   # top was made on that verified commit). A kept fix is verified by Verify
   # fix: it's the commit the checks passed on (above).
+  # A new review's record for /skip and /apply, and its hash for the state
+  # (build_review_record); a carried review keeps the earlier one.
+  local record=""
+  [ "$(jq -r '.status' "$CODE_REVIEW")" = carried ] \
+    || record=$(build_review_record "the pull request's current head (after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT"))")
   jq -n -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile prev "$RECONCILE_STATE" --slurpfile gates "$RUNNER_TEMP/gates.json" \
-      --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --arg version "$(cat "$HUB_DIR/VERSION")" \
+      --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --arg version "$(cat "$HUB_DIR/VERSION")" --arg record "$record" \
       --slurpfile ctx "$BUILD_CONTEXT" --arg head "$(git rev-parse HEAD)" 'include "wording";
     $prev[0] as $p | ($p.generation + 1) as $g | $ctx[0] as $c | ($c.sync.head // $c.start_head) as $checked
     | (now | todate) as $at
@@ -315,10 +320,19 @@ reconcile_apply() {
                verified: {head: $c.sync.head, by: "verify"}, at: $at}] else [] end)
           + (if $head != $checked then [{generation: $g, head: $head, hub_version: $version, by: "hub", kind: "fix",
                verified: {head: $head, by: "verify-fix"}, at: $at}] else [] end)),
-        review: (if $review[0].status == "carried" then $p.review else $review[0] | {status, head, cost: (.cost // 0)} end),
+        review: (if $review[0].status == "carried" then $p.review else $review[0] | {status, head, cost: (.cost // 0), record: $record} end),
         fix: ($fix[0] | {status, before, after}),
         items: (if $review[0].status == "carried" then $p.items else reconcile_items($p.items; review_items($gates[0]; $review[0]; $fix[0])) end),
         totals: $gates[0].totals}' > "$RUNNER_TEMP/state.json"
+  # Handed off before these commits: the hand-off was for an earlier head, so
+  # it no longer holds — the record drops it and the pull request goes back
+  # to draft, as after an /apply; the CI gate hands it off again once the new
+  # head is eligible (the ticket stays where it is).
+  local undo_handoff=""
+  if jq -e '.handoff != null and .handoff.head != .heads[-1].head' "$RUNNER_TEMP/state.json" > /dev/null; then
+    undo_handoff=1
+    jq -c 'del(.handoff)' "$RUNNER_TEMP/state.json" > "$RUNNER_TEMP/state.json.new" && mv "$RUNNER_TEMP/state.json.new" "$RUNNER_TEMP/state.json"
+  fi
   # The description's status section: rewritten for a new review; a carried
   # one leaves it as it was.
   if [ "$(jq -r '.status' "$CODE_REVIEW")" != carried ]; then
@@ -331,9 +345,17 @@ reconcile_apply() {
   gh_state_write "$number" "$(cat "$RUNNER_TEMP/state.json")" ${status_file:+"$status_file"} 2> "$RUNNER_TEMP/state-error" \
     || stage_fail "Pull request #$number's description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error"))$( [ "$(git rev-parse HEAD)" = "$start" ] || echo ", though its commits were pushed"). A person checks it."
   _reconcile_comment "$number"
+  if [ -n "$undo_handoff" ] && jq -e '.draft == false' "$RUNNER_TEMP/reconcile-pr.json" > /dev/null 2>&1; then
+    if gh_pr_draft "$(jq -r '.node_id' "$RUNNER_TEMP/reconcile-pr.json")"; then
+      echo "↩️ Back to draft: these commits came after the hand-off, so it no longer holds. The hub hands the pull request off again once every required check passes on its new head and no decision item is open." \
+        | gh_pr_comment "$number" || echo "::warning::Couldn't comment on pull request #$number."
+    else
+      echo "::warning::Couldn't turn pull request #$number back into a draft."
+    fi
+  fi
   _reconcile_report "$number"
   # A new review: its findings, for /skip and /apply (commands.sh).
-  [ -z "$status_file" ] || build_save_review "the pull request's current head (after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT"))"
+  [ -z "$record" ] || build_save_review
   echo "[$TICKET_KEY]($TICKET_URL): pull request #$number re-checked after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT") — generation $(jq -r '.generation' "$RUNNER_TEMP/state.json")." >> "$GITHUB_STEP_SUMMARY"
   stage_outcome revised
 }

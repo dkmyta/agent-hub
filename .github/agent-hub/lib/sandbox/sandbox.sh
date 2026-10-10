@@ -4,8 +4,9 @@
 # step (its checks) — with Anthropic's sandbox runtime, srt: the engine behind
 # Claude Code's own sandbox, here without an agent (docs/workflows/build.md).
 #
-# Every command gets: the home folder unreadable (where the runner's
-# credentials live) except the toolchain it needs; writes only to its working
+# Every command gets: the home folder and the runner's own folders unreadable
+# (sandbox_denied_reads: credentials, other steps' files) except what it
+# needs — its working folder, temp folder and the toolchain; writes only to its working
 # folder and the job's temp folder; network only as its policy allows —
 # "install" the package registries, "verify" those and Sigstore's trust
 # metadata (npm's signature and provenance check), "check" localhost — and an environment
@@ -78,16 +79,21 @@ sandbox_helpers() {
   [ ! -d "$dir" ] || (cd "$dir" && pwd -P)
 }
 
+# The folders the sandbox denies reading (lib/paths.sh), when this file is
+# loaded on its own.
+# shellcheck source=lib/paths.sh
+declare -F sandbox_denied_reads > /dev/null || source "$(dirname "${BASH_SOURCE[0]}")/../paths.sh"
+
 # sandbox_settings <install|verify|check> <folder> > settings.json
 sandbox_settings() {
   local toolchain helpers
   toolchain=$(sandbox_toolchain) helpers=$(sandbox_helpers)
   jq -n --arg policy "$1" --arg work "$(cd "$2" && pwd -P)" --arg temp "$(sandbox_temp)" \
-      --arg home "$HOME" --arg toolchain "$toolchain" --arg helpers "$helpers" --argjson registries "$SANDBOX_REGISTRIES" \
+      --argjson unreadable "$(sandbox_denied_reads)" --arg toolchain "$toolchain" --arg helpers "$helpers" --argjson registries "$SANDBOX_REGISTRIES" \
       --argjson sigstore "$SANDBOX_SIGSTORE" '{
     network: {allowedDomains: ({install: $registries, verify: ($registries + $sigstore)}[$policy] // []), deniedDomains: [],
       allowLocalBinding: ($policy == "check")},
-    filesystem: {denyRead: [$home],
+    filesystem: {denyRead: $unreadable,
       allowRead: ([$work, $temp] + ([$toolchain, $helpers] | map(select(. != "")))),
       allowWrite: [$work, $temp], denyWrite: []}}'
 }
@@ -133,11 +139,15 @@ sandbox_run() {
       npm_config_store_dir="$temp/pnpm" \
       perl -e '
         # Run the sandbox in its own process group, and end the whole group
-        # at the time limit, so nothing it started is left running.
+        # when the command ends — or at the time limit — so nothing it
+        # started (a background process, a server a test left) outlives it
+        # with the sandbox'"'"'s write access. (On Linux srt also ends them.)
         my $seconds = shift() * 60; my $pid = fork;
         if (!$pid) { setpgrp(0, 0); exec @ARGV; exit 127 }
         $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 5; kill "KILL", -$pid; exit 124 };
-        alarm $seconds; waitpid($pid, 0); exit($? >> 8)' \
+        alarm $seconds; waitpid($pid, 0); my $rc = $? >> 8; alarm 0;
+        if (kill 0, -$pid) { kill "TERM", -$pid; sleep 1; kill "KILL", -$pid }
+        exit $rc' \
       "$minutes" "$srt" --settings "$settings" -c "$command"
   ) 2>&1 | cat > "$log"
   rc=${PIPESTATUS[0]}

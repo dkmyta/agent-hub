@@ -5,6 +5,62 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.21.0 — 2026-10-10
+
+Fixes from two reviews of 2.20.0 — this session's, and a fresh one with no
+context — before the first full manual test.
+
+- **The sandboxes deny the runner's own folders, wherever it's installed:**
+  its install folder (its identity), its temp folder and its tool cache, as
+  well as the home folder — for the agent's commands and the hub's own. A
+  runner outside the home folder (`/opt/actions-runner`, common on Linux)
+  had them readable, and what a command reads could be written into the
+  pull request. The rest of the machine stays readable, and the docs now say
+  so (the "reads only the repository" claims were wrong). The sandbox check
+  probes it.
+- **Text from outside the hub is shown as written in the pull request:**
+  Claude's, the ticket's and a package's licence get no links, images,
+  mentions or HTML — an image GitHub's servers fetch could carry data out.
+  A licence or version can no longer break a line or forge a marker.
+- **`/apply` acts only on the review the pull request's record names:** the
+  findings' full text lives on the ticket, where anyone who can edit it can
+  change it; the record now keeps its hash, and an edited copy is refused.
+- **Hand-off and CI fix recovery:**
+  - a pull request marked ready whose ticket didn't move (the move failed)
+    is finished by a re-run, instead of "nothing to do" for good;
+  - new commits reviewed after a hand-off undo it: back to draft, with a
+    comment, until the gate hands it off again;
+  - a CI fix whose run stopped part-way is reported to a person, once,
+    instead of passing silently as "already tried".
+- **Processes a command leaves running end with it** (the hub's own install
+  and checks; macOS's sandbox didn't end them).
+- **Smaller:** a wake value the hub never sets is refused without a comment
+  on the ticket; a time-limit note can't be reported for a later step's
+  failure; extensions that can't be read stop the build instead of being
+  skipped; the hub's git copy reads its settings entry by entry.
+- **Setup and docs:** the machine user and branch protection, step by step;
+  what your CI runs (the build's code) and how to keep secrets from it; that
+  everyone with write access can run code on a self-hosted runner, its
+  Claude login included; the build's requirements stated plainly (preview,
+  an exact Claude Code version, the build token); the approvers group
+  required before real tickets; the API key in the `agent-hub` environment
+  (runners.md said repository secret); who can lift the caps; undoing an
+  update's manual steps; stale details corrected.
+- **`repository_dispatch` stays until 2.22.0**, after the first full manual
+  test (2.20.0 said this release), so the Jira rules keep working until
+  you've switched them.
+
+**Updating:**
+- If you haven't done 2.20.0's steps: **move the secrets into the
+  `agent-hub` environment first**, then switch the Jira rules to
+  `workflow_dispatch` — a dispatch can name any branch, and the
+  environment's branch limit is what keeps a run on another branch from the
+  secrets.
+- Open pull requests from before 2.21.0 have no review hash: `/apply` can't
+  use their findings until a run reviews them again (a person's re-run).
+- Check your CI and runner against the new setup notes (no secrets in pull
+  request CI, CI off the `claude` runner).
+
 ## 2.20.0 — 2026-10-09
 
 Dispatch, setup and docs, from the 2.17.0 reviews.

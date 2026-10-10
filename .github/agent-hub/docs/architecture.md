@@ -520,7 +520,8 @@ the next run ([build.md](workflows/build.md#review-items-and-apply)).
 - `actions/checkout` with `persist-credentials: false`, and a sparse checkout
   that leaves out recorded test data (`tests/*/fixtures`, `scenarios`, `evals`,
   `expected`), so Claude can't copy a past answer. The evals mirror it.
-- Claude: `--permission-mode dontAsk`, tools limited to
+- Claude in the document stages: `--permission-mode dontAsk` (the build's
+  profiles use the default mode, with the sandbox below), tools limited to
   `Read(./**),Grep(./**),Glob(./**),WebSearch` plus `WebFetch(domain:…)` for an
   allowlist of documentation sites (no fetching arbitrary URLs), pinned
   `--model` with `--fallback-model`, and a `--max-budget-usd` cap. Web
@@ -551,10 +552,12 @@ the next run ([build.md](workflows/build.md#review-items-and-apply)).
   settings, extensions or tickets: *read-only* for the document stages (the
   same capabilities as before profiles existed); *build* (edit the repository, run commands) and *review* (run
   commands, no edits) for the build stage, with no web tools and Claude
-  Code's sandbox for every command — reads only the repository, a temp
-  folder and the Node the workflow set up (the rest of the home folder,
-  where the runner's credentials live, denied),
-  writes only those (review: only the temp folder), network to localhost
+  Code's sandbox for every command — no reading the home folder (where the
+  runner user's credentials live) or the runner's own folders (install,
+  temp and tool cache, wherever it's installed: since 2.21.0) apart from the
+  repository, a temp folder and the Node the workflow set up; the rest of
+  the machine stays readable ([runners.md](runners.md#the-sandbox-build-stage));
+  writes only the repository and the temp folder (review: only the temp folder), network to localhost
   only, no secrets in commands' environment, and no command run if the
   sandbox can't start. Set through `--settings`, so the repository can't
   loosen it. Verified on macOS with real Claude; on a personal machine,

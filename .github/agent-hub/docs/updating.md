@@ -85,6 +85,14 @@ git restore .github/ISSUE_TEMPLATE/agent-hub-request.yml   # only if you use the
 
 then delete any new hub files `git status` lists as untracked.
 
+**Undo the manual steps too.** A revert brings back the files, not the
+changes you made by hand when updating — each release's **Updating** list in
+the [CHANGELOG](../CHANGELOG.md). Undo the ones the older version can't work
+with. For example, going back before 2.20.0: the stage job no longer uses
+the `agent-hub` environment, so secrets moved there must go back to the
+repository level, and Jira rules already switched to `workflow_dispatch`
+keep working only while the older version's workflows accept it.
+
 ## What the script checks
 
 It stops, changing nothing, when:
