@@ -7,7 +7,7 @@ a product or scope decision, it sends the ticket back with the questions.
 
 | | |
 |---|---|
-| Trigger | `workflow_dispatch` of `agent-hub-implementation-plan.yml` (Jira: Implementation Plan Requested or Revision Requested rule), or **Run workflow** with a ticket key; `repository_dispatch` `agent-hub-implementation-plan-requested` until 2.21.0 |
+| Trigger | `workflow_dispatch` of `agent-hub-implementation-plan.yml` (Jira: Implementation Plan Requested or Revision Requested rule), or **Run workflow** with a ticket key; `repository_dispatch` `agent-hub-implementation-plan-requested` until 2.22.0 |
 | Runs on | `AGENT_HUB_RUNS_ON` (default `[self-hosted, claude]`) — see [runners.md](../runners.md) |
 | Model | `AGENT_HUB_IMPLEMENTATION_PLAN_MODEL` (default Opus); review `AGENT_HUB_REVIEW_MODEL` (Opus) |
 | Stage files | `stages/implementation-plan/` (steps, settings, prompt, schema, plan rendering, revisions) |

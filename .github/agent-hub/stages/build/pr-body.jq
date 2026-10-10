@@ -60,7 +60,7 @@ $out[0] as $o | $o.structured_output.build as $b | $context[0] as $c | $gates[0]
       + ":", ""]
     + [$deps[0].changes[] | "- \(.folder | code): \(.action) "
         + (if .action == "remove" then (.package | code)
-           else "\("\(.package)@\(.version_range)" | code) (\(.kind)) → \(.version // "?"), licence \(.license // "not stated")" end)]
+           else "\("\(.package)@\(.version_range)" | code) (\(.kind)) → \(.version // "?" | line), licence \(.license // "not stated" | line)" end)]
     + [$deps[0].folders[] | "- In \(.folder | code): \(dependency_summary($deps[0].before))"]
   end),
 

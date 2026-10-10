@@ -37,3 +37,25 @@ hub_managed_json() {
   read -r -a globs <<< "$HUB_MANAGED_PATHS"
   printf '%s\n' "${globs[@]}" | jq -Rsc 'split("\n") | map(select(. != ""))'
 }
+
+# sandbox_denied_reads: what the sandboxes never let a command read, as a JSON
+# array — the home folder (the runner user's credentials), and the runner's
+# own folders wherever it's installed: its install folder (its identity, in
+# .credentials — only when it is one, with a .runner file), its temp folder
+# (every step's files, and credential files while a step holds them) and its
+# tool cache. Each sandbox re-allows by name what its commands need — the
+# folder they work in, their temp folder, the toolchain — and the rest of the
+# machine stays readable (system tools, /etc, /tmp).
+sandbox_denied_reads() {
+  local root path paths=("$HOME")
+  if [ -n "${RUNNER_WORKSPACE:-}" ]; then
+    root=$(dirname "$(dirname "$RUNNER_WORKSPACE")")
+    [ ! -f "$root/.runner" ] || paths+=("$root")
+  fi
+  for path in "${RUNNER_TEMP:-}" "${RUNNER_TOOL_CACHE:-}"; do
+    [ -n "$path" ] && [ "$path" != / ] && paths+=("$path")
+  done
+  for path in "${paths[@]}"; do
+    if [ -d "$path" ]; then (cd "$path" && pwd -P); else printf '%s\n' "$path"; fi
+  done | jq -R . | jq -sc 'unique'
+}

@@ -47,7 +47,9 @@ them into the environment, and delete the repository-level copies. The
 evals' `agent-hub-evals` environment needs its own copy of
 `AGENT_HUB_ANTHROPIC_API_KEY` if you use the evals with the API. (Runs appear
 under the repository's **Deployments**: that's the environment, not a
-deployment.)
+deployment.) It protects GitHub's secrets, not what's on a self-hosted
+runner: a Claude login there is reachable by everyone with write access
+([runners.md](runners.md#self-hosted-runner-with-a-claude-subscription)).
 
 The tracker's secrets are for Jira (GitHub Projects will use the workflow's
 own GitHub token):
@@ -84,7 +86,7 @@ use its default. (The defaults are in `lib/settings.sh` and each stage's
 | `AGENT_HUB_READY_FOR_REVIEW_STATUS` | `Ready for Review` | Status the build moves a ticket to when its pull request is handed off |
 | `AGENT_HUB_APPROVED_STATUS` | `Approved` | Optional status a person moves a ticket to after approving its pull request; a merge moves it to Done from there too |
 | `AGENT_HUB_DONE_STATUS` | `Done` | Status the build moves a ticket to when the pull request it handed off is merged |
-| `AGENT_HUB_APPROVERS_GROUP` | *(none)* | The tracker group of the people who approve. Set, the hub checks it itself (since 2.18.0): a work order or plan approved by someone outside it isn't an approval, and only its members can act on a build's items with `/skip` and `/apply` on the ticket. Unset: approvals rest on the tracker's own workflow conditions, and every item command is refused. The Jira service account needs Browse users and groups to check it ([jira.md](jira.md#rule-build-command)) |
+| `AGENT_HUB_APPROVERS_GROUP` | *(none)* | The tracker group of the people who approve. Set, the hub checks it itself (since 2.18.0): a work order or plan approved by someone outside it isn't an approval, and only its members can act on a build's items with `/skip` and `/apply` on the ticket. Unset: approvals rest on the tracker's own workflow conditions, and every item command is refused. Optional while trying the document stages; **required before the build runs real tickets** (the [production checklist](workflows/build-design.md#production-checklist)). The Jira service account needs Browse users and groups to check it ([jira.md](jira.md#rule-build-command)) |
 | `AGENT_HUB_PUBLISH_TICKET_CONTENT` | `false` | `true` lets the build put ticket text (the title, criteria, Claude's summary and decision log) in a **public** repository's pull requests and commits; private repositories always get it ([build.md](workflows/build.md#publication-policy)) |
 | `AGENT_HUB_NEEDS_HUMAN_LABEL` | `needs-human` | Label for tickets waiting for a person |
 | `AGENT_HUB_NEEDS_CLARIFICATION_LABEL` | `needs-clarification` | Label for tickets the plan stage sent back with questions |
@@ -183,7 +185,48 @@ itself:
 (since 2.18.0), so nothing an earlier job's agent left — git hooks or config
 included — reaches a later job. Nothing to set up; it means a full clone
 each job. Use a runner only for this repository, or for repositories you
-trust as much ([runners.md](runners.md)).
+trust as much, and know that **everyone with write access can run code on
+it** — the Claude login included ([runners.md](runners.md#self-hosted-runner-with-a-claude-subscription)).
+
+**Your CI runs the build's code before a person reviews it.** The hub
+pushes the agent's commits to `agent-hub/<KEY>` in this repository, so your
+`pull_request` and `push` workflows run them — with whatever those workflows
+can reach. Before the build runs real tickets:
+- pull request CI holds **no secrets** beyond read-only ones (no deploy keys,
+  no cloud credentials), with read-only default workflow permissions (above);
+- CI doesn't run on the hub's `claude` runner (its own runner labels, or
+  GitHub-hosted runners);
+- `push` workflows that deploy or publish ignore `agent-hub/**`
+  (`branches-ignore`).
+
+**Before the build's first run** — required, or it stops at its first step,
+saying which:
+- `AGENT_HUB_BUILD_PREVIEW` set to `true` (the build is in preview);
+- `AGENT_HUB_CLAUDE_CODE_VERSION` set to an exact version (`2.1.285`, not
+  `latest`), matching the runner's Claude Code on a self-hosted runner;
+- the build token (`AGENT_HUB_GITHUB_TOKEN`) and the machine user below.
+
+**The machine user and branch protection.** The build pushes and opens pull
+requests as a GitHub account of its own, which people's review then holds
+back from merging:
+1. Create a GitHub account for automation (a machine user, e.g.
+   `<org>-agent-hub`), with two-factor authentication on.
+2. Invite it to this repository with the **Write** role, and accept the
+   invitation as it. In an organisation, allow fine-grained tokens for
+   members (Settings → Personal access tokens), and approve its token if
+   your organisation requires approval.
+3. As it, create the build token (fine-grained, this repository only,
+   Contents and Pull requests read and write) and put it in the
+   `AGENT_HUB_GITHUB_TOKEN` secret, in the `agent-hub` environment.
+4. Protect the target branch (branch protection or a ruleset): require a
+   pull request before merging with **at least one approval**, **require
+   approval of the most recent push** (so the hub's later pushes need a
+   fresh approval), the required checks (above), and restrict who can push
+   to it directly — not the machine user. GitHub never lets an account
+   approve its own pull request, so a person always approves the hub's.
+
+The hub doesn't check these settings itself: the manual test does
+([build-design.md](workflows/build-design.md#production-checklist)).
 
 ## 5. Set up your tracker
 

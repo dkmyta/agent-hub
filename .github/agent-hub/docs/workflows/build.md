@@ -15,7 +15,7 @@ behind them are in the [design record](build-design.md).
 
 | | |
 |---|---|
-| Trigger | `workflow_dispatch` of `agent-hub-build.yml`: Jira's Build Requested rule (plan approved) and Build Command rule (`/skip`, `/apply`) — [web requests](../jira.md#web-requests); the CI sweep and the closed-pull-request workflow; or **Run workflow** with a ticket key. `repository_dispatch` `agent-hub-build-requested` until 2.21.0 |
+| Trigger | `workflow_dispatch` of `agent-hub-build.yml`: Jira's Build Requested rule (plan approved) and Build Command rule (`/skip`, `/apply`) — [web requests](../jira.md#web-requests); the CI sweep and the closed-pull-request workflow; or **Run workflow** with a ticket key. `repository_dispatch` `agent-hub-build-requested` until 2.22.0 |
 | Runs on | `AGENT_HUB_RUNS_ON` — see [runners.md](../runners.md); the sandbox check first |
 | Model | `AGENT_HUB_BUILD_MODEL` for the build; the review, fix and fix check have their own ([Settings](#settings)) |
 | Stage files | `stages/build/` ([Structure](#structure)) |
@@ -112,8 +112,8 @@ ends as *no change needed* — a normal outcome.
    4. outstanding human commands (`/apply`, `/revise`, `/skip`);
    5. the CI state of the current evaluation commit (CI fix or hand-off);
    6. the next step of ordinary work.
-4. **Clean checkout and baseline:** `git status` must be empty (after
-   `git clean -ffdx`). The run records the repository baseline in the change
+4. **Clean checkout and baseline:** a fresh checkout in an emptied work
+   folder, and `git status` must be empty. The run records the repository baseline in the change
    set: target branch and head, the plan's base commit, and the repository's
    test, lint, type-check and build commands (found, or from
    `build/guidance.md`).
@@ -624,7 +624,8 @@ Since 2.13.0 (`stages/build/handoff.sh`, `lib/ci.sh`,
   `AGENT_HUB_BUILD_CI_FIX_ATTEMPTS` (2) were made since the last full review
   (so a person's commits, reviewed again, start a new count), the run
   becomes a CI fix. The attempt is recorded first, before any Claude, so a
-  run that stops part-way is never repeated by the sweep. The failed checks
+  run that stops part-way is never repeated by the sweep; the next run finds
+  it still marked started and tells a person, once (since 2.21.0). The failed checks
   become the fix pass's findings, with what each reported — the check run's
   own summary and, for an Actions job, the end of its log (read with the
   workflow's token, `actions: read`; to the agent only, as information) —
@@ -669,7 +670,12 @@ Then the hub records the hand-off, marks the pull request ready for review
 (CODEOWNERS are requested by GitHub then), moves the ticket to **Ready for
 Review** with `needs-human`, and comments on both. A hand-off that stops
 part-way is finished by the next run (each write is safe to repeat) — the CI
-sweep wakes one recorded but still a draft (2.19.0). A
+sweep wakes one recorded but still a draft (2.19.0), and a re-run finishes
+one marked ready whose ticket didn't move (2.21.0). **New commits after a
+hand-off undo it** (2.21.0): when a run reviews people's commits (or a merge
+of the target) on a pull request already handed off, the hand-off no longer
+holds — the record drops it and the pull request goes back to draft, with a
+comment, until the gate hands it off again; the ticket stays where it is. A
 record from before 2.13.0 doesn't list the reviewed commit, so it's never
 handed off — a person reviews it. Reviewers from a setting are after v1.
 
@@ -705,7 +711,11 @@ requests, commits, comments, review findings and logs carry only the ticket
 key and content derived from the code itself (diff summary, changed
 components, tests and results, code-derived findings). Acceptance-criteria
 text, private context and the ticket-derived parts of the decision log stay
-out unless a setting opts in. No model-generated "redacted" summary: private
+out unless a setting opts in. **In every repository**, text the hub didn't
+write itself — Claude's, the ticket's, a package's licence — is shown as
+written (since 2.21.0): no HTML, links, images or mentions, so it can't make
+GitHub fetch anything (an image is fetched by GitHub's own servers, which
+could carry data out), pass for the hub's own links, or notify anyone. No model-generated "redacted" summary: private
 context doesn't cross into a public repository unless explicitly allowed.
 Private repositories get the full pull request. A public repository's pull
 request still reads on its own: it says the details are on the ticket, lists
@@ -842,7 +852,10 @@ and the next revision reviews the whole pull request.
   from people with write access, as read when the run starts — the snapshot
   the fix is attributed to. Each finding comes from the review the hub kept
   (a decision as the gates flagged it); a manual change, the "review didn't
-  finish" decision or an item without a kept finding can't be applied.
+  finish" decision or an item without a kept finding can't be applied. The
+  kept review is used only while it's the one the pull request's record
+  names (a hash, since 2.21.0): the ticket's copy can be edited by anyone
+  who can edit the ticket, so an edited one is refused, never applied.
 - **Only on the head the hub last recorded and reviewed:** after anyone
   else's push, `/apply` is refused: run the build again (Actions → Agent
   hub: Build → Run workflow, with the ticket key — also for a ticket in
@@ -910,13 +923,13 @@ request) · `agent-hub-paused` · the kill switch.
 
 | Actor | Can | Can't |
 |---|---|---|
-| Build and fix agents | Edit files in the checkout (not refused paths; a dependency declaration only as the plan describes); run commands in the sandbox (localhost network only) | Push, call GitHub or Jira, install packages or reach a registry, read outside the repository, reach the internet, see any credential |
+| Build and fix agents | Edit files in the checkout (not refused paths; a dependency declaration only as the plan describes); run commands in the sandbox (localhost network only) | Push, call GitHub or Jira, install packages or reach a registry, read the home folder or the runner's own folders, reach the internet, see any credential (the rest of the machine stays readable: [runners.md](../runners.md#the-sandbox-build-stage)) |
 | Review and fix-check agents | Read the repository; run tests in the sandbox | Edit anything |
 | Install step (no agent) | Install dependencies from the lockfile (frozen), registries-only network, in the hub's sandbox | Change manifests or lockfiles; read the home folder; see any credential |
 | Verify step (no agent) | Commit the agent's changes; run the repository's checks on a clean copy of that commit, in the hub's sandbox, localhost-only network | Push; read the home folder; see any credential; change which checks run (they come from the base commit) |
 | Dependency step (no agent, before the agent) | Apply exactly the plan's dependency changes (npm): write their ranges, resolve the lockfile without install scripts and with a minimum release age, then check signatures and provenance; registries-only network (and Sigstore's trust metadata for the signature check), in the hub's sandbox | Apply anything the plan doesn't list; run install scripts while resolving; read the home folder; see any credential |
 | Apply step (no agent) | Commit, push to `agent-hub/*`, open and update the pull request, write the state block, update the ticket | Merge, approve, push to other branches (branch protection) |
-| Relay, CI-result and PR-sync workflows (no agent) | Read metadata, acknowledge idempotently, wake the per-ticket run | Write the state block; check out, run or download pull request code or artifacts; evaluate pull-request-supplied text in a shell |
+| CI sweep and closed-pull-request workflows (no agent, no secrets) | Read pull requests and checks; request the build with `wake` (`agent-hub-ci-sweep.yml`, `agent-hub-pr-closed.yml`) | Write the state block; check out, run or download pull request code or artifacts; evaluate pull-request-supplied text in a shell |
 | People | Approve, review, `/apply`, `/skip`, pause, merge; admins: the kill switch | — |
 
 ### Agent tool profiles
@@ -930,8 +943,10 @@ Chosen by the hub per pass — never by settings, extensions or tickets:
   `Edit,Write,Bash` and **no WebSearch or WebFetch** (a setting can enable
   them); deny rules (which bind subagents) on refused paths; the **sandbox**
   passed through `--settings` (restricted mode still applies `--settings`, so
-  the repository can't loosen it): shell commands and their children read only
-  the repository (home denied, checkout re-allowed) and write only the
+  the repository can't loosen it): shell commands and their children can't
+  read the home folder or the runner's own folders (the checkout and their
+  temp folder re-allowed; since 2.21.0 the runner's folders wherever it's
+  installed) and write only the
   repository and a temp folder; network to localhost only; an environment
   scrubbed of secrets; package caches in the temp folder; no unsandboxed
   retries; the run fails if the sandbox can't start.
@@ -951,17 +966,18 @@ on Linux).
 
 | Credential | Reaches | Never reaches |
 |---|---|---|
-| Claude login or API key | Agent steps | Apply steps |
+| Claude login or API key | Agent steps (the login lives on the runner machine, so every job on it, and everyone with write access, can reach it: [runners.md](../runners.md#self-hosted-runner-with-a-claude-subscription)) | Apply steps' environment |
 | Jira token | Fetch, apply and report steps (a curl config file, removed after) | Agent steps |
-| Machine user token (fine-grained: this repository; Contents and Pull requests read/write; no Workflows, no Administration) | Apply, relay, CI-result and PR-sync steps (a git credential file, removed after) | Agent steps; the checkout (`persist-credentials: false`) |
-| `GITHUB_TOKEN` | Read-only uses (events, labels) | Pushes (they wouldn't trigger CI) |
+| Machine user token (fine-grained: this repository; Contents and Pull requests read/write; no Workflows, no Administration) | Fetch and apply steps (a git credential file, removed after) | Agent steps; the checkout (`persist-credentials: false`) |
+| `GITHUB_TOKEN` | Reading CI results and the job's logs; the CI sweep and closed-pull-request workflows requesting the build (`actions: write`) | Pushes (they wouldn't trigger CI) |
 
 ### Required GitHub settings
 
-Checked in the pipeline test: branch protection on the target branch with at
-least one approval, *require approval of the most recent reviewable push*,
-required status checks, and push restrictions excluding the machine user (so
-it can't merge or push to the target). Secret scanning with push protection,
+Set up as [setup.md](../setup.md) describes, and checked in the manual test
+(the hub doesn't check them itself): branch protection on the target branch
+with at least one approval, *require approval of the most recent reviewable
+push*, required status checks bound to their app, and push restrictions
+excluding the machine user (so it can't merge or push to the target). Secret scanning with push protection,
 and Dependabot or CodeQL, are recommended — the deterministic security gates
 are the repository's own (CI, scanners, linters, type checks) plus the hub's
 secret scan before every push. **Pull request workflows must not hold deploy
@@ -970,8 +986,8 @@ environments with required reviewers).
 
 ### Self-hosted runner hardening
 
-Checkouts cleaned (`git clean -ffdx`) and temp folders per job, verified at
-the start of each run · package caches in the job's temp folder · escaping
+The work folder emptied at the start of every job (since 2.18.0), a fresh
+checkout, and temp folders per job · package caches in the job's temp folder · escaping
 symlinks and gitlinks refused · **all actions pinned to full commit SHAs**
 (GitHub-owned too), kept current by Dependabot in the hub's repository and
 reaching others with hub releases · **an exact, pinned Claude Code

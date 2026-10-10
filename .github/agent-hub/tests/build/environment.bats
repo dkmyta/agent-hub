@@ -151,3 +151,25 @@ api"
     assert_failure
   done
 }
+
+# M3 (2.20.0 review): the hub's git copy keeps only the allow-listed settings
+# — read entry by entry, so a setting with no value can't shift the others
+# (before, keys and values were paired by position).
+@test "the hub's git copy: only allow-listed settings kept, whatever comes before them" {
+  mkdir -p "$BATS_TEST_TMPDIR/git-copy"
+  cat > "$BATS_TEST_TMPDIR/git-copy/config" <<'EOF'
+[core]
+	novalue
+	repositoryformatversion = 0
+	hooksPath = /tmp/evil
+[remote "origin"]
+	url = https://github.com/example/repo
+[credential]
+	helper = !evil
+EOF
+  mkdir -p "$BATS_TEST_TMPDIR/git-copy/hooks" && touch "$BATS_TEST_TMPDIR/git-copy/hooks/pre-push"
+  run in_stage "BUILD_GIT='$BATS_TEST_TMPDIR/git-copy' _trust_build_git && git config -f '$BATS_TEST_TMPDIR/git-copy/config' --list"
+  assert_success
+  assert_output $'core.repositoryformatversion=0\nremote.origin.url=https://github.com/example/repo'
+  [ ! -e "$BATS_TEST_TMPDIR/git-copy/hooks" ] || fail "hooks kept"
+}

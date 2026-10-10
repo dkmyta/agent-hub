@@ -509,7 +509,7 @@ $RUNNER_TEMP/plugins/repository"
   # the commands' PATH, the step's own.
   toolchain=$(cd "$(dirname "$(command -v node)")/.." && pwd -P)
   assert_equal "$(jq -c '.sandbox.filesystem' <<< "$settings")" \
-    "$(jq -nc --arg h "$HOME" --arg r "$repo" --arg t "$temp" --arg n "$toolchain" '{denyRead: [$h], allowRead: [$r, $t, $n], allowWrite: [$r, $t]}')"
+    "$(jq -nc --argjson d "$(bash -c "source '$HUB_DIR/lib/paths.sh'; sandbox_denied_reads")" --arg r "$repo" --arg t "$temp" --arg n "$toolchain" '{denyRead: $d, allowRead: [$r, $t, $n], allowWrite: [$r, $t]}')"
   assert_equal "$(jq -r --arg bin "$toolchain/bin" '.env.PATH | split(":") | any(. == $bin)' <<< "$settings")" true
   assert_equal "$(jq -c '.sandbox.network' <<< "$settings")" '{"allowedDomains":["localhost","127.0.0.1"],"allowLocalBinding":true}'
   assert_equal "$(jq -c '.permissions.deny' <<< "$settings")" \

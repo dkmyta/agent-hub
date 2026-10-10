@@ -54,11 +54,14 @@ handoff_problems() {
 _reconcile_ci() {
   local number=$1 head=$2 base=$3 target required ci state at waited
   target=$(context .target)
-  # Handed off already, at this very commit, and ready for review: nothing
-  # more to do (a re-run, or a repeated wake-up; an /apply since would have
-  # cleared it). One still a draft stopped part-way: it's finished below.
+  # Handed off already, at this very commit, ready for review, and the ticket
+  # moved on: nothing more to do (a re-run, or a repeated wake-up; an /apply
+  # since would have cleared it). A hand-off that stopped part-way — still a
+  # draft, or the ticket still in the approved status — is finished below
+  # (each of its writes is safe to repeat).
   if jq -e --arg head "$head" '.handoff.head == $head' "$RECONCILE_STATE" > /dev/null \
-     && jq -e '.draft == false' "$RUNNER_TEMP/reconcile-pr.json" > /dev/null 2>&1; then
+     && jq -e '.draft == false' "$RUNNER_TEMP/reconcile-pr.json" > /dev/null 2>&1 \
+     && [ "$(stage_start_status)" != "$PLAN_APPROVED_STATUS" ]; then
     echo "Pull request #$number was handed off at ${head:0:7}; nothing to do."
     echo "[$TICKET_KEY]($TICKET_URL): pull request #$number was already handed off at ${head:0:7}; nothing to do." >> "$GITHUB_STEP_SUMMARY"
     echo "proceed=false" >> "$GITHUB_OUTPUT"
@@ -111,8 +114,14 @@ _ci_failed() {
     _ci_person failed "required checks failed on $(_short "$head"): $names, after $attempts CI fix$([ "$attempts" = 1 ] || echo es)" \
       "fix the failures on the branch (the hub re-checks what's pushed)"
   fi
-  # Once per head: a fix already tried on this head (it couldn't be kept,
-  # or the run stopped) was reported to a person.
+  # Once per head. A fix still marked started never finished — its run was
+  # cancelled or stopped before its result was recorded: a person is told
+  # (once: it's marked stopped). A fix that ran was already reported.
+  if jq -e --arg head "$head" '.ci_fix.last.head == $head and .ci_fix.last.status == "started"' "$RECONCILE_STATE" > /dev/null; then
+    jq -c '.ci_fix.last.status = "stopped"' "$RECONCILE_STATE" > "$RECONCILE_STATE.new" && mv "$RECONCILE_STATE.new" "$RECONCILE_STATE"
+    _ci_person failed "required checks failed on $(_short "$head"): $names, and the CI fix started for them didn't finish (its run stopped)" \
+      "fix the failures on the branch (the hub re-checks what's pushed), or re-run the build to try again" force
+  fi
   if jq -e --arg head "$head" '.ci_fix.last.head == $head' "$RECONCILE_STATE" > /dev/null; then
     _ci_done "a CI fix was already tried on $(_short "$head")"
   fi
@@ -174,13 +183,14 @@ _ci_record() {
     || stage_fail "Pull request #$(context .pr)'s description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error")). A person checks it."
 }
 
-# _ci_person <result> <why> <what to do>: a person takes it from here — once
-# per head and result: the pull request and the ticket say why, and the
-# ticket gets needs-human. Ends the run (blocked).
+# _ci_person <result> <why> <what to do> [force]: a person takes it from here
+# — once per head and result (unless forced: the caller has its own once): the
+# pull request and the ticket say why, and the ticket gets needs-human. Ends
+# the run (blocked).
 _ci_person() {
   local number head
   number=$(context .pr) head=$(jq -r '.head' "$RUNNER_TEMP/ci.json")
-  if jq -e --arg head "$head" --arg result "$1" '.ci.head == $head and .ci.result == $result' "$RECONCILE_STATE" > /dev/null; then
+  if [ -z "${4:-}" ] && jq -e --arg head "$head" --arg result "$1" '.ci.head == $head and .ci.result == $result' "$RECONCILE_STATE" > /dev/null; then
     _ci_done "already reported: $2"
   fi
   _ci_record "$1"

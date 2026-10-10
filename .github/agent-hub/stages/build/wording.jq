@@ -57,8 +57,11 @@ def review_items($gates; $review; $fix):
 # Markdown helpers for the pull request: text from Claude, the ticket — or
 # anything else not the hub's own, like a gate reason quoting a package's
 # licence from the registry — gets no HTML (which could also forge a marker
-# line), and one line where a list item needs it.
-def safe: tostring | gsub("<"; "&lt;");
+# line), no links or images (an image GitHub fetches could carry data out to
+# any server; a link could pass for the hub's) and no mentions — the
+# characters that make them shown as they are — and one line where a list
+# item needs it.
+def safe: tostring | gsub("\\\\"; "\\\\") | gsub("<"; "&lt;") | gsub("(?<c>[\\[\\]@])"; "\\\(.c)");
 def line: safe | gsub("\\s*\\n\\s*"; " ");
 def code: "`" + (tostring | gsub("`"; "'") | gsub("\\n"; " ")) + "`";
 def section($title; $lines): if ($lines | length) > 0 then "", "## \($title)", "", $lines[] else empty end;

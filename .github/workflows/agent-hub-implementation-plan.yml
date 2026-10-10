@@ -4,7 +4,7 @@ run-name: "Implementation plan: ${{ github.event.client_payload.ticket_key || in
 # Stage 2 of the agent-hub pipeline. The tracker (the Jira "Implementation
 # Plan Requested" or "Revision Requested" rule) starts it with
 # workflow_dispatch and only the ticket key (repository_dispatch's
-# `agent-hub-implementation-plan-requested` is still accepted until 2.21.0); the shared stage workflow does the rest with this
+# `agent-hub-implementation-plan-requested` is still accepted until 2.22.0); the shared stage workflow does the rest with this
 # stage's files in .github/agent-hub/stages/implementation-plan. See
 # .github/agent-hub/docs/workflows/implementation-plan.md.
 
