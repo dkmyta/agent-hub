@@ -327,6 +327,29 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md): `npm ci --prefix .github/agent-hub/te
 and `pre-commit install --config .github/agent-hub/.pre-commit-config.yaml`.
 The tests and hooks never use Claude or a tracker.
 
+## GitHub Actions costs (private repositories)
+
+Public repositories run GitHub Actions free. In a private repository, GitHub
+bills its hosted runners by the minute beyond each plan's included minutes
+(2,000 a month on Free, 3,000 on Pro or Team), and macOS minutes count about
+ten times. Self-hosted runners have no GitHub charge (a per-minute fee
+GitHub announced for 2026 was postponed). Rates as of October 2026 —
+check GitHub's billing page for current ones. Measured on this hub:
+
+| Workflow | Runs on (default) | On GitHub-hosted runners in a private repository |
+|---|---|---|
+| The stages (work order, plan, build), the closed-pull-request workflow | Your runner (`AGENT_HUB_RUNS_ON`) | About 45–90 minutes per ticket, all stages (~$0.30–0.55 at $0.006 a minute); the Claude API costs far more ([claude-usage.md](claude-usage.md)) |
+| The CI sweep (every 10 minutes, while the build preview is on) | Your runner | At least one billed minute per run: about 4,300 minutes a month (~$26) — over the Free plan's minutes on its own |
+| The hub's own tests (`agent-hub-tests.yml`) | Always GitHub-hosted (Ubuntu and macOS) | Only when a pull request changes hub files (in a project repository: a hub update): about 17 Linux and 11 macOS minutes per pull request (~$0.80, about 130 included minutes), and about $1 more after it merges |
+| Your own CI | As you set it | Runs on every push the build makes (the build, each fix, each `/apply`) |
+
+**To keep costs down:** run the stages and the sweep on a self-hosted
+runner (the default) — then GitHub bills nothing for them. Planned: the
+hub's own test suite skipped in project repositories, where the hub isn't
+being developed (in the v1 roadmap), and a CI sweep that costs nothing on
+any runner (after v1:
+[build-design.md](workflows/build-design.md#after-v1)).
+
 ## Several repositories
 
 Each repository that has the workflows is independent: its own runner (or

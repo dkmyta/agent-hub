@@ -5,6 +5,22 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.21.1 — 2026-10-10
+
+Docs: what the hub's workflows cost in a private repository.
+
+- **setup.md, "GitHub Actions costs":** what each workflow costs on
+  GitHub-hosted runners in a private repository (the CI sweep alone about
+  4,300 minutes a month; the hub's own tests per hub pull request; the
+  stages per ticket), and that self-hosted runners — the default — cost
+  nothing from GitHub.
+- **build-design.md, after v1:** the projected costs and the workarounds — an
+  event-driven CI wake instead of the sweep, and cheaper runners for the
+  hub's own tests. Skipping the hub's own test suite in project repositories
+  is in the v1 roadmap.
+
+**Updating:** Nothing.
+
 ## 2.21.0 — 2026-10-10
 
 Fixes from two reviews of 2.20.0 — this session's, and a fresh one with no
