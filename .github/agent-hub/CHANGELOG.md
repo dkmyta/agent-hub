@@ -5,6 +5,29 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.21.2 — 2026-10-12
+
+Docs: the setup steps in full, from setting up the first installation.
+
+- **jira.md:**
+  - status names must match the hub's exactly, capitals included (or its
+    variables set), and how to rename a status;
+  - setting up the transitions: where the workflow editor is in each kind
+    of project, that the hub ignores their names, no conditions or screens
+    on the ones it makes, one per target;
+  - the approvers group step by step (the group, Browse users and groups,
+    the variable, the transitions in step);
+  - checking the setup from a signed-in browser (statuses, a ticket's
+    transitions, the rules export, the audit log);
+  - a worked example of switching a rule to `workflow_dispatch`, and editing
+    the existing dispatch token instead of making a new one, with a check of
+    its permissions.
+- **setup.md:** secrets can't be copied into the environment (what to
+  re-enter or regenerate); untick "Allow GitHub Actions to create and approve
+  pull requests" (also on the production checklist).
+
+**Updating:** Nothing (untick that setting if it's on).
+
 ## 2.21.1 — 2026-10-10
 
 Docs: what the hub's workflows cost in a private repository.

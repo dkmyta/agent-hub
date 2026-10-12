@@ -43,7 +43,13 @@ environment, so a run someone with write access starts on another branch —
 whose copy of the hub's scripts could do anything with a secret — is refused
 before it gets one. Secrets at the repository level (Settings → Secrets and
 variables → Actions) still work, but any branch's run can read them: move
-them into the environment, and delete the repository-level copies. The
+them into the environment, and delete the repository-level copies. GitHub
+never shows a secret's value again, so nothing can be copied: type in the
+Jira site and email, and for the two tokens use the values you kept or make
+new ones — a new Jira API token at id.atlassian.com (as the service
+account), and the build token's **Regenerate token** in GitHub (same name,
+repository and permissions; the old value stops working at once, so put the
+new one straight into the environment). The
 evals' `agent-hub-evals` environment needs its own copy of
 `AGENT_HUB_ANTHROPIC_API_KEY` if you use the evals with the API. (Runs appear
 under the repository's **Deployments**: that's the environment, not a
@@ -173,6 +179,9 @@ itself:
   permissions*). A workflow then can't post statuses or check runs unless it
   asks for that permission itself; the hub's own workflows ask only for what
   they need. (A new repository in an organisation already defaults to this.)
+  **And untick "Allow GitHub Actions to create and approve pull requests"**
+  in the same place: the hub never needs it, and with it a workflow — your
+  CI running the build's code included — could approve a pull request.
 - **Required checks bound to the app that posts them:** in branch protection
   or a ruleset, pick each required check with its source — **GitHub
   Actions** for checks from your workflows — rather than any source. A check

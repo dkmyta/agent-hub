@@ -26,7 +26,8 @@ these hold, checked one by one:
       the sandbox check passed on it.
 - [ ] **Setup** ([setup.md](../setup.md)): the secrets in the `agent-hub`
       environment, limited to the default branch, and no repository-level
-      copies; read-only default workflow permissions; required checks bound
+      copies; read-only default workflow permissions, and GitHub Actions not
+      allowed to create or approve pull requests; required checks bound
       to the app that posts them (the CI gate warns about any that aren't);
       the dispatch token with Actions: read and write only.
 - [ ] **Jira** ([jira.md](../jira.md#checklist-for-a-new-installation)):
