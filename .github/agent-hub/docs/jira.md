@@ -50,6 +50,19 @@ the same settings live in the workflow scheme and permission scheme.
 | Approved | A person, after approving the pull request (optional) | — |
 | **Done** | The build, when the hub's pull request it handed off is merged (since 2.15.0) | No — the build removes it |
 
+**The names must match exactly**, capitals included: the hub finds
+statuses by name, so a status called "Ready For Review" isn't "Ready for
+Review", and the hand-off fails with "no transition to 'Ready for Review'".
+Rename the status in Jira (the workflow editor, or the board column's **⋯ →
+Rename status** in a team-managed project; renaming keeps its tickets and
+transitions), or set the matching repository variable to your name:
+`AGENT_HUB_INTAKE_STATUS`, `AGENT_HUB_WORK_ORDER_STATUS`,
+`AGENT_HUB_WORK_ORDER_APPROVED_STATUS`, `AGENT_HUB_IMPLEMENTATION_PLAN_STATUS`,
+`AGENT_HUB_IMPLEMENTATION_PLAN_APPROVED_STATUS`,
+`AGENT_HUB_READY_FOR_REVIEW_STATUS`, `AGENT_HUB_APPROVED_STATUS`,
+`AGENT_HUB_DONE_STATUS` ([setup.md](setup.md#4-set-variables-only-what-differs-from-the-defaults)).
+To check the names: [Checking the setup](#checking-the-setup).
+
 ## Transitions
 
 | From → To | By |
@@ -71,6 +84,30 @@ In a team-managed project, **"Allow all statuses to transition to this one"**
 on each status is the simplest way to allow these (an "Any status → <status>"
 transition per status). Then restrict the two approvals to people:
 [Restrict approvals to people](#restrict-approvals-to-people).
+
+**Setting them up:**
+- **Where the workflow is.** Check which kind of project you have: the
+  bottom of the project's sidebar says *team-managed* or *company-managed*.
+  - **Team-managed:** **Project settings → Work types → Task → Edit
+    workflow**, or from the board: **⋯ → Manage workflow**. Save with
+    **Update workflow**.
+  - **Company-managed:** **Project settings → Workflows**, then edit the
+    Task workflow. Save with **Publish**.
+- **Adding one:** **Add transition**, then pick **From** and **To**; or
+  select a status and tick **Allow all statuses to transition to this one**.
+- **Names don't matter to the hub.** It picks the transition into the status
+  it needs (the hand-off takes any transition into Ready for Review), so
+  name each for the people who see it as a button: "Ready for Review",
+  "Done", "Back to Implementation Plan". A name Jira left over from an older
+  workflow ("Done 2", "In Review") still works; rename it for clarity.
+- **No conditions or screens** on the transitions the hub makes (into Work
+  Order, Intake, Implementation Plan, Ready for Review and Done): the service
+  account makes them, and a condition or screen would stop it. Only the two
+  approvals are restricted.
+- **One transition per target status from each status.** With two, the hub
+  takes the first Jira lists.
+- **Check them** from a ticket in each status: [Checking the
+  setup](#checking-the-setup).
 
 ## Labels
 
@@ -275,6 +312,43 @@ ticket's caps — so keep it hidden in every rule, and revoke it if it leaks.
 **Before 2.20.0** the rules called `…/repos/<owner>/<repo>/dispatches` with
 `{"event_type": "agent-hub-<stage>-requested", "client_payload": {...}}`
 and a token with **Contents: Read and write** — which can also push code.
+For example, Work Order Requested changes from
+
+```
+URL:  https://api.github.com/repos/<owner>/<repo>/dispatches
+Body: {"event_type": "agent-hub-work-order-requested", "client_payload": {"ticket_key": "{{issue.key}}"}}
+```
+
+to
+
+```
+URL:  https://api.github.com/repos/<owner>/<repo>/actions/workflows/agent-hub-work-order.yml/dispatches
+Body: {"ref": "main", "inputs": {"ticket_key": "{{issue.key}}"}}
+```
+
+and each other rule likewise, with its own workflow file (above). The
+headers stay as they are.
+
+**The token: edit it, or make a new one.** Token names are unique per
+account, so a new token needs another name. Editing the existing one is
+simpler and keeps the rules' headers as they are: add **Actions: Read and
+write**, keep **Contents** while you switch the rules (the old and new
+requests then both work), and once every rule uses the new URL, set
+**Contents** to **No access**. To check the result — two codes, nothing
+changed, the token never on a command line:
+
+```sh
+read -rsp "Dispatch token: " T; echo
+cfg=$(umask 077 && mktemp); printf 'header = "Authorization: Bearer %s"\n' "$T" > "$cfg"; unset T
+curl -s -o /dev/null -w 'Actions: %{http_code} (expect 200)\n' -K "$cfg" https://api.github.com/repos/<owner>/<repo>/actions/workflows
+curl -s -o /dev/null -w 'Contents write: %{http_code} (expect 403)\n' -K "$cfg" -X POST \
+  -d '{"ref":"refs/heads/agent-hub-permission-probe","sha":"0000000000000000000000000000000000000000"}' \
+  https://api.github.com/repos/<owner>/<repo>/git/refs
+rm -f "$cfg"
+```
+
+(422 instead of 403 means it can still write contents: only the invalid
+commit stopped it.)
 The workflows still accept those requests in 2.20.0, so the rules keep
 working while you change them; 2.22.0 removes them (after the first full
 manual test, not 2.21.0 as first announced). To change:
@@ -465,19 +539,70 @@ the two "…Approved" statuses are missing from a ticket's status menu; signed
 in as an approver, they're there. The automation rules need no change: these
 moves trigger them, but they never make them.
 
+### The approvers group
+
+`AGENT_HUB_APPROVERS_GROUP` names the Jira group whose members approve. Set,
+the hub checks it itself: a work order or plan approved by someone outside
+it isn't an approval, and only its members can use `/skip` and `/apply`
+([setup.md](setup.md#4-set-variables-only-what-differs-from-the-defaults)).
+Optional for the document stages, **required before the build runs real
+tickets** ([build-design.md](workflows/build-design.md#production-checklist)).
+
+1. **Create the group** (site administrators): admin.atlassian.com → your
+   organisation → **Directory → Groups → Create group**, e.g.
+   `agent-hub-approvers`. Add your approvers — **never the service
+   account**. Product access isn't needed for the group: it's only checked
+   for membership.
+2. **Let the service account read groups:** in Jira, **⚙ Settings → System →
+   Global permissions** (under Security) → **Browse users and groups** →
+   **Add** → the service account (or a group it's in). Without it, every
+   approval and command check stops with "couldn't check".
+3. **Set the repository variable** `AGENT_HUB_APPROVERS_GROUP` to the group's
+   exact name (GitHub: Settings → Secrets and variables → Actions →
+   **Variables**).
+4. **Keep the transitions in step:** restrict the two "…Approved" transitions
+   to the same people ([above](#restrict-approvals-to-people)) — the group
+   itself where your project's workflow allows it (company-managed: **User
+   Is In Group**), otherwise the role or people who are in it. Then Jira's
+   buttons and the hub agree on who approves.
+
+## Checking the setup
+
+Jira's API answers in a browser where you're signed in, as read-only JSON —
+enough to check the setup without any tool (replace the site, project key
+and ticket):
+
+- **Status names** (they must match the hub's exactly):
+  `https://<site>.atlassian.net/rest/api/3/project/<KEY>/statuses`
+- **The moves a ticket can make now**, from its current status — what the hub
+  reads before it moves a ticket:
+  `https://<site>.atlassian.net/rest/api/3/issue/<KEY-1>/transitions`. From
+  Implementation Plan Approved, expect one into **Ready for Review** and one
+  into **Implementation Plan**; from Ready for Review or Approved, one into
+  **Done**. `isConditional: true` marks the restricted approvals.
+- **The rules:** **Project settings → Automation → ⋯ → Export rules** gives
+  every rule as JSON (secure headers are blanked), to compare with this page.
+- **A rule's last run:** the rule's **Audit log** shows GitHub's answer to
+  its web request: **204** started the workflow; 401, 404 or 422 are
+  explained in [Web requests](#web-requests).
+
 ## Checklist for a new installation
 
 - [ ] Task work type with the intake template
 - [ ] Statuses and board columns above; transitions allowed
 - [ ] A dedicated service account with the permissions above (Member, Jira
       access only)
+- [ ] Status names exactly as the hub's (or its variables set), checked
+      ([how](#checking-the-setup))
+- [ ] The transitions above, with no conditions or screens on the ones the
+      hub makes ([setting them up](#transitions))
 - [ ] Both "…Approved" transitions restricted to approvers
       ([how](#restrict-approvals-to-people))
 - [ ] Rules: Work Order Requested, Implementation Plan Requested, Revision
       Requested, Build Requested and Build Command
-- [ ] For the item commands: the approvers group in
-      `AGENT_HUB_APPROVERS_GROUP`, and Browse users and groups for the
-      service account
+- [ ] The approvers group: created, in `AGENT_HUB_APPROVERS_GROUP`, and
+      Browse users and groups for the service account
+      ([how](#the-approvers-group))
 - [ ] The dispatch token (Actions: read and write only) in every rule's
       `Authorization` header, hidden; each rule's URL naming its workflow,
       and `"ref"` your default branch
