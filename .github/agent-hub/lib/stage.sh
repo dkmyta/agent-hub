@@ -30,7 +30,7 @@ stage_mode() { cat "$RUNNER_TEMP/mode" 2>/dev/null || echo new; }
 stage_fetch() {
   local status wanted
   tracker_issue summary,description,status > "$RUNNER_TEMP/ticket.json" \
-    || { echo "::error::Could not fetch $TICKET_KEY from $TRACKER_NAME."; exit 1; }
+    || { echo "::error::Could not fetch $TICKET_KEY from $TRACKER_NAME. If the ticket exists, check the tracker's credentials first: a request it can't authenticate (an API token and email from different accounts, for one) is answered as if the ticket didn't exist ($TRACKER_DOC, \"Checking the setup\")."; exit 1; }
   status=$(jq -r '.fields.status.name' "$RUNNER_TEMP/ticket.json")
   for wanted in "$@"; do
     if [ "$status" = "$wanted" ]; then

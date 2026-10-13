@@ -34,6 +34,12 @@ too.
 
 ## 3. Add secrets
 
+**Secrets go in the environment; settings go in the repository.** The
+secrets below (tokens, and the Jira site and email) live in the `agent-hub`
+environment, which only runs on the default branch can read; the
+repository variables in step 4 are plain settings, kept at the repository
+level (Settings → Secrets and variables → Actions → **Variables**).
+
 **In the `agent-hub` environment, limited to your default branch** (since
 2.20.0): Settings → Environments → **New environment** `agent-hub` (or open
 it, if a run already created it) → Deployment branches and tags → **Selected
@@ -64,7 +70,7 @@ own GitHub token):
 |---|---|---|
 | `AGENT_HUB_JIRA_DOMAIN` | Yes | Your Jira site, e.g. `your-team.atlassian.net` |
 | `AGENT_HUB_JIRA_EMAIL` | Yes | The Jira account the automation acts as — a dedicated service account ([adding it](jira.md#adding-the-service-account)), barred from approving ([how](jira.md#restrict-approvals-to-people)) |
-| `AGENT_HUB_JIRA_API_TOKEN` | Yes | An [API token](https://id.atlassian.com/manage-profile/security/api-tokens) for that account |
+| `AGENT_HUB_JIRA_API_TOKEN` | Yes | An [API token](https://id.atlassian.com/manage-profile/security/api-tokens) **made while signed in as that service account** — not your own account: the token and the email must be the same account, or every run fails at its first step ([how](jira.md#adding-the-service-account)) |
 | `AGENT_HUB_ANTHROPIC_API_KEY` | Only for the Claude API | See [runners.md](runners.md#using-the-claude-api) |
 | `AGENT_HUB_GITHUB_TOKEN` | For the build stage | The **build token**, named `agent-hub-build-<repo>` in GitHub (not the Jira rules' dispatch token — [the two GitHub tokens](#the-two-github-tokens)): a **machine user's** fine-grained token for this repository only, with Contents and Pull requests read/write — no Workflows, no Administration. The build pushes and opens pull requests with it (a workflow's own token wouldn't start your CI), and commits as its account, with that account's GitHub noreply address; branch protection keeps that user from merging. Only the build's fetch and apply steps get it — never an agent step, nor any step that runs the repository's code. **For development**, your own fine-grained token (same scope) works: the build's commits and pull requests are then yours, and branch protection can't stop you merging them — use a machine user before the build runs real tickets |
 
