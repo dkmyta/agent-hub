@@ -5,6 +5,25 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.21.3 — 2026-10-13
+
+From the first run of the full manual test: a Jira API token made on a
+person's account instead of the service account's failed the first run
+with only "Could not fetch AGENTHUB-59 from Jira".
+
+- **That message now says what to check first:** the tracker's credentials
+  (a token and email from different accounts are answered as if the ticket
+  didn't exist).
+- **jira.md:** the service account's token step by step — signed in **as
+  the service account**, in a private window, checking the avatar — and how
+  to revoke a token; global permissions are granted to groups only (usually
+  already `jira-users-<site>`), with the direct link and a check; checking
+  the hub's Jira credentials from a terminal, safely.
+- **setup.md:** secrets go in the environment, settings in the repository;
+  the API token's row says it must be the service account's.
+
+**Updating:** Nothing.
+
 ## 2.21.2 — 2026-10-12
 
 Docs: the setup steps in full, from setting up the first installation.

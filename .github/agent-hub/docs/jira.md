@@ -498,11 +498,26 @@ service account's project access, and the approval restriction below.
    (admin.atlassian.com); that grants nothing by itself — the product access
    and project role are what count.
 3. Sign in as it once (a private window) to accept the invite.
-4. As it, create an API token at id.atlassian.com → **Security** → **API
-   tokens**, named for its use (e.g. `agent-hub-jira-<repo>`), and put the
-   email and token in the `AGENT_HUB_JIRA_EMAIL` and `AGENT_HUB_JIRA_API_TOKEN`
-   secrets ([setup.md](setup.md#3-add-secrets)). Note the token's expiry
-   ([setup.md](setup.md#6-plan-for-credential-expiry)).
+4. **Create its API token signed in as the service account — not as
+   yourself.** The token and the email in the secrets must belong to the
+   same account; a token from your own account fails every run (Jira treats
+   the mismatched pair as anonymous: "Could not fetch <KEY>", 404), and
+   would make the hub act as you if your email were used with it.
+   1. Open a **private/incognito window** (so your own sign-in doesn't carry
+      over) and sign in at id.atlassian.com **as the service account**.
+   2. **Check the avatar** (top right) is the service account's.
+   3. Go to https://id.atlassian.com/manage-profile/security/api-tokens →
+      **Create API token** (the classic kind, without scopes: the hub signs
+      in with email and token), named for its use (e.g.
+      `agent-hub-jira-<repo>`), with an expiry you'll track
+      ([setup.md](setup.md#6-plan-for-credential-expiry)).
+   4. Put the service account's email and this token in the
+      `AGENT_HUB_JIRA_EMAIL` and `AGENT_HUB_JIRA_API_TOKEN` secrets, in the
+      `agent-hub` environment ([setup.md](setup.md#3-add-secrets)).
+
+   **To revoke a token:** the same page, signed in as the account that owns
+   it → **Revoke**. A token made on a person's account by mistake should be
+   revoked: it can do everything that person can.
 
 ### Restrict approvals to people
 
@@ -553,10 +568,19 @@ tickets** ([build-design.md](workflows/build-design.md#production-checklist)).
    `agent-hub-approvers`. Add your approvers — **never the service
    account**. Product access isn't needed for the group: it's only checked
    for membership.
-2. **Let the service account read groups:** in Jira, **⚙ Settings → System →
-   Global permissions** (under Security) → **Browse users and groups** →
-   **Add** → the service account (or a group it's in). Without it, every
-   approval and command check stops with "couldn't check".
+2. **Let the service account read groups.** Jira grants global permissions
+   to **groups only**, never to one person. Open **⚙ Settings → System →
+   Global permissions** (under Security), or
+   `https://<site>.atlassian.net/secure/admin/GlobalPermissions!default.jspa`,
+   and look at the groups on the **Browse users and groups** row. Usually it's
+   granted to `jira-users-<site>`, which every user with Jira access is in —
+   then the service account already has it and there's nothing to add.
+   Otherwise put the service account in a group that has it (or add the
+   permission for a group it's in; never the approvers group). Without it,
+   every approval and command check stops with "couldn't check". To check:
+   in a private window signed in as the service account,
+   `https://<site>.atlassian.net/rest/api/3/mypermissions?permissions=USER_PICKER`
+   shows `"havePermission": true`.
 3. **Set the repository variable** `AGENT_HUB_APPROVERS_GROUP` to the group's
    exact name (GitHub: Settings → Secrets and variables → Actions →
    **Variables**).
@@ -585,6 +609,24 @@ and ticket):
 - **A rule's last run:** the rule's **Audit log** shows GitHub's answer to
   its web request: **204** started the workflow; 401, 404 or 422 are
   explained in [Web requests](#web-requests).
+- **The hub's credentials** (the three Jira secrets) — when a run stops at
+  its first step with "Could not fetch <KEY> from Jira". Jira answers a
+  request it can't authenticate as if the ticket didn't exist, so this
+  usually means the token and email don't belong to the same account, or
+  the domain isn't exactly `<site>.atlassian.net` (no `https://`, no `/`).
+  Secrets can't be read back, so test the values you entered — in a terminal;
+  it asks for each, never shows the token or puts it on a command line, and
+  changes nothing:
+
+  ```sh
+  read -rp  "Jira domain: " D; read -rp "Jira email: " E; read -rsp "Jira API token: " T; echo
+  cfg=$(umask 077 && mktemp); printf 'user = "%s:%s"\n' "$E" "$T" > "$cfg"; unset T
+  curl -s -K "$cfg" -w ' [%{http_code}]\n' "https://$D/rest/api/3/myself" | sed -E 's/.*"displayName":"([^"]*)".*\[/\1 [/'
+  rm -f "$cfg"
+  ```
+
+  Expect the **service account's name and [200]**. [401] means the token and
+  email don't match; your own name means the token is yours.
 
 ## Checklist for a new installation
 
