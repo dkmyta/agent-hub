@@ -9,8 +9,11 @@ setup() {
 
 @test "the GitHub issue form has the same fields as the Jira intake template" {
   [ -f "$REPO_DIR/.github/ISSUE_TEMPLATE/agent-hub-request.yml" ] || skip "the GitHub Projects intake form isn't installed here"
-  # Jira: the template block in docs/jira.md ("Original Request:" …).
-  jira=$(awk '/^  ```$/ {inblock = !inblock; next} inblock && /:$/ {sub(/^ +/, ""); sub(/:$/, ""); print}' "$HUB_DIR/docs/jira.md")
+  # Jira: the template block in docs/jira.md ("Original Request:" …) — the
+  # first code block after "Intake template", and only that one (other
+  # blocks on the page can hold lines ending in a colon).
+  jira=$(awk '/Intake template/ {after = 1} after && /^ *```/ {if (inblock) exit; inblock = 1; next}
+    inblock && /:$/ {sub(/^ +/, ""); sub(/:$/, ""); print}' "$HUB_DIR/docs/jira.md")
   # GitHub: the issue form's field labels.
   github=$(node --input-type=module -e '
     import { readFileSync } from "node:fs";
