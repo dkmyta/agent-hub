@@ -535,12 +535,17 @@ SH
   run trace
   assert_line "Install dependencies: success"
   assert_line "Verify: success"
-  # Installed three times: in the checkout for the agent, in the verify
-  # step's rehearsal before the agent, and in the verify copy.
+  assert_line "Review: success"
+  # Installed four times: in the checkout for the agent, in the verify
+  # step's rehearsal before the agent, in the verify copy, and in the
+  # review's copy — from the agent step, which loads the sandbox too.
   run cat "$BATS_TEST_TMPDIR/npm-calls"
   assert_equal "$output" "ci --no-audit --no-fund
 ci --no-audit --no-fund
+ci --no-audit --no-fund
 ci --no-audit --no-fund"
+  run jq -r '.review.status' "$RUNNER_TEMP/state.json"
+  refute_output "incomplete"
   run srt_calls
   assert_equal "$(jq -sc 'map(select(.command | startswith("npm ci"))) | .[0].settings.network' <<< "$output")" \
     '{"allowedDomains":["registry.npmjs.org","registry.yarnpkg.com","repo.yarnpkg.com"],"deniedDomains":[],"allowLocalBinding":false}'
@@ -755,8 +760,9 @@ failure() { cat "$RUNNER_TEMP/failure-reason"; }
   DEPS_PLAN=$(deps_plan 's/`\.`: add/`web`: add/') deps_run
   run trace
   assert_line "Apply: success"
-  # Installed in web/ for the agent, the rehearsal's copy and the verify copy.
-  assert_equal "$(grep -cE '^web (.* )?ci( |$)' "$NPM_STUB/calls")" 3
+  # Installed in web/ for the agent, the rehearsal's copy, the verify copy
+  # and the review's copy.
+  assert_equal "$(grep -cE '^web (.* )?ci( |$)' "$NPM_STUB/calls")" 4
   assert_equal "$(remote_file agent-hub/PROJ-99 web/package.json | jq -r '.dependencies["left-pad"]')" "^1.3.0"
   [ "$(remote_file agent-hub/PROJ-99 package.json | jq -r '.dependencies["left-pad"] // "none"')" = none ]
 }
