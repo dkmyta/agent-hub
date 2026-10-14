@@ -12,6 +12,7 @@ function usage() {
 
 if (command === "truncate") {
   const [max, ...rest] = words;
+  // Any number works as maxLength here; the helper checks it.
   const maxLength = Number(max);
   if (!Number.isInteger(maxLength) || maxLength < 1) usage();
   console.log(truncate(rest.join(" "), maxLength));

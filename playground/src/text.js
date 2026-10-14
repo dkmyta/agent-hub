@@ -20,7 +20,7 @@ export function truncate(text, maxLength) {
     throw new RangeError("truncate: maxLength must be an integer of at least 1");
   }
   if (text.length <= maxLength) return text;
-  const space = text.slice(0, maxLength).lastIndexOf(" ");
-  const kept = space === -1 ? text.slice(0, maxLength - 1) : text.slice(0, space);
+  const space = text.slice(0, maxLength + 1).lastIndexOf(" ");
+  let kept = space === -1 ? text.slice(0, maxLength - 1) : text.slice(0, space);
   return kept.trimEnd() + "…";
 }
