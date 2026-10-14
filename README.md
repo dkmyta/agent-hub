@@ -14,3 +14,7 @@ build on.
 Everything the hub needs is in [`.github/agent-hub/`](.github/agent-hub/), plus
 the `agent-hub-*` workflows in [`.github/workflows/`](.github/workflows/).
 Start with the **[agent hub README](.github/agent-hub/README.md)**.
+
+The repository is public so it can use GitHub's features; that doesn't make
+it open source — no licence is granted ([LICENSE](LICENSE)). To report a
+security problem, see [SECURITY.md](SECURITY.md).
