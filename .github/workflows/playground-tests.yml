@@ -1,12 +1,13 @@
 name: "Playground: tests"
 
-# The playground's CI (playground/README.md): its tests on pull requests that
-# change it — what a repository's own CI does for the build stage's pull
-# requests.
+# The playground's CI (playground/README.md): its tests, and a line-length
+# check the build's own checks don't run — what a repository's own CI does for
+# the build stage's pull requests. It runs on every pull request, so it can be
+# a required check: one limited to playground/ changes would never report on
+# other pull requests, and they'd wait on it forever.
 
 on:
   pull_request:
-    paths: [playground/**]
   push:
     branches: [main]
     paths: [playground/**]
@@ -32,3 +33,19 @@ jobs:
       - name: Test
         working-directory: playground
         run: npm test
+      # Lines in src/ at most 100 characters (tests may be longer). The
+      # build's checks (checks.json) don't run this: only CI does.
+      - name: Line length
+        working-directory: playground
+        run: |
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const long = [];
+            for (const name of fs.readdirSync("src")) {
+              const file = path.join("src", name);
+              fs.readFileSync(file, "utf8").split("\n").forEach((line, i) => {
+                if ([...line].length > 100) long.push(`${file}:${i + 1} (${[...line].length} characters)`);
+              });
+            }
+            if (long.length) { console.error("Lines over 100 characters:\n" + long.join("\n")); process.exit(1); }
+          '
