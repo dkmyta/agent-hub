@@ -296,7 +296,7 @@ description:
 | Used by | Jira's rules, to start the stages | The build's fetch and apply steps |
 | Lives in | Jira only ([jira.md](jira.md#web-requests)) | The `AGENT_HUB_GITHUB_TOKEN` secret only |
 | Repository permissions | Actions: read and write (since 2.20.0; Contents before) | Contents: read and write; Pull requests: read and write |
-| Never | In GitHub's secrets | In Jira; in an agent step or one running the repository's code |
+| Never | In GitHub's secrets | In Jira; in an agent step or one running the repository's code; with **Workflows** permission (a classic token or a person's own has it, and then the hub can push a merge that changes `.github/workflows/`, which a person should do) |
 
 **Don't share one token between them**: each would then carry the other's
 exposure (Jira holding a token that can push code and open pull requests),

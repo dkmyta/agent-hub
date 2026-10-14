@@ -418,6 +418,7 @@ change ([build.md](workflows/build.md#review-items-and-apply)).
 | **Condition** | Work type = **Task** |
 | **Condition** | *Smart values condition*: `{{comment.body.trim().toLowerCase()}}` **matches regular expression** `(?s)^/(skip|apply)(\s.*)?$` |
 | **Condition** | Status is one of **Implementation Plan Approved**, **Ready for Review**, **Approved** |
+| **Condition** | *User condition*: the comment's author (**Initiator**) is in group **`agent-hub-approvers`** (your `AGENT_HUB_APPROVERS_GROUP`) |
 | **Action** | Send web request |
 | **Rule details** | Allow rule trigger **off**; notify on error **on** |
 
@@ -426,6 +427,11 @@ change ([build.md](workflows/build.md#review-items-and-apply)).
 ```json
 {"ref": "main", "inputs": {"ticket_key": "{{issue.key}}", "wake": "command"}}
 ```
+
+The user condition only saves work: the build checks the group itself and
+refuses anyone else's command, naming them, before any Claude. Without it,
+every `/skip` or `/apply` from someone outside the group still uses an
+automation run and a short GitHub run to be refused.
 
 How to use them: `/skip D1 R2` closes those items — a decision (`D`) is
 **accepted** — with no Claude, and the build's CI gate runs again (so a pull

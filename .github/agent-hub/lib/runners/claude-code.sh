@@ -612,11 +612,13 @@ agent_cleanup() {
 # agent_summary <title>: sets the step's `status` output and writes the run
 # summary — result, the models that did the work (5%+ of the cost; Claude Code
 # also uses a small model internally), whether the review changed the outcome
-# ("none" for a stage with no review pass), Claude Code version, how it
-# reached Claude (agent_access), duration, turns and API-equivalent cost.
+# (left out for a stage with no review pass in its agent step), Claude Code
+# version, how it reached Claude (agent_access), duration, turns and
+# API-equivalent cost.
 agent_summary() {
   # The status is one agent_check accepted (ready, or one the stage lists).
   jq -r '"status=\(.structured_output.status)"' "$AGENT_OUTPUT" >> "$GITHUB_OUTPUT"
+  # shellcheck disable=SC1112 # curly apostrophe intended
   jq -r --arg title "$1" --arg model "$CLAUDE_MODEL" --arg version "${CLAUDE_VERSION:-unknown}" \
       --arg access "$(jq -r '.label // "unknown"' "$RUNNER_TEMP/agent-access.json" 2> /dev/null || echo unknown)" \
       --slurpfile review <(cat "$AGENT_REVIEW" 2> /dev/null || true) '
@@ -625,10 +627,22 @@ agent_summary() {
        | join(", ") | if . == "" then $model else . end) as $models
     | ($review[0] // {}) as $r
     | "### \($title): \(env.TICKET_KEY)\n",
-      "| Result | Review | Length | Models | Claude Code | Claude access | Duration | Turns (draft + review) | Cost (API-equivalent) |",
-      "|---|---|---|---|---|---|---|---|---|",
-      "| \(.structured_output.status) | \(if $review == [] then "none" elif $r.skipped then "skipped (sent back)" elif $r.outcome_changed then "outcome changed (was \(.draft_status))" else "\($r.changes // [] | length) change(s)" end) | \(if (.draft_chars // 0) > 0 then "\(.final_chars) chars (\(((.final_chars - .draft_chars) * 100 / .draft_chars) | round)% vs draft)" else "-" end) | \($models) | \($version) | \($access) | \(.duration_ms / 1000 | floor)s | \(.draft_turns // .num_turns) + \(.review_turns // 0) | $\($total * 100 | round / 100) (draft $\((.draft_cost // $total) * 100 | round / 100), review $\((.review_cost // 0) * 100 | round / 100)) |",
-      ""' \
+      # A stage without an expert-review pass in its agent step (the build:
+      # its code review and fix are steps of their own, listed after this)
+      # gets a table of this pass alone — no review columns to read as $0.
+      if $review == [] then
+        "| Result | Models | Claude Code | Claude access | Duration | Turns | Cost (API-equivalent) |",
+        "|---|---|---|---|---|---|---|",
+        "| \(.structured_output.status) | \($models) | \($version) | \($access) | \(.duration_ms / 1000 | floor)s | \(.num_turns) | $\($total * 100 | round / 100) (this pass) |",
+        "",
+        "Later passes (a code review, a fix) are listed below; **Ticket usage** has the run’s total.",
+        ""
+      else
+        "| Result | Review | Length | Models | Claude Code | Claude access | Duration | Turns (draft + review) | Cost (API-equivalent) |",
+        "|---|---|---|---|---|---|---|---|---|",
+        "| \(.structured_output.status) | \(if $r.skipped then "skipped (sent back)" elif $r.outcome_changed then "outcome changed (was \(.draft_status))" else "\($r.changes // [] | length) change(s)" end) | \(if (.draft_chars // 0) > 0 then "\(.final_chars) chars (\(((.final_chars - .draft_chars) * 100 / .draft_chars) | round)% vs draft)" else "-" end) | \($models) | \($version) | \($access) | \(.duration_ms / 1000 | floor)s | \(.draft_turns // .num_turns) + \(.review_turns // 0) | $\($total * 100 | round / 100) (draft $\((.draft_cost // $total) * 100 | round / 100), review $\((.review_cost // 0) * 100 | round / 100)) |",
+        ""
+      end' \
     "$AGENT_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
   _fallback_warning "$CLAUDE_MODEL" "$CLAUDE_FALLBACK_MODEL" "$RUNNER_TEMP/agent-draft.json" draft
 }

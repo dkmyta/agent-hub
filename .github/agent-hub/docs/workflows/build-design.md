@@ -29,7 +29,10 @@ these hold, checked one by one:
       copies; read-only default workflow permissions, and GitHub Actions not
       allowed to create or approve pull requests; required checks bound
       to the app that posts them (the CI gate warns about any that aren't);
-      the dispatch token with Actions: read and write only.
+      the dispatch token with Actions: read and write only; the build token
+      the machine user's fine-grained one, with no Workflows permission (a
+      person's own token, as in the 2.21 manual test, let the hub push a
+      merge that changed `.github/workflows/`).
 - [ ] **Jira** ([jira.md](../jira.md#checklist-for-a-new-installation)):
       `AGENT_HUB_APPROVERS_GROUP` set — required for real tickets: without
       it every item command is refused and approvals rest on the workflow's

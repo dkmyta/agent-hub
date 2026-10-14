@@ -175,13 +175,23 @@ rm -rf ~/.claude/projects/*actions-runner--work-* /tmp/claude-$(id -u)/*actions-
 Claude Code updates itself on a self-hosted runner by default, and an update
 can change how the agents behave without any change in the repository. The
 run summary and the evals show the version used. The workflows set
-`DISABLE_AUTOUPDATER=1`, so it never updates during a run; to keep it from
-updating between runs too (when you use Claude Code on that machine
-yourself), and to upgrade deliberately:
+`DISABLE_AUTOUPDATER=1`, so it never updates during a run. Between runs,
+**anything else that runs that same Claude Code can update it** — above all
+your own sessions, when the runner uses the Claude Code you use yourself
+(e.g. one installed with npm under `~/.nvm`), and the build then stops with
+"the runner has Claude Code X, but AGENT_HUB_CLAUDE_CODE_VERSION pins Y". To
+keep it fixed and upgrade deliberately:
 
 1. Add `DISABLE_AUTOUPDATER=1` to the runner's `.env` file (in the runner's
-   install directory) and restart the runner service.
-2. To upgrade: run `claude update` on the runner, run the
+   install directory) and restart the runner service — that covers the
+   runner only.
+2. If you use Claude Code on that machine too, stop your own sessions
+   updating it: add `"env": {"DISABLE_AUTOUPDATER": "1"}` to
+   `~/.claude/settings.json` (or give the runner a Claude Code install of its
+   own — a dedicated runner user does both). Back to the pinned version if
+   it already updated: `npm i -g @anthropic-ai/claude-code@<pinned version>`
+   (for an npm install), then `claude --version`.
+3. To upgrade: run `claude update` on the runner, run the
    [sandbox check](#checking-the-sandbox), then **Agent hub: Evals** with stage
    **all**, and — for the build — set `AGENT_HUB_CLAUDE_CODE_VERSION` to the new
    version.
@@ -300,7 +310,8 @@ runner code:
   see a planted environment secret, edit `.github/`, or hard-link a file
   from outside the repository into it; they can write the
   repository and a temp folder (outside both the repository and the home
-  folder; the check shows which), and use localhost.
+  folder; the check shows which), use localhost, and run git (without the
+  home folder's `~/.gitconfig`, which they can't read).
 - **Review profile** (the build's code review and fix check, since 2.9.0): commands still
   run and can read the repository and write the temp folder, but nothing
   writes the repository — not a shell redirect, `touch` or a child process —
