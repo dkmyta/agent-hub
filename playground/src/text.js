@@ -24,3 +24,9 @@ export function truncate(text, maxLength) {
   let kept = space === -1 ? text.slice(0, maxLength - 1) : text.slice(0, space);
   return kept.trimEnd() + "…";
 }
+
+/** "hELLO wORLD" → "Hello World"; whitespace between words is kept as is. */
+export function titleCase(text) {
+  return text.replace(/\S+/g, (word) =>
+    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+}

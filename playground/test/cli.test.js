@@ -25,3 +25,8 @@ test("the CLI rejects a maxLength below 1", () => {
     assert.match(run.stderr, /Usage:.*truncate <maxLength>/s);
   }
 });
+
+test("the CLI title-cases text", () => {
+  assert.equal(execFileSync("node", [cli, "title-case", "hELLO", "wORLD"], { encoding: "utf8" }), "Hello World\n");
+  assert.equal(execFileSync("node", [cli, "title-case", "a  b"], { encoding: "utf8" }), "A  B\n");
+});
