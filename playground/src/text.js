@@ -14,7 +14,7 @@ export function wordCount(text) {
   return trimmed === "" ? 0 : trimmed.split(/\s+/).length;
 }
 
-/** Shortens text to at most maxLength characters, ending in "…", cutting at a space when possible. */
+/** Shortens text to at most maxLength characters, ending in "…", cutting at a space if any. */
 export function truncate(text, maxLength) {
   if (!Number.isInteger(maxLength) || maxLength < 1) {
     throw new RangeError("truncate: maxLength must be an integer of at least 1");
