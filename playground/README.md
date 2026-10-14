@@ -6,7 +6,9 @@ for the build to run and extend. It has no dependencies yet, declares its
 Node version in `.nvmrc`, and has a `package-lock.json`, so a plan can add
 npm packages to it: the build's dependency step applies them itself.
 
-- `src/text.js` — text helpers (`slugify`, `wordCount`, `truncate`, `titleCase`)
+- `src/text.js` — text helpers: `slugify` (URL-friendly slugs), `wordCount`,
+  `truncate` (shorten to a length, ending in "…") and `titleCase` (capitalise
+  each word)
 - `src/cli.js` — a command-line front end: `node src/cli.js slugify "Hello World"`
 - `test/` — the tests, run with `npm test` (Node's built-in test runner)
 
