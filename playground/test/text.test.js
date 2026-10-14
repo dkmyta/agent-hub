@@ -22,6 +22,9 @@ test("truncate cuts at the last space before the limit", () => {
   assert.equal(truncate("hello world", 8), "hello…");
   assert.ok(truncate("hello world foo", 12).length <= 12);
   assert.ok(truncate("hello world", 8).length <= 8);
+  assert.equal(truncate("hello world", 5), "hell…");
+  assert.equal(truncate("hello world foo", 11), "hello…");
+  assert.ok(truncate("hello world", 5).length <= 5);
 });
 
 test("truncate cuts mid-word when there is no space", () => {
