@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { slugify, truncate, wordCount } from "../src/text.js";
+import { slugify, titleCase, truncate, wordCount } from "../src/text.js";
 
 test("slugify lowercases and joins words with hyphens", () => {
   assert.equal(slugify("Hello, World!"), "hello-world");
@@ -40,4 +40,18 @@ test("truncate removes spaces before the ellipsis", () => {
 test("truncate throws when maxLength is below 1", () => {
   assert.throws(() => truncate("hello", 0), /maxLength must be/);
   assert.throws(() => truncate("hello", -1), /maxLength must be/);
+});
+
+test("titleCase upper-cases each word's first letter and lower-cases the rest", () => {
+  assert.equal(titleCase("hELLO wORLD"), "Hello World");
+  assert.equal(titleCase('"hi" 9LIVES'), '"hi" 9lives');
+});
+
+test("titleCase keeps whitespace between words exactly", () => {
+  assert.equal(titleCase("  one   two\tthree\nfour "), "  One   Two\tThree\nFour ");
+});
+
+test("titleCase returns empty or whitespace-only text unchanged", () => {
+  assert.equal(titleCase(""), "");
+  assert.equal(titleCase("   "), "   ");
 });

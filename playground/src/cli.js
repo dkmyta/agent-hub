@@ -1,7 +1,7 @@
 // node src/cli.js <command> <text> | truncate <maxLength> <text>
-import { slugify, truncate, wordCount } from "./text.js";
+import { slugify, titleCase, truncate, wordCount } from "./text.js";
 
-const commands = { slugify, "word-count": wordCount };
+const commands = { slugify, "word-count": wordCount, "title-case": titleCase };
 const [command, ...words] = process.argv.slice(2);
 
 function usage() {
