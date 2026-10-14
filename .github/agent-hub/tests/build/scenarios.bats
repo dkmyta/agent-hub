@@ -1024,13 +1024,18 @@ pushed_head_subject() { local remote; remote=$(git -C "$STEP_CWD" remote get-url
   assert_equal "$(jq -r '.review.head' "$RUNNER_TEMP/state.json")" "$(jq -r '.before' "$RUNNER_TEMP/fix.json")"
   run jq -c '[.items[] | {id, source, status}]' "$RUNNER_TEMP/state.json"
   assert_output '[{"id":"D1","source":"review","status":"open"},{"id":"D2","source":"review","status":"open"},{"id":"R1","source":"review","status":"fixed"},{"id":"R2","source":"review","status":"open"},{"id":"R3","source":"fix-check","status":"open"}]'
+  # The item names the commit that fixed it, on the pull request and the ticket.
+  local fixed_in
+  fixed_in=$(jq -r '.after' "$RUNNER_TEMP/fix.json")
+  assert_equal "$(jq -r '.items[] | select(.id == "R1") | .fixed_in' "$RUNNER_TEMP/state.json")" "$fixed_in"
   run jq -r 'select(.path | endswith("/pulls")) | .body.body' "$GH_CALLS"
-  assert_line --partial "- **R1** fixed by the fix pass (checked) — high correctness"
+  assert_line --partial "- **R1** fixed by the fix pass in ${fixed_in:0:7} (checked) — high correctness"
   assert_line --partial "- **R3** review item, raised by the fix check — low style"
   assert_output --partial "1 resolved, 0 not (still open below), and 1 new concern the fixes raised"
   assert_output --partial "Claude (build, review and fixes), via a logged-in Claude account (pro): \$4.41"
   run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
   assert_output --partial "R1 — fixed: src/greet.js trims the name before the check"
+  assert_output --partial "; fixed in ${fixed_in:0:7}, checked)"
   assert_output --partial "Check: resolved — src/greet.js trims first"
   assert_output --partial "R3 — Optional chaining is new to this file"
 }
@@ -1685,7 +1690,7 @@ ci_fix_run() { # [VAR=value...]: a run that finds the required check "test" fail
   assert_line "--- Outcome: blocked"
   assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" true
   run pr_comments
-  assert_output --partial "but 1 decision item still open"
+  assert_output --partial "but decision item D1 still open"
 }
 
 @test "CI gate: someone pushes while the hub reads CI — not handed off, nothing written" {
@@ -1845,6 +1850,9 @@ handed_off_pr() {
   run jira_comments
   assert_output --partial "✅ Done"
   assert_output --partial "was merged (abcdef0), at the head the hub handed off."
+  # The description's Pull Request section no longer reads as a draft.
+  run jq -r 'select(.method == "PUT" and .body.fields.description != null) | .body.fields.description | tostring' "$CALLS"
+  assert_output --partial '"text":" — merged (abcdef0), on '
 }
 
 @test "closed: merged with commits pushed after the hand-off — still Done, with a note" {
@@ -1882,6 +1890,8 @@ handed_off_pr() {
   run jira_comments
   assert_output --partial "🔒 Pull request closed"
   assert_output --partial "was closed without merging, so the ticket stays in Ready for Review"
+  run jq -r 'select(.method == "PUT" and .body.fields.description != null) | .body.fields.description | tostring' "$CALLS"
+  assert_output --partial '"text":" — closed without merging, on '
 }
 
 @test "closed: a ticket already Done, or a pull request open again — nothing" {
@@ -1957,7 +1967,7 @@ resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment
   # Not in the group.
   command_run "$(command_comments '/skip D1')" 'MOCK_GROUPS={}'
   run resolutions
-  assert_output --partial "not done: only members of agent-hub-approvers can change a build's items"
+  assert_output --partial "not done: Dana Lead isn't in agent-hub-approvers — only its members can change a build's items"
   assert_equal "$(jq -r '.items[0].status' <<< "$(pr_state)")" open
   # An approver's comment someone else edited into a command: not theirs.
   command_comments '/skip D1' > /dev/null
@@ -2022,6 +2032,8 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
   assert_equal "$(git --git-dir="$REMOTE" log -1 --format=%s "$(branch_head)")" "Apply the items an approver asked for"
   run jq -c --arg head "$(branch_head)" '{last: (.heads[-1] | {kind, verified: (.verified.head == $head), applied}), r1: ([.items[] | select(.id == "R1")][0].status)}' <<< "$(pr_state)"
   assert_output '{"last":{"kind":"fix","verified":true,"applied":{"comment":"700"}},"r1":"fixed"}'
+  # The item names the commit that fixed it.
+  assert_equal "$(jq -r '[.items[] | select(.id == "R1")][0].fixed_in' <<< "$(pr_state)")" "$(branch_head)"
   run resolutions
   assert_output --partial "/comment/700 ✅ Resolved — applied in"
   assert_output --partial "R1 fixed — src/greet.js trims the name"

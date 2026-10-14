@@ -44,8 +44,8 @@ handoff_problems() {
           | "commit \(.head[0:7]), after the last full review, isn'"'"'t a verified fix or a mechanical merge of the target by the hub, so the change needs reviewing again")
        end),
       (if (.review.status // "") == "incomplete" then "the automated review didn'"'"'t finish" else empty end),
-      ([.items[]? | select((.id | startswith("D")) and .status == "open")] | length
-        | if . > 0 then "\(.) decision item\(if . == 1 then "" else "s" end) still open" else empty end)'
+      ([.items[]? | select((.id | startswith("D")) and .status == "open") | .id]
+        | if length > 0 then "decision item\(if length == 1 then "" else "s" end) \(join(", ")) still open" else empty end)'
 }
 
 # _reconcile_ci <number> <head> <base>: the CI gate, on the head
@@ -217,7 +217,7 @@ _handoff() {
   problems=$(handoff_problems "$head" < "$RECONCILE_STATE")
   if [ -n "$problems" ]; then
     _ci_person green "the required checks passed on $(_short "$head"), but $(paste -sd ';' - <<< "$problems" | sed 's/;/; /g')" \
-      "resolve what's listed (the pull request's Items), or review it without the hub's hand-off"
+      "resolve what's listed (the pull request's Items; an approver's /skip with its id on the ticket accepts a decision once it's checked), or review it without the hub's hand-off"
   fi
   # Publication freshness: the same head, plan, approval and status, read
   # again just before anything is written.

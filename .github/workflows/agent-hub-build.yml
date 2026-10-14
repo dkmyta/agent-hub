@@ -1,5 +1,7 @@
 name: "Agent hub: Build"
-run-name: "Build: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}"
+# Runs the hub starts to follow a pull request say what woke them, so they
+# don't read as new builds.
+run-name: "Build: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}${{ inputs.wake == 'ci' && ' (CI gate)' || inputs.wake == 'closed' && ' (pull request closed)' || inputs.wake == 'command' && ' (ticket command)' || '' }}"
 
 # Stage 3 of the agent-hub pipeline. The tracker (the Jira "Build Requested"
 # rule, on the move to Implementation Plan Approved) starts it with

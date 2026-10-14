@@ -398,7 +398,7 @@ _reconcile_report() {
          elif ($r.findings | length) == 0 then [para($r.summary | sentence)]
          else [para("\($r.summary | sentence) The findings:"),
            bullets([$ritems[] | . as $i | ([$r.findings[] | select(.n == $i.finding)] | first) as $f
-             | [strong("\(.id) — \($f.title | unstop)"), text(" (\(.severity) \(.kind | gsub("-"; " "))\(if (.id | startswith("D")) then "; a decision" elif .status == "fixed" then "; fixed" elif .fix_eligible then "; fix-eligible, not fixed" else "" end))")]
+             | [strong("\(.id) — \($f.title | unstop)"), text(" (\(.severity) \(.kind | gsub("-"; " "))\(if (.id | startswith("D")) then "; a decision" elif .status == "fixed" then "; fixed\(if .fixed_in then " in \(.fixed_in[0:7]), checked" else "" end)" elif .fix_eligible then "; fix-eligible, not fixed" else "" end))")]
                + (if $f.file != "" then [text(" "), code(if $f.line then "\($f.file):\($f.line)" else $f.file end)] else [] end)
                + [text(". \($f.evidence | sentence)")]
                + (if ($f.suggestion // "") != "" then [text(" Suggested: \($f.suggestion | sentence)")] else [] end)])]

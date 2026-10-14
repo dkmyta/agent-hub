@@ -298,7 +298,7 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
   run jq ".cost_usd" <<< "$(ledger)"
   assert_output 2.5084
   run cat "$RUNNER_TEMP/summary.md"
-  assert_output --partial "**Ticket usage:** this run \$1.01; the ticket 3 of 10 runs and \$2.51 of \$60.00 since its caps last started."
+  assert_output --partial "**Ticket usage:** this run \$1.01 in total; the ticket 3 of 10 runs and \$2.51 of \$60.00 since its caps last started."
 }
 
 @test "caps: at either cap the run stops before Claude — labelled, a comment saying how to go on, nothing else changed" {

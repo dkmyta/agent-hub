@@ -47,7 +47,9 @@ def review_items($gates; $review; $fix):
        | .value.n as $n
        | {id: "R\(.key + 1)", source: "review", finding: $n, kind: .value.kind, severity: .value.severity, area: .value.area,
           fix_eligible: (.value.policy == "fix"),
-          status: (if any($kept.checks[]; .finding == $n and .verdict == "resolved") then "fixed" else "open" end)}]
+          status: (if any($kept.checks[]; .finding == $n and .verdict == "resolved") then "fixed" else "open" end)}
+       # The commit that fixed it, for people reading the item later.
+       | if .status == "fixed" then .fixed_in = $kept.after else . end]
     + [[$kept.new_concerns[] | select(.policy == "decision")] | to_entries[]
        | {id: "D\($gd + $rd + .key + 1)", source: "fix-check", concern: .value.n, kind: .value.kind, severity: .value.severity, area: .value.area, status: "open"}]
     + [[$kept.new_concerns[] | select(.policy != "decision")] | to_entries[]
@@ -96,7 +98,7 @@ def status_lines($s; $r; $x; $p; $publish; $what):
   section("Items for a person"; [$s.items[] | select(.status != "closed") | . as $i
     | (if .source == "review" then
         ([$r.findings[] | select(.n == $i.finding)] | first) as $f
-        | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" elif .status == "fixed" then "fixed by the fix pass (checked)" elif .fix_eligible then "review item, fix-eligible, not fixed" else "review item" end)
+        | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" elif .status == "fixed" then "fixed by the fix pass\(if .fixed_in then " in \(.fixed_in[0:7])" else "" end) (checked)" elif .fix_eligible then "review item, fix-eligible, not fixed" else "review item" end)
           + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
           + (if $publish then ": \($f.title | line)" + (if ($f.file // "") != "" then " (\($f.file | code)\(if $f.line then ":\($f.line)" else "" end))" else "" end)
              else " (details on the ticket)" end)

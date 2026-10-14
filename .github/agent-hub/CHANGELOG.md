@@ -5,6 +5,47 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.21.5 — 2026-10-14
+
+Fixes from the full manual test (AGENTHUB-59: every build path, from the
+first build to Done).
+
+- **The build's run summary shows the build pass on its own:** its table had
+  the document stages' review columns, so a build read "review $0" next to a
+  code review that cost more. The code review and fix keep their own lines,
+  and **Ticket usage** now says the run's total ("in total").
+- **Item status says where a fix is:** "fixed in 183e4c0, checked" on the
+  ticket, and "fixed by the fix pass in 183e4c0 (checked)" on the pull
+  request — for the fix pass and `/apply` alike.
+- **A refused item command names the account** ("Alexandra Doe isn't in
+  agent-hub-approvers"), so a comment posted while signed in as the service
+  account is obvious.
+- **"Not handed off" names the open decision items** ("decision item D1 still
+  open") and says an approver's `/skip` with its id accepts one.
+- **A closed or merged pull request updates the ticket's Pull Request
+  section** ("#72 — merged (abc1234), on …"), so it no longer reads as a draft.
+- **Runs the hub starts to follow a pull request are named for it:**
+  "Build: KEY (CI gate)", "(pull request closed)", "(ticket command)".
+- **The sandbox check runs git in the agent's commands** (`git status`,
+  `git diff`), so a git that can't work in the sandbox shows up there. (The
+  test's build reported git failing on `~/.gitconfig`; the next check says
+  why.)
+- **Docs:** the Claude Code version can still change between runs when you
+  use Claude Code on the runner's machine yourself — stop that too
+  (runners.md); the CI sweep's schedule runs far less often than every 10
+  minutes in practice, and how to run it by hand (build.md); the Build
+  Command rule gets the approvers user condition (jira.md); the build token
+  must not have the Workflows permission (setup.md, production checklist).
+
+**Updating:**
+1. **Jira:** add the *User condition* to the **Build Command** rule — the
+   initiator is in `agent-hub-approvers` ([jira.md](docs/jira.md#rule-build-command)).
+2. **If you use Claude Code on the runner's machine yourself:** add
+   `"env": {"DISABLE_AUTOUPDATER": "1"}` to `~/.claude/settings.json`
+   ([runners.md](docs/runners.md#claude-code-version)).
+3. **Optional:** run **Agent hub: Sandbox check** (uses Claude, about $0.30)
+   for the new git probe.
+
 ## 2.21.4 — 2026-10-14
 
 From the full manual test's first build: the build's automated review never

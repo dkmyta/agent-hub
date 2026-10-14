@@ -303,7 +303,7 @@ stage_record_usage() {
   fi
   jq -r -L "$HUB_DIR/lib" --argjson usage "$usage" --argjson max_runs "$TICKET_MAX_RUNS" --arg max_cost "$TICKET_MAX_COST_USD" 'include "adf";
     ($max_cost | tonumber) as $max_cost |
-    "**Ticket usage:** this run \($usage.cost | usd)\(if $usage.estimated then " (estimated: a pass had no report)" else "" end); the ticket \(.runs - (.lifted_runs // 0)) of \($max_runs) runs and \((.cost_usd - (.lifted_cost_usd // 0)) | usd) of \($max_cost | usd) since its caps last started."' \
+    "**Ticket usage:** this run \($usage.cost | usd) in total\(if $usage.estimated then " (estimated: a pass had no report)" else "" end); the ticket \(.runs - (.lifted_runs // 0)) of \($max_runs) runs and \((.cost_usd - (.lifted_cost_usd // 0)) | usd) of \($max_cost | usd) since its caps last started."' \
     <<< "$ledger" | tee -a "$GITHUB_STEP_SUMMARY"
 }
 

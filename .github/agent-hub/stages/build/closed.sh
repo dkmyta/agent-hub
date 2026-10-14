@@ -30,6 +30,7 @@ build_closed() {
   [ "$(jq -r '.state' <<< "$pr")" = closed ] || _closed_end "no change needed" "pull request #$number is open again"
 
   if [ "$(jq -r '.merged_at != null' <<< "$pr")" != true ]; then
+    _closed_delivery "$number" "closed without merging, on $(date -u +%Y-%m-%d); the testing steps below were for it"
     _closed_person "$number" "🔒 Pull request closed" \
       "#$number was closed without merging, so the ticket stays in $(stage_start_status). To build the plan again, delete $branch and approve the plan again; to drop it, move the ticket out of the pipeline." \
       "closed without merging"
@@ -50,6 +51,7 @@ build_closed() {
       "merged without the hub's hand-off"
   fi
 
+  _closed_delivery "$number" "merged$(jq -r '.merge_commit_sha // "" | if . != "" then " (\(.[0:7]))" else "" end' <<< "$pr"), on $(date -u +%Y-%m-%d)"
   stage_move "$(stage_transition_id "$DONE_STATUS")" "$DONE_STATUS"
   tracker_labels "-$NEEDS_HUMAN_LABEL" > /dev/null
   jq -n -L "$HUB_DIR/lib" --arg number "$number" --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$number" \
@@ -61,6 +63,23 @@ build_closed() {
       link("Run details"; $run)])])' | tracker_comment > /dev/null
   echo "[$TICKET_KEY]($TICKET_URL): pull request #$number merged — ticket moved to $DONE_STATUS." >> "$GITHUB_STEP_SUMMARY"
   stage_outcome "done"
+}
+
+# _closed_delivery <number> <what happened>: the description's Pull Request
+# section (written by the build: "#N — a draft on …") says what became of
+# the pull request, so the ticket doesn't still read as a draft. Only its
+# first line changes; a description without the section, or an update the
+# tracker refuses, is left as it is — never fails the run.
+_closed_delivery() {
+  local updated
+  updated=$(tracker_issue description | jq -c -L "$HUB_DIR/lib" --arg number "$1" --arg what "$2" \
+      --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$1" 'include "adf";
+    .fields.description | section_index("Pull Request") as $i
+    | if $i == null or (.content[$i + 1].type // "") != "paragraph" then error("no Pull Request section")
+      else .content[$i + 1] = para([link("#\($number)"; $url), text(" — \($what).")]) end' 2> /dev/null) \
+    || { echo "::warning::The description has no Pull Request section to update."; return 0; }
+  tracker_set_description <<< "$updated" > /dev/null \
+    || echo "::warning::$TRACKER_NAME didn't take the Pull Request section's update."
 }
 
 # _closed_person <number> <title> <text> <summary>: the ticket isn't moved;

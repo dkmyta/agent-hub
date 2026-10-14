@@ -128,7 +128,7 @@ _command_handle() {
     _command_reply "$id" "not done: the hub couldn't check that the commenter is in $APPROVERS_GROUP"; return
   fi
   grep -qxF -- "$APPROVERS_GROUP" "$RUNNER_TEMP/command-groups" \
-    || { _command_reply "$id" "not done: only members of $APPROVERS_GROUP can change a build's items"; return; }
+    || { _command_reply "$id" "not done: $name isn't in $APPROVERS_GROUP — only its members can change a build's items"; return; }
   if [ "$verb" = /apply ]; then
     _apply_request "$cmd" "$number" "$pr" "$ids"; return
   fi
@@ -357,7 +357,7 @@ apply_fix_apply() {
         | del(.ci) | del(.handoff)
       else . end
     | ([$results[0][] | select(.applied and .item) | .item]) as $fixed
-    | .items |= map(if (.id | IN($fixed[])) then .status = "fixed" | .by_command = $req.comment | .at = $at else . end)' \
+    | .items |= map(if (.id | IN($fixed[])) then .status = "fixed" | .fixed_in = $after | .by_command = $req.comment | .at = $at else . end)' \
     "$RECONCILE_STATE" > "$RUNNER_TEMP/state.json"
   local record
   record=$(_review_record "$RECONCILE_STATE")

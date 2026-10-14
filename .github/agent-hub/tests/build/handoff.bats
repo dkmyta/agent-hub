@@ -68,7 +68,7 @@ problems() { handoff_problems "$1" <<< "$2"; }
 
 @test "hand-off: an unfinished review or an open decision item blocks it; closed ones and review items don't" {
   run problems bbbbbbb1 "$(record '[]' '[{"id": "D1", "status": "open"}, {"id": "D2", "status": "closed"}, {"id": "R1", "status": "open"}]')"
-  assert_output "1 decision item still open"
+  assert_output "decision item D1 still open"
   run problems bbbbbbb1 "$(record | jq -c '.review.status = "incomplete"')"
   assert_output "the automated review didn't finish"
 }

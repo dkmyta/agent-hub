@@ -597,7 +597,12 @@ Since 2.13.0 (`stages/build/handoff.sh`, `lib/ci.sh`,
   (120) — and whose result the build hasn't handled yet. It leaves alone a
   paused or superseded pull request, and one with commits the hub hasn't
   recorded (a person pushed: a run they start re-checks it). Events can make
-  it faster after v1.
+  it faster after v1. **In practice the schedule is slower than it says:**
+  GitHub starts schedules this frequent late, or skips them, under load (in
+  the 2.21 manual test, runs came hours apart), and a run that waits for an
+  offline self-hosted runner is cancelled by the next. To hand a pull request
+  off now, run **Actions → Agent hub: CI sweep → Run workflow** by hand once
+  its checks have finished.
 - **A run the sweep requested does only the CI gate.** Anything else it
   finds — an untrusted record, a newer plan, people's commits — is for a run
   a person starts, so it ends quietly (the reason in the run summary only),
