@@ -5,6 +5,23 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.21.4 — 2026-10-14
+
+From the full manual test's first build: the build's automated review never
+ran in a repository whose code has dependencies to install. The review's
+clean copy of the commit installs them in the sandbox, but the review (and
+fix) steps didn't load it, so the review stopped at once and every such
+build went to a person unreviewed, saying "sandbox_run: command not found".
+
+- **The agent steps of a code stage now load the sandbox too**, so the
+  review's and the fix check's clean copies install their dependencies as
+  the verify step's do: in the sandbox, with the registries only and no
+  secrets.
+- **The install scenario now covers the review's copy**, so a review that
+  can't install fails the tests.
+
+**Updating:** Nothing.
+
 ## 2.21.3 — 2026-10-13
 
 From the first run of the full manual test: a Jira API token made on a

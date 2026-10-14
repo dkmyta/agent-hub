@@ -3,7 +3,7 @@
 # Loads everything a step of the shared stage workflow needs: the settings
 # (repository variables and defaults), the tracker (`tracker`, for steps that
 # read or write the ticket; with GitHub for a code stage), the agent runner
-# (`agent`, for the agent step) or the sandbox (`sandbox`, for a code stage's
+# (`agent`, for the agent steps; with the sandbox for a code stage) or the sandbox (`sandbox`, for a code stage's
 # steps that run the repository's code without an agent: no tracker, no
 # GitHub), then the shared stage library and the stage's own steps.
 #
@@ -38,7 +38,11 @@ case "$1" in
       source "$HUB_DIR/lib/state.sh"
       source "$HUB_DIR/lib/ci.sh"
     fi ;;
-  agent) source "$HUB_DIR/lib/runners/$AGENT_RUNNER.sh" ;;
+  agent)
+    source "$HUB_DIR/lib/runners/$AGENT_RUNNER.sh"
+    # A code stage's review and fix work in a clean copy of the commit, with
+    # its dependencies installed in the sandbox (build_clean_copy).
+    if [ "${CODE_STAGE:-false}" = true ]; then source "$HUB_DIR/lib/sandbox/sandbox.sh"; fi ;;
   sandbox) source "$HUB_DIR/lib/sandbox/sandbox.sh" ;;
   *) echo "::error::lib/load.sh: unknown part '$1' (tracker, agent or sandbox)"; exit 1 ;;
 esac
