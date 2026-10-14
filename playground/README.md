@@ -11,7 +11,8 @@ npm packages to it: the build's dependency step applies them itself.
 - `test/` — the tests, run with `npm test` (Node's built-in test runner)
 
 Its CI is `.github/workflows/playground-tests.yml`, which runs the tests on
-pull requests that change this folder, with the Node version in `.nvmrc`.
+every pull request, with the Node version in `.nvmrc`, and checks that lines
+in `src/` are at most 100 characters — a check only CI runs.
 The build runs them too, on every build's commit, before anything is pushed:
 the repository declares them in
 `.github/agent-hub-extensions/build/checks.json`, since this project is in a
