@@ -5,6 +5,36 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.24.0 — 2026-10-15
+
+v1, the testing approach (part two): a repeatable live-test procedure, and
+where an install came from.
+
+- **Live tests are a written procedure** (`tools/live-tests/` in the hub's
+  repository, outside `.github/agent-hub/`, so never installed): three
+  journeys — planning and revision, from document to delivery, and people's
+  commits with `/skip`, two queued `/apply` and a moving target ending in a
+  conflict — each with what to have ready, steps, what to check after each,
+  what mocks already cover, and an estimated cost; reviewed ticket and
+  planted-change fixtures; and an evidence template (passed, failed,
+  waiting, blocked or inconclusive, with run ids and commits). The journeys
+  are in tracker-neutral terms; `trackers/jira.md` maps them to Jira,
+  including how to route test tickets to a separate test repository. A new
+  tracker adds its own file and runs the same journeys. No script there
+  uses Claude, and ticket content stays out of the repository.
+- **`update.sh` records where an install came from**:
+  `.github/agent-hub/.installed-from` — the version, and the hub copy's
+  commit and tag when the copy is a git clone (`unknown` and `none`
+  otherwise; the commit is marked when the copy had uncommitted changes).
+  `update.sh --check` prints them. Not part of the checksum record, and no
+  date, so an update to the same commit changes nothing.
+- **Architecture:** the repository a run executes in is today the one it
+  changes; new code keeps the two apart (`docs/architecture.md`,
+  Structure).
+
+**Updating:** Nothing. The next update writes `.installed-from`; commit it
+with the rest.
+
 ## 2.23.0 — 2026-10-15
 
 v1, the testing approach (part one), as reviewed: an installed hub's CI is

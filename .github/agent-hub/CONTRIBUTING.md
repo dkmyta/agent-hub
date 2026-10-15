@@ -85,6 +85,9 @@ A change to a stage, prompt, schema, workflow or shared library is done when:
    cases as agents change, but add one only for a decision the existing cases
    don't cover — evals cost time and Claude usage, so keep them to the most
    important checks. See [docs/evals.md](docs/evals.md).
+   For a change to how the hub talks to a tracker, GitHub or the runner,
+   also run the live-test journeys it touches (in the hub's own repository:
+   `tools/live-tests/`, not installed with the hub).
 5. **Docs are updated**: the workflow's page in `docs/workflows/` — how it
    runs (trigger to ticket), what it produces, reverse paths, configuration,
    constraints, edge cases, known gaps, and the steps to test it in the tracker — plus `docs/jira.md` /

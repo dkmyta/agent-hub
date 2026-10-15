@@ -182,7 +182,8 @@ install() { "$UPDATE" "$HUB_COPY" "$@" && git add -A && git commit -qm "install 
   install
   run "$H/scripts/update.sh" --check
   assert_success
-  assert_output "The hub's files are unchanged since installation ($(cat "$HUB_DIR/VERSION"); $(wc -l < $H/.installed | tr -d ' ') files)."
+  assert_line "The hub's files are unchanged since installation ($(cat "$HUB_DIR/VERSION"); $(wc -l < $H/.installed | tr -d ' ') files)."
+  assert_line "Installed from: commit: unknown tag: none"
   # Test dependencies installed beside it aren't the hub's.
   mkdir -p $H/tests/node_modules/x && echo x > $H/tests/node_modules/x/index.js
   run "$H/scripts/update.sh" --check
@@ -217,4 +218,37 @@ install() { "$UPDATE" "$HUB_COPY" "$@" && git add -A && git commit -qm "install 
   # --check takes nothing else.
   run "$H/scripts/update.sh" --check "$HUB_COPY"
   assert_failure 2
+}
+
+# v1: where the install came from — the version, and the hub copy's commit
+# and tag when it's a git clone; never part of the checksum record.
+@test "the install records where it came from: the hub copy's version, commit and tag; unknown when the copy isn't a git clone" {
+  run "$UPDATE" "$HUB_COPY"
+  assert_success
+  run cat $H/.installed-from
+  assert_line "version: $(cat "$HUB_DIR/VERSION")"
+  assert_line "commit: unknown"
+  assert_line "tag: none"
+  run grep -c installed-from $H/.installed
+  assert_output 0
+  git add -A && git commit -qm "install the hub"
+  # A clone at a tag: its commit and tag.
+  local clone="$BATS_TEST_TMPDIR/clone"
+  cp -R "$HUB_COPY" "$clone"
+  git -C "$clone" init -q -b main && git -C "$clone" add -A
+  git -C "$clone" -c user.email=t@example.com -c user.name=t commit -qm release
+  git -C "$clone" tag v9.9.9
+  "$UPDATE" "$clone" > /dev/null
+  run cat $H/.installed-from
+  assert_line "commit: $(git -C "$clone" rev-parse HEAD)"
+  assert_line "tag: v9.9.9"
+  git add -A && git commit -qm "update the hub"
+  run "$H/scripts/update.sh" --check
+  assert_success
+  assert_line "Installed from: commit: $(git -C "$clone" rev-parse HEAD) tag: v9.9.9"
+  # A clone with uncommitted changes: marked, and not at its tag's content.
+  echo "# local" >> "$clone/.github/agent-hub/README.md"
+  "$UPDATE" "$clone" > /dev/null
+  run cat $H/.installed-from
+  assert_line "commit: $(git -C "$clone" rev-parse HEAD) (with uncommitted changes)"
 }
