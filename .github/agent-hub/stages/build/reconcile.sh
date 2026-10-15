@@ -323,7 +323,10 @@ reconcile_apply() {
     | (now | todate) as $at
     | $p + {generation: $g, hub_version: $version, superseded: null,
         heads: ($p.heads
-          + (if $c.people_commits > 0 then [{generation: $g, head: $c.start_head, by: "people", kind: "people", at: $at}] else [] end)
+          # People'"'"'s commits, verified on exactly their head when that'"'"'s what the
+          # checks ran on (no merge of the target since: then the merge is).
+          + (if $c.people_commits > 0 then [{generation: $g, head: $c.start_head, by: "people", kind: "people", at: $at}
+               + (if $c.sync then {} else {verified: {head: $c.start_head, by: "verify"}} end)] else [] end)
           + (if $c.sync then [{generation: $g, head: $c.sync.head, hub_version: $version, by: "hub", kind: "sync",
                sync: {target: $c.target, target_head: $c.sync.target_head, drift: $c.sync.drift},
                verified: {head: $c.sync.head, by: "verify"}, at: $at}] else [] end)

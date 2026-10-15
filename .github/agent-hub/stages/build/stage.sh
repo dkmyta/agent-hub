@@ -288,8 +288,18 @@ _approval_problem() {
   # account, with everything before them exactly as it was. Any other change
   # — the work order or the plan's summary, by a person or the automation —
   # needs approving again.
+  # Jira's history gives the description as wiki markup, the Delivery
+  # headings as whole lines ("h4. Testing Instructions"). The approved part
+  # is everything before that heading — only when it's there exactly once
+  # and only the Pull Request heading follows it; anything else (the phrase
+  # in prose or an example, a repeated, missing or moved heading) can't show
+  # the approved part is unchanged, so the approval needs giving again.
   if jq -e --arg name "$PLAN_FILE_NAME" --arg automation "$AUTOMATION_ACCOUNT" '
-       def approved_part: (.  // "") as $t | ($t | index("Testing Instructions")) as $i | if $i == null then null else $t[:$i] end;
+       def approved_part: (. // "") as $t
+         | [$t | match("(?:^|\n)h4\\. Testing Instructions[ \\t]*(?:\n|$)"; "g")] as $m
+         | if ($m | length) != 1 then null
+           else ($t[$m[0].offset + $m[0].length:] | [match("(?:^|\n)h[1-6]\\. ([^\n]*)"; "g") | .captures[0].string | sub("\\s+$"; "")]) as $after
+             | if ($after - ["Pull Request"]) == [] then $t[:$m[0].offset] else null end end;
        def delivery_only: (.fromString | approved_part) as $f | (.toString | approved_part) as $t | $f != null and $f == $t;
        any(.history.changes[];
          (.kind == "attachment" and .file == $name)
