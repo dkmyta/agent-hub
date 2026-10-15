@@ -17,7 +17,9 @@ has exported — so a test can never reach a real Claude login.
 
 ```sh
 npm ci --prefix .github/agent-hub/tests --ignore-scripts  # once
-npm test --prefix .github/agent-hub/tests                # everything (about 8–10 minutes in parallel)
+npm run affected --prefix .github/agent-hub/tests        # only the suites your changes can affect (while working)
+npm test --prefix .github/agent-hub/tests                # everything (about 10 minutes in parallel) — once before pushing
+npm run smoke --prefix .github/agent-hub/tests           # the consumer contract checks an installed hub's CI runs
 npx --prefix .github/agent-hub/tests bats .github/agent-hub/tests/shared   # one folder or file
 npm run update-snapshots --prefix .github/agent-hub/tests
 ```
@@ -30,6 +32,26 @@ that changes the hub, on jq 1.7 and 1.8 (both on GitHub-hosted Ubuntu),
 and the stages' scenarios again on macOS with its own Bash 3.2 (what a
 self-hosted Mac runner has unless a newer Bash is installed) — on `main`,
 the whole suite there.
+
+**CI is the merge gate** (since 2.23.0): the whole suite runs on every pull
+request that changes the hub, on Linux (two jq versions) and on macOS with
+its own Bash 3.2. While working, run only what your changes can affect
+(`npm run affected`); a full local run is for troubleshooting.
+
+**In a repository the hub is installed in** (it has `update.sh`'s record,
+`.github/agent-hub/.installed`), CI runs one inexpensive job instead, since
+the hub was tested where it's released: `update.sh --check` (the hub's
+files **unchanged since installation** — none edited, deleted or added,
+against the record update.sh wrote; not proof of where they came from), then
+the **consumer contract checks** (`npm run smoke`): the workflows' shape, the
+repository's extensions (including `checks.json`'s checks and install list)
+and its settings' contracts. They don't check the repository's real
+variables, permissions, Jira or runner — that's the setup checker's job. The
+**Agent hub: Test** check reports the same way, so it can stay required.
+
+**What the suite calls:** no live Jira, GitHub or model calls (those are
+mocked, and Claude is a stand-in). It isn't fully offline: some tests use
+the real sandbox and the npm registry, on purpose.
 
 ## Layout
 

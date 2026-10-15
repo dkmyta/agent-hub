@@ -2,16 +2,17 @@ name: "Agent hub: Tests"
 
 # The agent hub's own checks: the same checks as its local hooks
 # (.github/agent-hub/.pre-commit-config.yaml), which contributors can skip,
-# plus its test suite on both jq versions, and the stages' scenarios on macOS
-# with its own Bash 3.2 (on main, the whole suite). In a repository that has the hub
-# copied in, they only run when a pull request changes hub files
-# (.github/agent-hub/, .github/workflows/agent-hub-*,
-# .github/ISSUE_TEMPLATE/agent-hub-*) or the repository's extensions
-# (.github/agent-hub-extensions/, checked by the tests); the two result checks
-# below always report, so they can be required without blocking pull requests
-# that don't touch the hub. Runs on GitHub-hosted runners with no tracker,
-# Claude or self-hosted runner involved, so it's safe for pull requests from
-# forks. See .github/agent-hub/CONTRIBUTING.md.
+# plus — CI being the merge gate — its whole test suite on both jq versions
+# and on macOS with its own Bash 3.2. In a repository that has the hub
+# installed (update.sh's record), one inexpensive job instead: the hub's
+# files unchanged since installation, then the consumer contract checks. They
+# only run when a pull request changes hub files (.github/agent-hub/,
+# .github/workflows/agent-hub-*, .github/ISSUE_TEMPLATE/agent-hub-*) or the
+# repository's extensions (.github/agent-hub-extensions/); the two result
+# checks below always report, so they can be required without blocking pull
+# requests that don't touch the hub. Runs on GitHub-hosted runners with no
+# tracker, Claude or self-hosted runner involved, so it's safe for pull
+# requests from forks. See .github/agent-hub/CONTRIBUTING.md.
 
 on:
   pull_request:
@@ -35,6 +36,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       hub: ${{ steps.check.outputs.hub }}
+      installed: ${{ steps.check.outputs.installed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,6 +52,9 @@ jobs:
             echo "hub=false" >> "$GITHUB_OUTPUT"
             echo "No agent-hub files changed: its checks are skipped."
           fi
+          # A repository the hub is installed in (update.sh's record): the hub
+          # was tested where it's released, so only the smoke tests run here.
+          if [ -f .github/agent-hub/.installed ]; then echo "installed=true"; else echo "installed=false"; fi >> "$GITHUB_OUTPUT"
 
   lint:
     name: Lint
@@ -120,7 +125,8 @@ jobs:
   test:
     name: Test (jq ${{ matrix.jq }})
     needs: changes
-    if: needs.changes.outputs.hub == 'true'
+    # The hub's own repository (an installed copy runs the contract checks below).
+    if: needs.changes.outputs.hub == 'true' && needs.changes.outputs.installed != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -174,7 +180,44 @@ jobs:
       # --ignore-scripts: none of the test dependencies need install scripts.
       - run: npm ci --prefix .github/agent-hub/tests --ignore-scripts
 
-      - run: npm test --prefix .github/agent-hub/tests
+      - name: Whole suite
+        run: npm test --prefix .github/agent-hub/tests
+
+  # A repository the hub is installed in (update.sh's record): the hub was
+  # tested where it's released, so here only what this repository can change
+  # is checked — one inexpensive job. First, before installing anything, the
+  # hub's files unchanged since installation (none edited, deleted or added:
+  # update.sh's own check against its record — not proof of where they came
+  # from); then the consumer contract checks: the workflows' shape, the
+  # repository's extensions and its settings' contracts. Not its real
+  # variables, permissions or Jira: the setup checker's job.
+  contract:
+    name: Consumer contract checks
+    needs: changes
+    if: needs.changes.outputs.hub == 'true' && needs.changes.outputs.installed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: The hub's files, unchanged since installation
+        run: .github/agent-hub/scripts/update.sh --check
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .github/agent-hub/tests/package-lock.json
+
+      - run: npm ci --prefix .github/agent-hub/tests --ignore-scripts
+
+      # One at a time (no GNU parallel to install), with the runner's own jq.
+      - name: Consumer contract checks
+        env:
+          AGENT_HUB_TEST_JOBS: "1"
+        run: npm run smoke --prefix .github/agent-hub/tests
 
   # A self-hosted Mac runner has macOS's own Bash 3.2 unless someone installs
   # a newer one, so every stage's scenarios — the most shell code — also run
@@ -183,7 +226,8 @@ jobs:
   test-macos:
     name: Test (macOS, Bash 3.2)
     needs: changes
-    if: needs.changes.outputs.hub == 'true'
+    # Not in a repository the hub is installed in (its contract checks run above).
+    if: needs.changes.outputs.hub == 'true' && needs.changes.outputs.installed != 'true'
     runs-on: macos-latest
     timeout-minutes: 60
     # A language other than C, as on people's machines: the suite mustn't
@@ -217,15 +261,9 @@ jobs:
 
       - run: npm ci --prefix .github/agent-hub/tests --ignore-scripts
 
-      - name: Stage scenarios
-        if: github.event_name == 'pull_request'
-        working-directory: .github/agent-hub/tests
-        run: lib/run-tests.sh --timing work-order/scenarios.bats implementation-plan/scenarios.bats build/scenarios.bats shared/stage-workflow.bats
-
-      # On main, the whole suite: the unit tests under Bash 3.2 and macOS's
-      # tools too.
+      # The whole suite, on pull requests too: CI is the merge gate (locally,
+      # contributors run only what their changes affect — npm run affected).
       - name: Whole suite
-        if: github.event_name != 'pull_request'
         working-directory: .github/agent-hub/tests
         run: npm test
 
@@ -249,16 +287,25 @@ jobs:
   test-result:
     name: "Agent hub: Test"
     if: always()
-    needs: [changes, test, test-macos]
+    needs: [changes, test, test-macos, contract]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - env:
           RESULT: ${{ needs.test.result }}
           MACOS: ${{ needs.test-macos.result }}
+          CONTRACT: ${{ needs.contract.result }}
           HUB: ${{ needs.changes.outputs.hub }}
+          INSTALLED: ${{ needs.changes.outputs.installed }}
+        # Hub unchanged: everything skipped. Changed, in the hub's own
+        # repository: the test matrix and macOS passed. Changed, in an
+        # installed copy: the contract checks passed. Anything else —
+        # including a changes job that didn't say — fails.
         run: |
-          echo "Test matrix: $RESULT; macOS: $MACOS (hub changed: $HUB)"
-          for result in "$RESULT" "$MACOS"; do
-            [ "$result" = success ] || { [ "$result" = skipped ] && [ "$HUB" = false ]; } || exit 1
-          done
+          echo "Test matrix: $RESULT; macOS: $MACOS; contract checks: $CONTRACT (hub changed: $HUB; installed copy: $INSTALLED)"
+          case "$HUB/$INSTALLED" in
+            false/*) [ "$RESULT" = skipped ] && [ "$MACOS" = skipped ] && [ "$CONTRACT" = skipped ] ;;
+            true/true) [ "$CONTRACT" = success ] && [ "$RESULT" = skipped ] && [ "$MACOS" = skipped ] ;;
+            true/false) [ "$RESULT" = success ] && [ "$MACOS" = success ] && [ "$CONTRACT" = skipped ] ;;
+            *) false ;;
+          esac

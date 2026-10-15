@@ -175,3 +175,46 @@ install() { "$UPDATE" "$HUB_COPY" "$@" && git add -A && git commit -qm "install 
   run grep -m1 '^## ' "$HUB_DIR/CHANGELOG.md"
   assert_output --regexp "^## $(sed 's/\./\\./g' "$HUB_DIR/VERSION") — [0-9]{4}-[0-9]{2}-[0-9]{2}$"
 }
+
+# v1: an installed hub's CI checks its files with --check — the installer's
+# own detection, against its record.
+@test "--check: the installed hub unchanged since installation; an edited, deleted or added hub file, a missing or malformed record, each fail by name" {
+  install
+  run "$H/scripts/update.sh" --check
+  assert_success
+  assert_output "The hub's files are unchanged since installation ($(cat "$HUB_DIR/VERSION"); $(wc -l < $H/.installed | tr -d ' ') files)."
+  # Test dependencies installed beside it aren't the hub's.
+  mkdir -p $H/tests/node_modules/x && echo x > $H/tests/node_modules/x/index.js
+  run "$H/scripts/update.sh" --check
+  assert_success
+  # Edited, deleted, added: named.
+  echo "# edited" >> $H/lib/settings.sh
+  rm $H/docs/setup.md
+  echo extra > $H/lib/extra.sh
+  echo "name: mine" > .github/workflows/agent-hub-mine.yml
+  run "$H/scripts/update.sh" --check
+  assert_failure
+  assert_line "$H/lib/settings.sh"
+  assert_line "$H/docs/setup.md (deleted)"
+  assert_line "$H/lib/extra.sh (added)"
+  assert_line ".github/workflows/agent-hub-mine.yml (added)"
+  assert_output --partial "the installed hub doesn't match its install record"
+  # The repository's own files are never the hub's.
+  git checkout -q -- . && git clean -qfd -- $H .github/workflows
+  echo "name: other" > .github/workflows/other.yml
+  echo "More guidance." >> .github/agent-hub-extensions/work-order/guidance.md
+  run "$H/scripts/update.sh" --check
+  assert_success
+  # No record, or one this script didn't write.
+  echo "not a record" > $H/.installed
+  run "$H/scripts/update.sh" --check
+  assert_failure
+  assert_output --partial "isn't one this script wrote"
+  rm $H/.installed
+  run "$H/scripts/update.sh" --check
+  assert_failure
+  assert_output --partial "no install record"
+  # --check takes nothing else.
+  run "$H/scripts/update.sh" --check "$HUB_COPY"
+  assert_failure 2
+}
