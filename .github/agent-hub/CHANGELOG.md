@@ -15,12 +15,16 @@ resolution, commands from people's accounts).
   "(draft …, review …)" for the document stages — written at the end of the
   run, when the build's code review and fix are known too. The summary
   tables no longer have a cost column.
-- **git works in the build agent's commands:** `GIT_CONFIG_GLOBAL` and
-  `GIT_CONFIG_NOSYSTEM` are now also in the agent's Claude Code settings,
-  where its commands get them (the test's build had to work around
-  `~/.gitconfig` for `git diff main`). The sandbox check's git probe now runs
-  what a build runs (`git diff --name-only main` on a repository with a
-  `main`), fails on any git warning, and shows what the agent's shell sees.
+- **git works in the agent's commands (build and review):** every git
+  command stopped on `~/.gitconfig`, which the sandbox rightly hides —
+  Claude Code's sandbox drops `GIT_CONFIG_GLOBAL` from the commands'
+  environment, so setting it never reached them. A small `git` first on the
+  commands' `PATH` (in the sandbox's temp folder) now sets
+  `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1` itself and runs
+  the runner's git. The sandbox check's git probe now runs what a build runs
+  (`git status`, `git diff --name-only main`, `git log` on a repository with
+  a `main`), fails on any git warning, and shows what the agent's shell sees
+  — which is how this was found.
 - **A command's answer is never lost:** if the tracker won't let the hub mark
   a person's command comment as handled, the answer is posted as a comment of
   its own ("✅ Answered — …"), and the command is kept as handled on the

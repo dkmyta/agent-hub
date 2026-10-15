@@ -38,10 +38,13 @@ claude_step() { # [jq edit to apply to the ready fixture]
   run jq -r '.sandbox | [.enabled, .failIfUnavailable, .allowUnsandboxedCommands] | join(" ")' \
     <<< "$(sed -n '/^--settings$/{n;p;}' "$RUNNER_TEMP/claude-args.txt")"
   assert_output "true true false"
-  # git in the commands without the home folder's or the system's config.
-  run jq -r '.env | "\(.GIT_CONFIG_GLOBAL) \(.GIT_CONFIG_NOSYSTEM)"' \
-    <<< "$(sed -n '/^--settings$/{n;p;}' "$RUNNER_TEMP/claude-args.txt")"
-  assert_output "/dev/null 1"
+  # git in the commands without the home folder's or the system's config: a
+  # git first on their PATH that sets it (the sandbox drops GIT_* variables).
+  local bin
+  bin=$(jq -r '.env.PATH | split(":")[0]' <<< "$(sed -n '/^--settings$/{n;p;}' "$RUNNER_TEMP/claude-args.txt")")
+  assert_equal "$bin" "$RUNNER_TEMP/agent-tmp/bin"
+  run cat "$bin/git"
+  assert_output --partial "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 exec "
   [ ! -e "$RUNNER_TEMP/claude-review-args.txt" ] || fail "the build ran a review pass"
   # The summary is this pass alone: no review columns to read as $0.
   run cat "$RUNNER_TEMP/summary.md"

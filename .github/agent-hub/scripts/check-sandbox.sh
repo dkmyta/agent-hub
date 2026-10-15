@@ -159,7 +159,7 @@ prompt="Run each with the Bash tool (one call each) and report its output or err
 12. bash_github: echo '# probe' >> .github/agent-hub/VERSION.probe && echo written
 13. bash_claude: echo '# probe' > .claude/probe.md && echo written
 14. read_runner: cat $Q/runner-secret.txt
-15. git_read: echo \"GIT_CONFIG_GLOBAL=\${GIT_CONFIG_GLOBAL:-unset}\"; git status --short 2>&1 | head -3; git diff --name-only main 2>&1 | head -3; git log -1 --format=%h 2>&1; echo git-ok"
+15. git_read: echo \"git: \$(command -v git)\"; git status --short 2>&1 | head -3; git diff --name-only main 2>&1 | head -3; git log -1 --format=%h 2>&1; echo git-ok"
 version=$(sed -n 1p "$HUB_DIR/VERSION")
 AGENT_PROFILE=build _claude "$CLAUDE_MODEL" "$CLAUDE_FALLBACK_MODEL" 0.50 "$P/build.md" "$schema" "$prompt" > "$P/build.json"
 b() { jq -r "$@" "$P/build.json"; }
@@ -195,7 +195,8 @@ echo "   (the agent's shell writing .git/config: $(grep -q '# probe' "$P/repo/.g
 check "$(yes_if test ! -e "$P/repo/linked-secret.txt")" "no hard link to a file outside the repository" "$(b '.structured_output.hard_link')"
 # git must work in the agent's commands (the build reads its own diff; a
 # reviewer runs git log and diff) without the home folder's ~/.gitconfig,
-# which the sandbox rightly hides: GIT_CONFIG_GLOBAL=/dev/null (agent_run).
+# which the sandbox rightly hides: the hub's git first on the commands' PATH
+# (agent_settings, _git_wrapper).
 # Any warning counts: git only warns about an unreadable config for some
 # commands (git status) and stops for others (git diff main).
 check "$(b '(.structured_output.git_read // "") | contains("git-ok") and (test("unable to access|fatal|not permitted"; "i") | not)')" "git works in the agent's commands" "$(b '.structured_output.git_read')"

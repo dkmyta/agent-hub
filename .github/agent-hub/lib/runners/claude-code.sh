@@ -207,6 +207,17 @@ agent_sandbox_dir() { mkdir -p "$RUNNER_TEMP/agent-tmp" && echo "$RUNNER_TEMP/ag
 # shellcheck source=lib/paths.sh
 declare -F sandbox_denied_reads > /dev/null || source "$(dirname "${BASH_SOURCE[0]}")/../paths.sh"
 
+# _git_wrapper <folder>: a git in <folder> that runs the runner's git with
+# no global or system configuration (GIT_CONFIG_GLOBAL=/dev/null,
+# GIT_CONFIG_NOSYSTEM=1), for the agent's sandboxed commands.
+_git_wrapper() {
+  local git
+  git=$(command -v git) || return 0
+  mkdir -p "$1"
+  printf '#!/bin/sh\nGIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 exec %s "$@"\n' "$git" > "$1/git"
+  chmod +x "$1/git"
+}
+
 # agent_settings <profile>: the --settings JSON for a profile. For build and
 # review, Claude Code's sandbox for every shell command and what it starts:
 # no reading the home folder or the runner's own folders (sandbox_denied_reads
@@ -225,13 +236,15 @@ agent_settings() {
   # first on the commands' PATH — so the agent runs the repository's checks
   # with the same Node as the hub's verify step and CI.
   if command -v node > /dev/null; then toolchain=$(cd "$(dirname "$(command -v node)")/.." && pwd -P); fi
+  # git without the home folder's ~/.gitconfig, which the sandbox rightly
+  # hides (every git command would stop on it): Claude Code's sandbox drops
+  # git's own variables (GIT_CONFIG_GLOBAL…) from the commands' environment,
+  # but PATH reaches them, so a git first on it sets them itself.
+  _git_wrapper "$temp/bin"
   jq -nc --argjson unreadable "$(sandbox_denied_reads)" --arg repo "$(pwd -P)" --arg temp "$temp" --arg profile "$1" \
       --arg toolchain "$toolchain" --arg path "$PATH" --argjson denied "$AGENT_DENIED_PATHS" '{
     disableAllHooks: true, disableBundledSkills: true,
-    # git without the home folder'"'"'s ~/.gitconfig (which the sandbox rightly
-    # hides) or the system'"'"'s: set here, where the commands get it, as well as
-    # in the environment Claude Code starts with (_claude).
-    env: {PATH: $path, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1"},
+    env: {PATH: "\($temp)/bin:\($path)"},
     permissions: {deny: [$denied[] | "Edit(./\(.))", "Write(./\(.))"]},
     sandbox: {
       enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true,
