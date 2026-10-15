@@ -105,7 +105,10 @@ run — retries, revisions and resubmissions included:
   an issue property: JSON on the ticket that Jira's screens don't show), with
   each stage's share. A pass with no cost report — cut off by a time limit or
   cancelled — counts at its whole budget plus the overshoot allowance (below), and the total is marked
-  *estimated*. Each run summary ends with the ticket's total. Runs that stop
+  *estimated*. Each run summary ends with a **Claude cost** line: the run's
+  cost with each pass's in brackets (e.g. "$0.54 (build $0.34, review
+  $0.20)", or "(draft …, review …)" for the document stages), then the
+  ticket's total. Runs that stop
   before Claude (a wrong status, a check that fails first) don't count.
 - **Checked before Claude is used — for the whole run.** A run may use
   Claude only if the ticket's spend so far plus the most the run can cost

@@ -44,8 +44,11 @@ build_command() {
   printf '%s\n' "$comments" > "$RUNNER_TEMP/comments-seen.json"
   # Kept apart too: the rest of an /apply's fetch step reads the ticket again.
   cp "$RUNNER_TEMP/comments-seen.json" "$RUNNER_TEMP/command-comments.json"
-  commands=$(jq -c -L "$HUB_DIR/lib" 'include "adf";
-    [.comments[] | select((automation_comment | not)
+  # A command is open until it's answered: its comment marked handled, or —
+  # when the tracker refused that edit — its id kept as handled on the
+  # ticket (_command_reply), so it isn't read again on every later run.
+  commands=$(jq -c -L "$HUB_DIR/lib" --argjson handled "$(tracker_property agent-hub-items 2> /dev/null | jq -c '.handled // []' 2> /dev/null || echo '[]')" 'include "adf";
+    [.comments[] | select((automation_comment | not) and (.id | IN($handled[]) | not)
       and ((.body | first_text) as $t | ($t | is_command("/skip")) or ($t | is_command("/apply"))))]
     | sort_by(.created) | .[]' <<< "$comments")
   [ -n "$commands" ] || _command_end "no change needed" "no open /skip or /apply comments"
@@ -161,8 +164,26 @@ _command_reply() {
     jq -nc --arg id "$1" --arg what "$2" '{id: $id, what: $what}' >> "$RUNNER_TEMP/command-replies.jsonl"
     return 0
   fi
-  _resolve_matching "$RUNNER_TEMP/comments-seen.json" "$2" '.id == $args[0]' "$1" > /dev/null \
-    || echo "::warning::Couldn't mark comment $1 as handled."
+  if ! _resolve_matching "$RUNNER_TEMP/comments-seen.json" "$2" '.id == $args[0]' "$1" > /dev/null; then
+    # The tracker refused the edit (its account can't edit people's
+    # comments): the answer goes in a comment of its own, never lost.
+    echo "::warning::Couldn't mark comment $1 as handled, so the answer is a new comment (the tracker account needs to edit people's comments: docs/jira.md, \"Permissions for the automation account\")."
+    # shellcheck disable=SC1112 # curly apostrophe intended
+    jq -n -L "$HUB_DIR/lib" --arg id "$1" --arg what "$2" --slurpfile seen "$RUNNER_TEMP/comments-seen.json" 'include "adf";
+      ([$seen[0].comments[]? | select(.id == $id)] | first // {}) as $c
+      | doc([para([strong("✅ Answered"), text(" — \(($c.body // {content: []}) | first_text | .[0:80]) (\($c.author.displayName // "a comment")): \($what). The hub couldn’t mark that comment as handled.")])])' \
+      | tracker_comment > /dev/null || echo "::warning::Couldn't post the answer to comment $1 either."
+  fi
+  _command_handled "$1"
+}
+
+# _command_handled <comment id>: kept on the ticket (agent-hub-items,
+# handled: the last 200), so a command whose comment couldn't be marked
+# handled isn't read again by every later run.
+_command_handled() {
+  tracker_set_property agent-hub-items < <(tracker_property agent-hub-items \
+      | jq -c --arg id "$1" '.handled = (((.handled // []) - [$id]) + [$id] | .[-200:])') \
+    || echo "::warning::Couldn't keep comment $1 as handled on $TICKET_KEY."
 }
 
 # _review_record <state file>: the review's record from the ticket

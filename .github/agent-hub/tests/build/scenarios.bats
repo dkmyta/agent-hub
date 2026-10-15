@@ -1526,6 +1526,20 @@ branch_head() { git --git-dir="$REMOTE" rev-parse refs/heads/agent-hub/PROJ-99; 
   assert_output --partial '- `src/greet.js`'
 }
 
+@test "sync: a conflict on a pull request already handed off — back to a draft until a person resolves it" {
+  handed_off_pr
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" false
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  main_moves 'printf "export function greet() {\n  return \"Hi!\";\n}\n" > src/greet.js'
+  reconcile_run "MOCK_STATUS=Ready for Review"
+  run trace
+  assert_line "--- Outcome: blocked"
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" true
+  run jq -r '.body' "$RUNNER_TEMP/mock-github/comments.jsonl"
+  assert_output --partial "It's back to a draft until then."
+}
+
 # 4d-1: the CI gate and the hand-off (handoff.sh). A pull request exactly as
 # the hub left it gets its required checks read — with the workflow's own
 # token — for exactly its head.
@@ -1912,9 +1926,14 @@ handed_off_pr() {
 }
 
 # Step 5b: people's commands on the items, from the ticket (commands.sh).
-# command_comments <text>...: open comments, by the approver dana-lead.
+# command_comments <text>...: open comments, by the approver dana-lead —
+# numbered from 700 and on through the test, as a ticket's comments are (the
+# hub keeps the ids of the commands it has answered).
 command_comments() {
-  jq -n '{comments: [$ARGS.positional | to_entries[] | {id: "70\(.key)", created: "2026-10-08T1\(.key):00:00.000+0000", updated: "2026-10-08T1\(.key):00:00.000+0000",
+  local count
+  count=$(cat "$BATS_TEST_TMPDIR/command-comment-count" 2> /dev/null || echo 0)
+  echo $((count + $#)) > "$BATS_TEST_TMPDIR/command-comment-count"
+  jq -n --argjson from "$((700 + count))" '{comments: [$ARGS.positional | to_entries[] | {id: "\($from + .key)", created: "2026-10-08T1\(.key):00:00.000+0000", updated: "2026-10-08T1\(.key):00:00.000+0000",
     author: {accountId: "dana-lead", displayName: "Dana Lead", accountType: "atlassian"},
     updateAuthor: {accountId: "dana-lead", displayName: "Dana Lead", accountType: "atlassian"},
     body: {type: "doc", version: 1, content: [{type: "paragraph", content: [{type: "text", text: .value}]}]}}]}' --args "$@" \
@@ -1959,6 +1978,28 @@ resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment
   assert_line "--- Outcome: handed off"
 }
 
+@test "/skip: a command comment the hub can't edit — answered in a comment of its own, and not read again" {
+  run_scenario decision-item
+  keep_properties
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  # The tracker refuses the edit (its account can't edit people's comments).
+  command_run "$(command_comments '/skip D1')" 'MOCK_FAIL=PUT /comment/700'
+  assert_equal "$(jq -r '[.items[] | select(.id == "D1") | .status][0]' <<< "$(pr_state)")" accepted
+  run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
+  assert_output --partial "✅ Answered — /skip D1 (Dana Lead): D1 accepted."
+  assert_output --partial "The hub couldn’t mark that comment as handled."
+  # The next run doesn't read it again, though its comment still reads as a command.
+  keep_properties
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  command_run "COMMENTS_FIXTURE=$BATS_TEST_TMPDIR/command-comments.json"
+  run trace
+  assert_line "--- Outcome: no change needed"
+  run resolutions
+  assert_output ""
+}
+
 @test "/skip: only approvers, only item ids, only open items — anything else is answered, and nothing changes" {
   run_scenario decision-item
   keep_properties
@@ -1989,8 +2030,8 @@ resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment
   # An id that isn't open, for either command.
   command_run "$(command_comments '/skip R9' '/apply C9')"
   run resolutions
-  assert_output --partial "/comment/700 ✅ Resolved — nothing changed; not open on pull request #101: R9"
-  assert_output --partial "/comment/701 ✅ Resolved — nothing to apply: C9 (not open)"
+  assert_output --partial "✅ Resolved — nothing changed; not open on pull request #101: R9"
+  assert_output --partial "✅ Resolved — nothing to apply: C9 (not open)"
   assert_equal "$(jq -r '.items[0].status' <<< "$(pr_state)")" open
 }
 

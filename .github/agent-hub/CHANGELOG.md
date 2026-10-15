@@ -5,6 +5,45 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.21.6 — 2026-10-14
+
+From the second manual test (AGENTHUB-60: a merge conflict, a person's
+resolution, commands from people's accounts).
+
+- **The run's Claude cost is one line, every pass in brackets:** "Claude
+  cost: this run $0.54 (build $0.34, review $0.20); the ticket …" — or
+  "(draft …, review …)" for the document stages — written at the end of the
+  run, when the build's code review and fix are known too. The summary
+  tables no longer have a cost column.
+- **git works in the agent's commands (build and review):** every git
+  command stopped on `~/.gitconfig`, which the sandbox rightly hides —
+  Claude Code's sandbox drops `GIT_CONFIG_GLOBAL` from the commands'
+  environment, so setting it never reached them. A small `git` first on the
+  commands' `PATH` (in the sandbox's temp folder) now sets
+  `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` and an empty
+  `XDG_CONFIG_HOME` (no `~/.config/git/ignore`) itself and runs the
+  runner's git. The sandbox check's git probe now runs what a build runs
+  (`git status`, `git diff --name-only main`, `git log` on a repository with
+  a `main`), fails on any git warning, and shows what the agent's shell sees
+  — which is how this was found.
+- **A command's answer is never lost:** if the tracker won't let the hub mark
+  a person's command comment as handled, the answer is posted as a comment of
+  its own ("✅ Answered — …"), and the command is kept as handled on the
+  ticket, so later runs don't read it again.
+- **A merge conflict sends a handed-off pull request back to draft** until a
+  person resolves it.
+- **Docs:** the service account needs **Edit all comments**, which the
+  team-managed Member role doesn't have: a custom **Agent hub automation**
+  role, step by step (jira.md); the cost line (claude-usage.md); the conflict
+  and answer behaviour (build.md).
+
+**Updating:**
+1. **Jira:** give the service account a role with **Edit all comments** —
+   the **Agent hub automation** role ([jira.md](docs/jira.md#adding-the-service-account)).
+   Without it, answers to people's commands arrive as new comments.
+2. **Optional:** run **Agent hub: Sandbox check** (uses Claude, about $0.25)
+   for the sharper git probe.
+
 ## 2.21.5 — 2026-10-14
 
 Fixes from the full manual test (AGENTHUB-59: every build path, from the

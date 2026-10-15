@@ -452,11 +452,17 @@ build first.
 ## Permissions for the automation account
 
 The account behind `AGENT_HUB_JIRA_EMAIL`: Browse Projects, Edit work items, Transition
-work items, Add comments, Delete own comments, Edit all comments (to resolve
-the rule's comments), Create attachments, Delete own attachments (to replace
-its own earlier plan files; a person's upload is never deleted, so Delete all
-attachments isn't needed). In team-managed projects the Member role has these
-by default. Edit work items also covers the hub's records on each ticket —
+work items, Add comments, Delete own comments, **Edit all comments** (to mark
+people's `/revise`, `/skip` and `/apply` comments — and the rules' comments —
+as handled), Create attachments, Delete own attachments (to replace its own
+earlier plan files; a person's upload is never deleted, so Delete all
+attachments isn't needed). **The team-managed Member role has all of these
+except Edit all comments** (Member can edit only its own comments): give the
+account the **Agent hub automation** role instead
+([Adding the service account](#adding-the-service-account), step 2). Without
+it, the hub's edit of a person's command comment is refused (Jira answers
+400), so the command is acted on but its answer is lost — the run log says
+"Couldn't mark comment N as handled". Edit work items also covers the hub's records on each ticket —
 its Claude usage ([claude-usage.md](claude-usage.md#per-ticket-caps)), the
 latest review's findings and who acted on which items — kept as issue
 properties. For the item commands (`/skip`, `/apply`), the account also needs
@@ -496,13 +502,29 @@ service account's project access, and the approval restriction below.
 
 1. Create an Atlassian account for the automation, with an email you control
    (e.g. `you+agenthub@example.com`). It counts as a user on your plan.
-2. Invite it to the project: **Project settings** → **Access** (team-managed)
-   or **People** (company-managed) → **Add people** → its email → role
-   **Member** (or your project's regular contributor role) — never an
-   administrator. Give it **Jira** only: no other products, no admin roles.
-   Every invite also lists the account in your organisation's directory
-   (admin.atlassian.com); that grants nothing by itself — the product access
-   and project role are what count.
+2. Give it a role with what it needs, then invite it to the project. The
+   regular contributor role is almost right but can't edit other people's
+   comments, which the hub must do to mark people's commands as handled — so
+   make a role for it (custom roles in team-managed projects depend on your
+   Jira plan; without them, see the note below):
+   1. **Project settings** → **Access** → **Manage roles** → **Create role**
+      (or duplicate **Member**), named **Agent hub automation**.
+   2. Give it everything **Member** has, plus **Edit all comments** (under
+      Comments). Don't add any "Delete all …" permission, or anything
+      administrative.
+   3. Save. Then **Access** → **Add people** → its email → role **Agent hub
+      automation**. (Company-managed projects: **People**, and a project role
+      with the permissions above in the project's permission scheme.)
+
+   Never make it an administrator. Give it **Jira** only: no other products,
+   no admin roles. Every invite also lists the account in your organisation's
+   directory (admin.atlassian.com); that grants nothing by itself — the
+   product access and project role are what count. *No custom roles on your
+   plan:* the account needs Edit all comments some other way — in a
+   company-managed project through its permission scheme; in a team-managed
+   one only the Administrator role has it, which is broader than the hub
+   needs (it could change the project's settings), so prefer a
+   company-managed project there.
 3. Sign in as it once (a private window) to accept the invite.
 4. **Create its API token signed in as the service account — not as
    yourself.** The token and the email in the secrets must belong to the
@@ -544,7 +566,8 @@ tickets between the other statuses).
 4. **Update workflow**.
 
 This works when your approvers are the project's administrators and the
-service account is a **Member** (as [above](#permissions-for-the-automation-account)).
+service account isn't one (its role is **Agent hub automation**, as
+[above](#adding-the-service-account)) — never add that role to these rules.
 
 **Company-managed project:**
 
@@ -638,8 +661,9 @@ and ticket):
 
 - [ ] Task work type with the intake template
 - [ ] Statuses and board columns above; transitions allowed
-- [ ] A dedicated service account with the permissions above (Member, Jira
-      access only)
+- [ ] A dedicated service account with the permissions above: the **Agent
+      hub automation** role (Member + **Edit all comments**), Jira access
+      only ([how](#adding-the-service-account))
 - [ ] Status names exactly as the hub's (or its variables set), checked
       ([how](#checking-the-setup))
 - [ ] The transitions above, with no conditions or screens on the ones the
