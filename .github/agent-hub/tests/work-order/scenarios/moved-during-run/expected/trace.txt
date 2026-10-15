@@ -11,9 +11,11 @@ Remove session and credential files: success
 GET ?fields=summary,description,status
 GET /comment?maxResults=100
 GET /properties
+PUT /properties/agent-hub-ledger — {"pending":{"run":"1000.1","stage":"work-order","reserved":6}}
 POST /comment — comment: ⏳ Generating work order
 GET ?fields=status
 GET /properties
+GET /properties/agent-hub-ledger
 PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":1.0084,"estimated":false,"stages":{"work-order":{"runs":1,"cost_usd":1.0084}}}
 DELETE /comment/5001
 --- Outcome: stale

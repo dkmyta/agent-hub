@@ -233,6 +233,19 @@ stage_check_caps() {
   # isn't admitted against the caps, and isn't counted.
   [ "$run_max" != 0 ] || return 0
   ledger=$(tracker_ledger) || stage_fail "Couldn't read $TICKET_KEY's Claude usage from $TRACKER_NAME, so Claude wasn't used."
+  # A reservation an earlier run left — it ended before it could count
+  # itself (runs on a ticket never overlap, so it isn't running): counted at
+  # all it reserved, marked estimated, before this run is admitted.
+  if jq -e '.pending != null' <<< "$ledger" > /dev/null; then
+    ledger=$(jq -c 'def usd: . * 10000 | round / 10000; .pending as $p
+      | .runs = ((.runs // 0) + 1) | .cost_usd = ((.cost_usd // 0) + $p.reserved | usd) | .estimated = true
+      | .stages[$p.stage].runs = ((.stages[$p.stage].runs // 0) + 1)
+      | .stages[$p.stage].cost_usd = ((.stages[$p.stage].cost_usd // 0) + $p.reserved | usd)
+      | del(.pending)' <<< "$ledger")
+    tracker_set_ledger <<< "$ledger" \
+      || stage_fail "Couldn't count an earlier run's reserved Claude usage on $TICKET_KEY in $TRACKER_NAME, so Claude wasn't used."
+    echo "::warning::An earlier run on $TICKET_KEY ended before it counted its Claude usage, so it's counted at all it reserved (estimated)."
+  fi
   if jq -e '.over_cap == true' <<< "$ledger" > /dev/null; then
     labels=$(tracker_ticket_labels) || stage_fail "Couldn't read $TICKET_KEY's labels from $TRACKER_NAME, so Claude wasn't used."
     if ! jq -e --arg label "$OVER_CAP_LABEL" 'index($label) != null' <<< "$labels" > /dev/null; then
@@ -245,7 +258,15 @@ stage_check_caps() {
     if .over_cap == true then "still"
     elif ((.runs // 0) - (.lifted_runs // 0)) >= $runs or ((.cost_usd // 0) - (.lifted_cost_usd // 0)) + $max > $cost then "now"
     else "" end' <<< "$ledger")
-  [ -n "$over" ] || return 0
+  if [ -z "$over" ]; then
+    # Admitted: the most this run can cost is reserved on the ticket before
+    # Claude is used, so it counts even if the run dies or can't record what
+    # it spent (stage_record_usage settles it; the next run counts what's left).
+    tracker_set_ledger <<< "$(jq -c --argjson max "$run_max" --arg run "$(_run_id)" --arg stage "$STAGE" \
+        '.pending = {run: $run, stage: $stage, reserved: $max}' <<< "$ledger")" \
+      || stage_fail "Couldn't reserve this run's Claude usage on $TICKET_KEY in $TRACKER_NAME, so Claude wasn't used."
+    return 0
+  fi
   if [ "$over" = now ]; then
     tracker_set_ledger <<< "$(jq -c '.over_cap = true' <<< "$ledger")" \
       || stage_fail "$TICKET_KEY is over its Claude usage cap, but that couldn't be recorded in $TRACKER_NAME. Claude wasn't used."
@@ -282,7 +303,8 @@ stage_check_caps() {
 # the run's work is already done.
 stage_record_usage() {
   local passes="$RUNNER_TEMP/claude-passes.jsonl" pending="$RUNNER_TEMP/claude-pass-pending" usage ledger
-  [ -s "$passes" ] || [ -s "$pending" ] || return 0
+  # No Claude used after all: only this run's reservation, if any, is lifted.
+  if ! [ -s "$passes" ] && ! [ -s "$pending" ]; then _release_reservation; return 0; fi
   # The run's cost, and each pass's (the passes record their names: the
   # build or a draft, then any review, fix, fix check, CI fix or apply), in
   # the order they ran — a pass cut off counts at its budget.
@@ -294,18 +316,19 @@ stage_record_usage() {
              then map(if .pass == $x.pass then .cost += $x.spent else . end)
              else . + [{pass: ($x.pass // "pass"), cost: $x.spent}] end))}')
   if ! ledger=$(tracker_ledger); then
-    echo "::warning::Couldn't read $TICKET_KEY's Claude usage from $TRACKER_NAME, so this run's (\$$(jq -r '.cost * 100 | round / 100' <<< "$usage")) isn't counted towards its cap."
+    echo "::warning::Couldn't read $TICKET_KEY's Claude usage from $TRACKER_NAME, so this run's (\$$(jq -r '.cost * 100 | round / 100' <<< "$usage")) is counted by the next run, at all it reserved."
     return 0
   fi
   # Dollars to four decimal places, so sums don't drift.
-  ledger=$(jq -c --argjson usage "$usage" --arg stage "$STAGE" '
+  ledger=$(jq -c --argjson usage "$usage" --arg stage "$STAGE" --arg run "$(_run_id)" '
     def usd: . * 10000 | round / 10000;
-    .runs = (.runs // 0) + 1 | .cost_usd = ((.cost_usd // 0) + $usage.cost | usd)
+    (if .pending.run == $run then del(.pending) else . end)
+    | .runs = (.runs // 0) + 1 | .cost_usd = ((.cost_usd // 0) + $usage.cost | usd)
     | .estimated = (.estimated == true or $usage.estimated)
     | .stages[$stage].runs = (.stages[$stage].runs // 0) + 1
     | .stages[$stage].cost_usd = ((.stages[$stage].cost_usd // 0) + $usage.cost | usd)' <<< "$ledger")
   if ! tracker_set_ledger <<< "$ledger"; then
-    echo "::warning::Couldn't record $TICKET_KEY's Claude usage in $TRACKER_NAME, so this run isn't counted towards its cap."
+    echo "::warning::Couldn't record $TICKET_KEY's Claude usage in $TRACKER_NAME, so this run is counted by the next run, at all it reserved."
     return 0
   fi
   jq -r -L "$HUB_DIR/lib" --argjson usage "$usage" --argjson max_runs "$TICKET_MAX_RUNS" --arg max_cost "$TICKET_MAX_COST_USD" 'include "adf";
@@ -313,6 +336,21 @@ stage_record_usage() {
     {"fix-check": "fix check", "ci-fix": "CI fix"} as $names
     | "**Claude cost:** this run \($usage.cost | usd) (\([$usage.passes[]? | "\($names[.pass] // .pass) \(.cost | usd)"] | join(", ")))\(if $usage.estimated then " (estimated: a pass had no report)" else "" end); the ticket \(.runs - (.lifted_runs // 0)) of \($max_runs) runs and \((.cost_usd - (.lifted_cost_usd // 0)) | usd) of \($max_cost | usd) since its caps last started."' \
     <<< "$ledger" | tee -a "$GITHUB_STEP_SUMMARY"
+}
+
+# _run_id: this run (and attempt), as its reservation names it.
+_run_id() { printf '%s.%s' "${GITHUB_RUN_ID:-0}" "${GITHUB_RUN_ATTEMPT:-1}"; }
+
+# _release_reservation: this run used no Claude after all, so its
+# reservation (stage_check_caps) is lifted without counting anything. A
+# failure leaves it for the next run, which counts it — too much, never too
+# little.
+_release_reservation() {
+  local ledger
+  ledger=$(tracker_ledger 2> /dev/null) || return 0
+  jq -e --arg run "$(_run_id)" '.pending.run == $run' <<< "$ledger" > /dev/null 2>&1 || return 0
+  tracker_set_ledger <<< "$(jq -c 'del(.pending)' <<< "$ledger")" \
+    || echo "::warning::Couldn't lift this run's Claude reservation on $TICKET_KEY, so the next run counts it, though no Claude was used."
 }
 
 # stage_clear_progress: delete the progress comment, if one was posted.

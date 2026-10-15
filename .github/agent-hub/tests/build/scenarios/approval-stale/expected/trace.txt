@@ -22,4 +22,5 @@ GET /transitions
 POST /comment — comment: ⚠️ Plan changed after approval
 PUT  — {"update":{"labels":[{"add":"needs-human"}]}}
 POST /transitions — {"transition":{"id":"41"}}
+GET /properties
 --- Outcome: stale

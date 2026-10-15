@@ -14,6 +14,7 @@ GET /myself
 GET /comment?maxResults=100
 GET ?fields=attachment
 GET /properties
+PUT /properties/agent-hub-ledger — {"pending":{"run":"1000.1","stage":"implementation-plan","reserved":12}}
 POST /comment — comment: ⏳ Writing implementation plan
 GET ?fields=status
 GET /transitions
@@ -21,6 +22,7 @@ GET ?fields=description,labels
 GET ?fields=attachment
 POST /attachments — {"upload":"PROJ-99-implementation-plan.md"}
 GET /properties
+GET /properties/agent-hub-ledger
 PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":1.9484,"estimated":false,"stages":{"implementation-plan":{"runs":1,"cost_usd":1.9484}}}
 GET ?fields=status
 PUT /comment/5001 — comment: ❌ Implementation plan failed

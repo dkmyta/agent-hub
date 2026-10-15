@@ -393,15 +393,29 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
   assert_output '{"runs":1,"cost_usd":4.25,"estimated":true}'
 }
 
-@test "caps: a run that didn't use Claude isn't counted, and a ledger that can't be written is a warning, not a failed run" {
+@test "caps: a run that didn't use Claude isn't counted; its usage is reserved before Claude, so a run that can't count itself is counted by the next" {
   run_scenario invalid-ticket-key
   [ ! -e "$RUNNER_TEMP/mock-ledger.json" ]
+  # The reservation can't be written: Claude isn't used.
   run_scenario ready 'MOCK_FAIL=PUT /properties/agent-hub-ledger'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "Couldn't reserve this run's Claude usage on PROJ-99 in Jira, so Claude wasn't used."
+  # Reserved, but the usage at the end can't be written: a warning, not a
+  # failed run — the reservation stays for the next run to count.
+  run_scenario ready 'MOCK_FAIL=PUT /properties/agent-hub-ledger' MOCK_FAIL_FROM=2
   run cat "$RUNNER_TEMP/trace.txt"
   assert_line "Record Claude usage: success"
   assert_line "Report failure: skipped"
   run cat "$RUNNER_TEMP/log.txt"
-  assert_output --partial "::warning::Couldn't record PROJ-99's Claude usage in Jira, so this run isn't counted towards its cap."
+  assert_output --partial "::warning::Couldn't record PROJ-99's Claude usage in Jira, so this run is counted by the next run, at all it reserved."
+  assert_equal "$(jq -c '.pending | {stage, reserved}' "$RUNNER_TEMP/mock-ledger.json")" '{"stage":"work-order","reserved":6}'
+  # The next run counts it — all it reserved, estimated — before it's admitted.
+  run_scenario ready "MOCK_LEDGER=$(cat "$RUNNER_TEMP/mock-ledger.json")"
+  run cat "$RUNNER_TEMP/log.txt"
+  assert_output --partial "::warning::An earlier run on PROJ-99 ended before it counted its Claude usage, so it's counted at all it reserved (estimated)."
+  assert_equal "$(jq -c '{runs, cost_usd, estimated, pending}' "$RUNNER_TEMP/mock-ledger.json")" '{"runs":2,"cost_usd":7.0084,"estimated":true,"pending":null}'
 }
 
 # The admission rule: a run may use Claude only if the ticket's spend so far

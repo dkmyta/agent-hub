@@ -281,13 +281,19 @@ _approval_problem() {
   # can't show that, so they count as stale too.
   created=$(jq -r '.plans[-1].created // ""' <<< "$snapshot") approved=$(jq -r '.history.at // ""' <<< "$snapshot")
   _later "$approved" "$created" || { echo "stale"; return; }
-  # A plan file added or removed, or the work order edited, since — by
-  # anyone except the automation account, whose only edit after an approval
-  # is the build's own (the description's Pull Request section, after it
-  # opens the pull request), which every later run on the ticket would
-  # otherwise take for a change to the work order.
-  if jq -e --arg name "$PLAN_FILE_NAME" --arg automation "$AUTOMATION_ACCOUNT" 'any(.history.changes[];
-       (.kind == "attachment" and .file == $name) or (.kind == "description" and .author != $automation))' <<< "$snapshot" > /dev/null; then
+  # A plan file added or removed, or what was approved edited, since. The
+  # approval holds for the content, whoever edits it: the one edit that
+  # leaves it standing is the build's own Delivery sections (Testing
+  # Instructions, Pull Request — the description's end), by the automation
+  # account, with everything before them exactly as it was. Any other change
+  # — the work order or the plan's summary, by a person or the automation —
+  # needs approving again.
+  if jq -e --arg name "$PLAN_FILE_NAME" --arg automation "$AUTOMATION_ACCOUNT" '
+       def approved_part: (.  // "") as $t | ($t | index("Testing Instructions")) as $i | if $i == null then null else $t[:$i] end;
+       def delivery_only: (.fromString | approved_part) as $f | (.toString | approved_part) as $t | $f != null and $f == $t;
+       any(.history.changes[];
+         (.kind == "attachment" and .file == $name)
+         or (.kind == "description" and (.author != $automation or (delivery_only | not))))' <<< "$snapshot" > /dev/null; then
     echo "stale"
   fi
 }

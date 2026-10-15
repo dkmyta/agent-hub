@@ -11,6 +11,7 @@ Remove session and credential files: success
 GET ?fields=summary,description,status
 GET /comment?maxResults=100
 GET /properties
+PUT /properties/agent-hub-ledger — {"pending":{"run":"1000.1","stage":"work-order","reserved":4}}
 POST /comment — comment: ⏳ Revising work order
 GET ?fields=status
 GET /transitions
@@ -18,6 +19,7 @@ POST /comment — comment: Needs details
 PUT  — {"update":{"labels":[{"add":"needs-details"},{"remove":"needs-human"}]}}
 POST /transitions — {"transition":{"id":"11"}}
 GET /properties
+GET /properties/agent-hub-ledger
 PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":0.0826,"estimated":false,"stages":{"work-order":{"runs":1,"cost_usd":0.0826}}}
 DELETE /comment/5001
 --- Outcome: sent back

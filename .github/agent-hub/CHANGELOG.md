@@ -5,6 +5,31 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.22.1 — 2026-10-14
+
+The last two fixes from the full review of 2.21.6.
+
+- **An approval holds for what was approved, whoever edits it** (H3): an
+  edit by the automation account after the plan was approved was always
+  allowed (for the build's own Delivery sections), so the automation
+  changing the work order or the plan's summary kept the approval. Now the
+  only edit that leaves it standing is the build's Delivery sections
+  (Testing Instructions, Pull Request — the description's end), with
+  everything before them exactly as it was, read from Jira's history of the
+  change. Checked against a real ticket's history (AGENTHUB-60): the
+  build's own edits pass; any other change needs approving again.
+- **Claude usage is reserved before it's used** (H6): a run that died, or
+  couldn't write its cost to the ticket, wasn't counted, so the ticket's
+  caps could be passed. Now an admitted run reserves the most it can cost on
+  the ticket before any Claude pass (if it can't, Claude isn't used),
+  replaces it with the actual cost at the end (or lifts it if it used no
+  Claude), and the next run counts any reservation left over at all it
+  reserved, marked estimated. Usage is counted too much rather than too
+  little, never lost (claude-usage.md).
+
+**Updating:** Nothing. (Each run now writes the ticket's usage record once
+more, at the start.)
+
 ## 2.22.0 — 2026-10-14
 
 The rest of the fixes from the full review of 2.21.6 (each checked against

@@ -22,6 +22,7 @@ GET /attachment/content/10001
 GET /changelog?startAt=0&maxResults=100
 GET ?fields=attachment
 GET /properties
+PUT /properties/agent-hub-ledger — {"pending":{"run":"1000.1","stage":"build","reserved":23}}
 POST /comment — comment: ⏳ Building
 GET ?fields=status
 GET /myself
@@ -32,6 +33,7 @@ GET ?fields=description
 PUT ?notifyUsers=true — description: 6 headings, labels: [{"add":"needs-human"}]
 PUT /properties/agent-hub-review — the hub record of the review or items
 GET /properties
+GET /properties/agent-hub-ledger
 PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":2.81,"estimated":false,"stages":{"build":{"runs":1,"cost_usd":2.81}}}
 DELETE /comment/5001
 --- GitHub calls
