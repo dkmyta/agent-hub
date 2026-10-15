@@ -209,12 +209,15 @@ declare -F sandbox_denied_reads > /dev/null || source "$(dirname "${BASH_SOURCE[
 
 # _git_wrapper <folder>: a git in <folder> that runs the runner's git with
 # no global or system configuration (GIT_CONFIG_GLOBAL=/dev/null,
-# GIT_CONFIG_NOSYSTEM=1), for the agent's sandboxed commands.
+# GIT_CONFIG_NOSYSTEM=1) and none of the home folder's per-user git files
+# (~/.config/git/ignore, attributes: XDG_CONFIG_HOME, an empty folder next
+# to it), for the agent's sandboxed commands.
 _git_wrapper() {
   local git
   git=$(command -v git) || return 0
-  mkdir -p "$1"
-  printf '#!/bin/sh\nGIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 exec %s "$@"\n' "$git" > "$1/git"
+  mkdir -p "$1" "$1/../git-xdg"
+  printf '#!/bin/sh\nGIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME="%s" exec "%s" "$@"\n' \
+    "$(cd "$1/../git-xdg" && pwd -P)" "$git" > "$1/git"
   chmod +x "$1/git"
 }
 

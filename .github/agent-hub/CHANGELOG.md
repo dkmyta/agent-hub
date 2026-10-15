@@ -20,8 +20,9 @@ resolution, commands from people's accounts).
   Claude Code's sandbox drops `GIT_CONFIG_GLOBAL` from the commands'
   environment, so setting it never reached them. A small `git` first on the
   commands' `PATH` (in the sandbox's temp folder) now sets
-  `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1` itself and runs
-  the runner's git. The sandbox check's git probe now runs what a build runs
+  `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` and an empty
+  `XDG_CONFIG_HOME` (no `~/.config/git/ignore`) itself and runs the
+  runner's git. The sandbox check's git probe now runs what a build runs
   (`git status`, `git diff --name-only main`, `git log` on a repository with
   a `main`), fails on any git warning, and shows what the agent's shell sees
   — which is how this was found.
