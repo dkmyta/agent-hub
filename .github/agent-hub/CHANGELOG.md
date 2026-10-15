@@ -5,6 +5,33 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.24.1 — 2026-10-15
+
+The test suite sweep, step one: a repeatable mutation check, and the three
+gaps it found.
+
+- **The mutation check** (`tests/mutation/`, manual, in the hub's own
+  repository only; never in `npm test`, CI or an installed repository).
+  `run.sh` breaks one security or gating guard at a time, on a throwaway
+  copy of the working tree, and runs the tests that should catch it. Each
+  mutant is classified as detected, survived, invalid, inconclusive,
+  timeout or infrastructure; a syntax error or broken setup never counts as
+  detected. `mutants.json` lists 20 behavioural mutants: approval, the
+  dependency checks, commands, caps, fix candidates, fix-check concerns and
+  the hand-off. `shared/mutation.bats` keeps the list true to the code and
+  the tests it names. It's evidence that these tests guard these rules, not
+  proof that the suite catches every fault.
+- **Three guards no test caught, now tested** (the code was right; nothing
+  would have noticed it breaking):
+  - a failed approvers-group lookup at the build's approval check refuses
+    it;
+  - an older plan file removed while the approved plan downloads stops the
+    build: only comparing the two reads of the approval shows it;
+  - a finding the fix check says isn't resolved stays open, though the fix
+    is kept.
+
+**Updating:** Nothing.
+
 ## 2.24.0 — 2026-10-15
 
 v1, the testing approach (part two): a repeatable live-test procedure, and

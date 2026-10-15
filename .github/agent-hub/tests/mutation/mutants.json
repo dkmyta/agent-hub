@@ -1,0 +1,396 @@
+[
+ {
+  "id": "approval-person-edit",
+  "invariant": "A person's edit to the approved work order after the approval makes it stale (build.md, Approval check)",
+  "edits": [
+   {
+    "file": "stages/build/stage.sh",
+    "find": "(.kind == \"description\" and (.author != $automation or (delivery_only | not))))",
+    "replace": "(.kind == \"description\" and (.author == $automation and (delivery_only | not))))",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "approval check: a plan newer than the approval, the work order edited since, or an older plan removed during the run"
+   }
+  ]
+ },
+ {
+  "id": "approval-automation-approves",
+  "invariant": "A move to Implementation Plan Approved by the automation account isn't an approval",
+  "edits": [
+   {
+    "file": "stages/build/stage.sh",
+    "find": "[ \"$(jq -r '.history.by' <<< \"$snapshot\")\" != \"$AUTOMATION_ACCOUNT\" ] \\",
+    "replace": "true \\",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "no approval to build from: never approved, or moved there by the automation account"
+   }
+  ]
+ },
+ {
+  "id": "approval-not-in-group",
+  "invariant": "With an approvers group set, the approver must be in it",
+  "edits": [
+   {
+    "file": "stages/build/stage.sh",
+    "find": "    1) echo \"fail The move to $PLAN_APPROVED_STATUS was made by someone who isn't in",
+    "replace": "    91) echo \"fail The move to $PLAN_APPROVED_STATUS was made by someone who isn't in",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "approval: with an approvers group set, the plan's approver must be in it — checked by the hub"
+   }
+  ]
+ },
+ {
+  "id": "approval-group-lookup-fails-open",
+  "invariant": "A group lookup that fails refuses the approval (fail closed)",
+  "edits": [
+   {
+    "file": "stages/build/stage.sh",
+    "find": "    2) echo \"fail Couldn't check that the person who moved the ticket",
+    "replace": "    92) echo \"fail Couldn't check that the person who moved the ticket",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "approval: with an approvers group set, the plan's approver must be in it — checked by the hub"
+   }
+  ]
+ },
+ {
+  "id": "approval-download-recheck-skipped",
+  "invariant": "The approval is read again after the plan downloads; a change in between stops the build",
+  "edits": [
+   {
+    "file": "stages/build/stage.sh",
+    "find": "  [ \"$(_approval_key \"$first\")\" = \"$(_approval_key \"$second\")\" ] || { _approval_stale; exit 0; }",
+    "replace": "  true",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "a plan file uploaded during the run: while the plan downloads, back to be approved again; later, nothing pushed"
+   }
+  ]
+ },
+ {
+  "id": "approval-final-recheck-skipped",
+  "invariant": "Before anything is pushed, the approval is checked again; a change during the run stops it",
+  "edits": [
+   {
+    "file": "stages/build/stage.sh",
+    "find": "  if [ -n \"$(_approval_problem \"$now\")\" ] \\",
+    "replace": "  if false && [ -n \"$(_approval_problem \"$now\")\" ] \\",
+    "count": 1
+   },
+   {
+    "file": "stages/build/stage.sh",
+    "find": "     || [ \"$(_approval_key \"$now\")\" != \"$(jq -c '[.plan.approved_at, .plan.files]' \"$BUILD_CONTEXT\")\" ]; then",
+    "replace": "     || false; then",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "a plan file uploaded during the run: while the plan downloads, back to be approved again; later, nothing pushed"
+   },
+   {
+    "file": "build/scenarios.bats",
+    "name": "approval check: a plan newer than the approval, the work order edited since, or an older plan removed during the run"
+   }
+  ]
+ },
+ {
+  "id": "deps-min-release-age",
+  "invariant": "Dependency versions newer than the minimum release age stop the build",
+  "edits": [
+   {
+    "file": "stages/build/dependencies.sh",
+    "find": "  [ -z \"$late\" ] || stage_fail \"The plan's dependency changes in $folder would bring in package versions",
+    "replace": "  true || stage_fail \"The plan's dependency changes in $folder would bring in package versions",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "dependency changes that can't be applied, or shown safe, stop the build before Claude"
+   }
+  ]
+ },
+ {
+  "id": "deps-not-from-registry",
+  "invariant": "Packages not from the npm registry (age and signature uncheckable) stop the build",
+  "edits": [
+   {
+    "file": "stages/build/dependencies.sh",
+    "find": "  [ -z \"$late\" ] || stage_fail \"The plan's dependency changes in $folder bring in packages that aren't from",
+    "replace": "  true || stage_fail \"The plan's dependency changes in $folder bring in packages that aren't from",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "dependency changes that can't be applied, or shown safe, stop the build before Claude"
+   }
+  ]
+ },
+ {
+  "id": "deps-new-advisory",
+  "invariant": "A new high or critical advisory stops the build",
+  "edits": [
+   {
+    "file": "stages/build/dependencies.sh",
+    "find": "    [ -z \"$blocking\" ] || stage_fail",
+    "replace": "    true || stage_fail",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "dependency changes that can't be applied, or shown safe, stop the build before Claude"
+   }
+  ]
+ },
+ {
+  "id": "command-not-approver",
+  "invariant": "Only members of the approvers group can change a build's items",
+  "edits": [
+   {
+    "file": "stages/build/commands.sh",
+    "find": "  grep -qxF -- \"$APPROVERS_GROUP\" \"$RUNNER_TEMP/command-groups\" \\",
+    "replace": "  true \\",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "/skip: only approvers, only item ids, only open items — anything else is answered, and nothing changes"
+   }
+  ]
+ },
+ {
+  "id": "command-claim-skipped",
+  "invariant": "Each command is claimed durably before anything is done for it, so it never runs twice",
+  "edits": [
+   {
+    "file": "stages/build/commands.sh",
+    "find": "    _command_claim \"$(jq -r '.id' <<< \"$cmd\")\" || break",
+    "replace": "    true || break",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "/skip: a command is claimed before anything is done for it — if the claim can't be written, nothing is, so it can never run twice"
+   },
+   {
+    "file": "build/scenarios.bats",
+    "name": "two /apply commands queued together: the second isn't claimed by the first's run — the next run handles and answers it"
+   }
+  ]
+ },
+ {
+  "id": "caps-runs-not-validated",
+  "invariant": "A ticket run cap that isn't a positive whole number stops the run before Claude",
+  "edits": [
+   {
+    "file": "lib/stage.sh",
+    "find": "  [[ \"$TICKET_MAX_RUNS\" =~ ^[0-9]+$ ]] && [ \"$TICKET_MAX_RUNS\" -gt 0 ] \\",
+    "replace": "  true \\",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "work-order/scenarios.bats",
+    "name": "caps: settings that aren't positive numbers stop the run before Claude"
+   }
+  ]
+ },
+ {
+  "id": "fix-keeps-hard-link",
+  "invariant": "A fix that leaves a hard-linked file is discarded",
+  "edits": [
+   {
+    "file": "stages/build/fix.sh",
+    "find": "  [ -z \"$(build_hard_linked_files)\" ] || { echo \"it left a hard-linked file\" >&2; return 2; }",
+    "replace": "  true",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "fix matrix: a refused path, a dependency file, the size limits, a hard link named like an option — discarded"
+   }
+  ]
+ },
+ {
+  "id": "fix-keeps-refused-path",
+  "invariant": "A fix that changes a file the hub never pushes is discarded whole",
+  "edits": [
+   {
+    "file": "stages/build/fix.sh",
+    "find": "  [ \"$refused\" = 0 ] || { echo \"it changed",
+    "replace": "  true || { echo \"it changed",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "fix matrix: a refused path, a dependency file, the size limits, a hard link named like an option — discarded"
+   },
+   {
+    "file": "build/scenarios.bats",
+    "name": "fix: dropped — checks failing on it, or a file the hub never pushes — and the reviewed commit pushed as it was"
+   }
+  ]
+ },
+ {
+  "id": "fix-keeps-added-decision",
+  "invariant": "A fix that adds a decision item for a person is discarded whole",
+  "edits": [
+   {
+    "file": "stages/build/fix.sh",
+    "find": "  [ \"$added\" = 0 ] || {",
+    "replace": "  true || {",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "fix matrix: a new out-of-scope file, or a must-not-touch area changed alongside a good fix — the whole candidate discarded"
+   },
+   {
+    "file": "build/scenarios.bats",
+    "name": "fix matrix: a refused path, a dependency file, the size limits, a hard link named like an option — discarded"
+   }
+  ]
+ },
+ {
+  "id": "apply-and-ci-fix-concerns-dropped",
+  "invariant": "New concerns the fix check raises on an /apply or a CI fix become items for a person",
+  "edits": [
+   {
+    "file": "stages/build/wording.jq",
+    "find": "def add_concerns($fix; $source):",
+    "replace": "def add_concerns($fix; $source): .;\ndef _mutant_add_concerns($fix; $source):",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "/apply R1: the item fixed through the fix pass's path — pushed as the hub's, attributed to the /apply, closed as fixed, answered on the ticket"
+   },
+   {
+    "file": "build/scenarios.bats",
+    "name": "CI fix: a failed required check is fixed through the fix pass's path, verified, pushed without force and recorded as the hub's"
+   }
+  ]
+ },
+ {
+  "id": "fix-check-concerns-dropped",
+  "invariant": "New concerns the build's fix check raises become items for a person",
+  "edits": [
+   {
+    "file": "stages/build/wording.jq",
+    "find": "    + [[$kept.new_concerns[] | select(.policy != \"decision\")] | to_entries[]",
+    "replace": "    + [[$kept.new_concerns[] | select(false)] | to_entries[]",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "fix: kept — committed after the reviewed commit, checked, and pushed; the finding fixed, the fix check's concern an item"
+   }
+  ]
+ },
+ {
+  "id": "fixed-without-check",
+  "invariant": "A finding is closed as fixed only when the fix check found it resolved",
+  "edits": [
+   {
+    "file": "stages/build/wording.jq",
+    "find": "status: (if any($kept.checks[]; .finding == $n and .verdict == \"resolved\") then \"fixed\" else \"open\" end)}",
+    "replace": "status: (if any($kept.checks[]; .finding == $n) then \"fixed\" else \"open\" end)}",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "fix: kept — committed after the reviewed commit, checked, and pushed; the finding fixed, the fix check's concern an item"
+   },
+   {
+    "file": "build/scenarios.bats",
+    "name": "fix: an unusable fix check, a fix pass that changes nothing or one that can't start keeps nothing, and costs nothing of the build"
+   },
+   {
+    "file": "build/scenarios.bats",
+    "name": "fix: a finding the fix check says isn't resolved stays open, though the fix is kept"
+   }
+  ]
+ },
+ {
+  "id": "handoff-unverified-fix",
+  "invariant": "A commit after the review is eligible only if verified on exactly that commit",
+  "edits": [
+   {
+    "file": "stages/build/handoff.sh",
+    "find": "select((.by == \"hub\" and (.verified.head // \"\") == .head",
+    "replace": "select((.by == \"hub\" and true",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/handoff.bats",
+    "name": "hand-off: a fix whose verification was for another commit isn't — the flag doesn't carry over"
+   }
+  ]
+ },
+ {
+  "id": "handoff-reviewed-unverified",
+  "invariant": "The reviewed commit itself must be verified on exactly that commit",
+  "edits": [
+   {
+    "file": "stages/build/handoff.sh",
+    "find": "(if $at != null and ($heads[$at].verified.head // \"\") != $reviewed then",
+    "replace": "(if false then",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/handoff.bats",
+    "name": "hand-off: the reviewed commit itself must be verified on exactly that commit, and the record readable"
+   }
+  ]
+ }
+]

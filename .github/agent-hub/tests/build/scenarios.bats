@@ -168,6 +168,17 @@ test/greet.test.js expected"
   assert_equal "$(remote_branches)" "main"
   run failure_notice
   assert_output --partial "approval changed while the build was running"
+  # A change the second read alone can't show: an older plan file removed
+  # while the plan downloads leaves a valid approval of the newest — only
+  # comparing the two reads finds it.
+  jq '[{"id": "10000", "filename": "PROJ-99-implementation-plan.md", "created": "2026-10-01T08:00:00.000+0000"}] + .' \
+    "$FIXTURES/attachments.json" > "$BATS_TEST_TMPDIR/two-plans.json"
+  fresh_repo
+  run_scenario ready ATTACHMENTS_FIXTURE="$BATS_TEST_TMPDIR/two-plans.json" \
+    ATTACHMENTS_LATER_FIXTURE="$FIXTURES/attachments.json" ATTACHMENTS_LATER_FROM=2
+  run trace
+  assert_line "Agent: skipped"
+  grep -qx '\*\*Outcome:\*\* stale' "$RUNNER_TEMP/summary.md"
 }
 
 # The history and the attachments are separate reads: a plan uploaded between
@@ -1120,6 +1131,13 @@ pushed_head_subject() { local remote; remote=$(git -C "$STEP_CWD" remote get-url
   assert_line "Apply: success"
   run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
   assert_output '{"status":"none","reason":"it didn'"'"'t run to the end"}'
+}
+
+@test "fix: a finding the fix check says isn't resolved stays open, though the fix is kept" {
+  jq '.structured_output.checks[0].verdict = "unresolved"' "$FIXTURES/claude/fix-check.json" > "$BATS_TEST_TMPDIR/unresolved.json"
+  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh "CLAUDE_FIX_CHECK_FIXTURE=$BATS_TEST_TMPDIR/unresolved.json"
+  run jq -c '.items[] | select(.id == "R1") | {status, fixed_in}' "$RUNNER_TEMP/state.json"
+  assert_output '{"status":"open","fixed_in":null}'
 }
 
 @test "fix: no fix-eligible findings, no fix pass" {
@@ -2339,6 +2357,13 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
   assert_line "Agent: skipped"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "was made by someone who isn't in agent-hub-approvers, so it isn't an approval"
+  # A group lookup that fails refuses the approval: it can't be shown.
+  fresh_repo
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh "$vars" 'MOCK_FAIL=GET /user/groups?accountId=dana-lead'
+  run trace
+  assert_line "Agent: skipped"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "Couldn't check that the person who moved the ticket to Implementation Plan Approved is in agent-hub-approvers"
 }
 
 @test "approval: a plan file a person uploaded is built as written, and said so on the progress comment and the pull request" {
