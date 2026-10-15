@@ -38,7 +38,7 @@
 # Sourced by stage.sh.
 
 build_command() {
-  local comments items handled commands branch pr number state record before cmd
+  local comments items handled commands branch pr number state record before cmd claimed=0
   stage_fetch "$PLAN_APPROVED_STATUS" "$READY_FOR_REVIEW_STATUS" "$APPROVED_STATUS" || exit 0
   comments=$(tracker_comments) || stage_fail "Couldn't read $TICKET_KEY's comments from $TRACKER_NAME, so no command was handled."
   printf '%s\n' "$comments" > "$RUNNER_TEMP/comments-seen.json"
@@ -54,14 +54,6 @@ build_command() {
       and ((.body | first_text) as $t | ($t | is_command("/skip")) or ($t | is_command("/apply"))))]
     | sort_by(.created) | .[]' <<< "$comments")
   [ -n "$commands" ] || _command_end "no change needed" "no open /skip or /apply comments"
-  # Claimed before anything is done for them, so no command ever runs twice:
-  # a run that stops part-way, or can't post its answer, leaves it claimed,
-  # never open again (a person posts it again to repeat it; an edit to it
-  # isn't a new command). If the claim can't be written, nothing is done.
-  jq -c --argjson ids "$(jq -sc '[.[].id]' <<< "$commands")" \
-      '.handled = (((.handled // []) - $ids) + $ids) | .log = ((.log // [])[-100:])' <<< "$items" \
-    | tracker_set_property agent-hub-items \
-    || stage_fail "Couldn't record on $TICKET_KEY that its commands are being handled, so none was (it could otherwise run twice). Re-run the build."
 
   branch="$BUILD_BRANCH_PREFIX$TICKET_KEY"
   pr=$(gh_pr_find "$branch") || stage_fail "Couldn't read $branch's pull request from GitHub, so no command was handled."
@@ -89,10 +81,20 @@ build_command() {
   COMMAND_DEFER=1
   while IFS= read -r cmd; do
     # One /apply per run: the commands after it wait for the next run (each
-    # comment wakes one).
+    # comment wakes one) — open, never claimed.
     [ ! -s "$RUNNER_TEMP/apply-request.json" ] || break
+    # Each command is claimed — kept as handled on the ticket — just before
+    # anything is done for it, so it never runs twice: a run that stops
+    # part-way, or can't post its answer, leaves it claimed, never open
+    # again (a person posts it again to repeat it; an edit to it isn't a new
+    # command). If the claim can't be written, it and the rest wait, open,
+    # for the next run; those already handled are finished.
+    _command_claim "$(jq -r '.id' <<< "$cmd")" || break
+    claimed=$((claimed + 1))
     _command_handle "$cmd" "$number" "$pr"
   done <<< "$commands"
+  [ "$claimed" -gt 0 ] \
+    || stage_fail "Couldn't record on $TICKET_KEY that its commands are being handled, so none was (it could otherwise run twice). Re-run the build."
 
   COMMAND_DEFER=""
   state=$(cat "$RUNNER_TEMP/command-state.json")
@@ -119,7 +121,7 @@ build_command() {
   _command_flush
   jq -r -s '"🧾 Items updated by an approver on the ticket: " + ([.[] | "\(.id) \(.status)"] | join(", ")) + "."' "$RUNNER_TEMP/command-log.jsonl" \
     | gh_pr_comment "$number" || echo "::warning::Couldn't comment on pull request #$number."
-  tracker_set_property agent-hub-items < <(tracker_property agent-hub-items | jq -c --slurpfile log "$RUNNER_TEMP/command-log.jsonl" '.log = ((.log // []) + $log)') \
+  tracker_set_property agent-hub-items < <(tracker_property agent-hub-items | jq -c --slurpfile log "$RUNNER_TEMP/command-log.jsonl" '.log = (((.log // []) + $log)[-100:])') \
     || echo "::warning::Couldn't keep who changed which items on $TICKET_KEY."
   [ ! -s "$RUNNER_TEMP/apply-request.json" ] || return 0
   _command_end revised "items changed on pull request #$number: $(jq -r -s '[.[] | "\(.id) \(.status)"] | join(", ")' "$RUNNER_TEMP/command-log.jsonl")"
@@ -168,6 +170,17 @@ _command_handle() {
     fi
   done
   _command_reply "$id" "${done:-nothing changed}${refused:+; not open on pull request #$number: $refused}"
+}
+
+# _command_claim <comment id>: the command kept as handled on the ticket
+# (agent-hub-items: every handled id, never dropped; the log's last 100
+# entries), before anything is done for it. Fails if that can't be written.
+_command_claim() {
+  local claimed
+  claimed=$(jq -c --arg id "$1" '.handled = (((.handled // []) - [$id]) + [$id]) | .log = ((.log // [])[-100:])' <<< "$items") \
+    && tracker_set_property agent-hub-items <<< "$claimed" \
+    || { echo "::warning::Couldn't record on $TICKET_KEY that comment $1 is being handled, so it and any after it wait for the next run."; return 1; }
+  items=$claimed
 }
 
 # _command_reply <comment id> <what>: the command is answered — marked
@@ -223,7 +236,12 @@ _command_flush() {
 _command_refuse_all() {
   local cmd
   COMMAND_DEFER=""
-  while IFS= read -r cmd; do _command_reply "$(jq -r '.id' <<< "$cmd")" "not done: $2"; done <<< "$1"
+  # Claimed too (a refusal changes nothing, so a claim that can't be written
+  # only means it may be answered again).
+  while IFS= read -r cmd; do
+    _command_claim "$(jq -r '.id' <<< "$cmd")" || true
+    _command_reply "$(jq -r '.id' <<< "$cmd")" "not done: $2"
+  done <<< "$1"
   _command_end "no change needed" "$2"
 }
 
@@ -446,7 +464,7 @@ apply_fix_apply() {
   tracker_set_property agent-hub-items < <(tracker_property agent-hub-items | jq -c --argjson req "$(context '.apply')" \
       --slurpfile results "$RUNNER_TEMP/apply-results.json" --arg after "$after" --argjson kept "$kept" \
       '.log = ((.log // []) + [{apply: $req.comment, by: $req.by, by_name: $req.by_name, head: $req.head,
-         after: (if $kept then $after else null end), results: [$results[0][] | {item, thread, applied}], at: (now | todate)}])') \
+         after: (if $kept then $after else null end), results: [$results[0][] | {item, thread, applied}], at: (now | todate)}])[-100:]') \
     || echo "::warning::Couldn't keep who applied what on $TICKET_KEY."
   echo "[$TICKET_KEY]($TICKET_URL): /apply on pull request #$number — $(jq '[.[] | select(.applied)] | length' "$RUNNER_TEMP/apply-results.json") of $(jq length "$RUNNER_TEMP/apply-results.json") applied." >> "$GITHUB_STEP_SUMMARY"
   if [ "$kept" = true ]; then stage_outcome revised; else stage_outcome "no change needed"; fi

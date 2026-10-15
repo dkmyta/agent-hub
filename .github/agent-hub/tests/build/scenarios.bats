@@ -2068,8 +2068,8 @@ resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment
   command_run "$(command_comments '/skip D1')" 'MOCK_FAIL=PUT /properties/agent-hub-items'
   run trace
   assert_line "--- Outcome: failed"
-  # Nothing written to the pull request, nothing answered.
-  run bash -c "jq -r 'select(.method != \"GET\") | .path' '$GH_CALLS' 2> /dev/null"
+  # Nothing written to the pull request (GraphQL here only reads), nothing answered.
+  run bash -c "jq -r 'select(.method != \"GET\" and (.path != \"/graphql\" or ((.body.query // \"\") | test(\"^\\\\s*mutation\")))) | .path' '$GH_CALLS' 2> /dev/null"
   assert_output ""
   run resolutions
   assert_output ""
@@ -2177,6 +2177,35 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
   run pr_comments
   assert_output --partial "🔁 Applied by the agent hub (an /apply by an approver on the ticket): R1, in"
   refute_output --partial "trims the name"
+}
+
+@test "/apply then /skip queued together: the /skip isn't claimed by the /apply's run — it waits, open, and the next run does it" {
+  findings_pr
+  command_run "$(command_comments '/apply r1' '/skip R2')" CLAUDE_FIX_FIXTURE=claude/fix.json \
+    CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json CLAUDE_EDITS=""
+  assert_equal "$(jq -c '.handled' "$RUNNER_TEMP/mock-property-agent-hub-items.json")" '["700"]'
+  assert_equal "$(jq -r '[.items[] | select(.id == "R2")][0].status' <<< "$(pr_state)")" open
+  keep_properties
+  carry_prs
+  command_run "COMMENTS_FIXTURE=$BATS_TEST_TMPDIR/command-comments.json"
+  assert_equal "$(jq -r '[.items[] | select(.id == "R2")][0].status' <<< "$(pr_state)")" skipped
+  assert_equal "$(jq -c '.handled' "$RUNNER_TEMP/mock-property-agent-hub-items.json")" '["700","701"]'
+}
+
+@test "two /apply commands queued together: the second isn't claimed by the first's run — the next run handles and answers it" {
+  findings_pr
+  command_run "$(command_comments '/apply r1' '/apply r2')" CLAUDE_FIX_FIXTURE=claude/fix.json \
+    CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json CLAUDE_FIX_EDITS=edits/fix-trim.sh
+  assert_equal "$(jq -c '.handled' "$RUNNER_TEMP/mock-property-agent-hub-items.json")" '["700"]'
+  run resolutions
+  refute_output --partial "/comment/701"
+  keep_properties
+  carry_prs
+  command_run "COMMENTS_FIXTURE=$BATS_TEST_TMPDIR/command-comments.json" CLAUDE_FIX_FIXTURE=claude/fix.json \
+    CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json CLAUDE_FIX_EDITS=edits/fix-trim.sh
+  assert_equal "$(jq -c '.handled' "$RUNNER_TEMP/mock-property-agent-hub-items.json")" '["700","701"]'
+  run resolutions
+  assert_output --partial "/comment/701 ✅ Resolved"
 }
 
 @test "/apply all: every open R item, never a decision" {

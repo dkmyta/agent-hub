@@ -85,7 +85,8 @@ problems() { handoff_problems "$1" <<< "$2"; }
   # A record missing what these rules read.
   local broken
   for broken in '{}' '{"heads": [], "review": {"status": "reviewed"}}' '{"heads": [{"head": 1}], "review": {}}' \
-      '{"heads": [{"head": "bbbbbbb1"}], "review": "reviewed"}' '{"heads": [{"head": "bbbbbbb1"}], "review": {}, "items": {}}'; do
+      '{"heads": [{"head": "bbbbbbb1"}], "review": "reviewed"}' '{"heads": [{"head": "bbbbbbb1"}], "review": {}, "items": {}}' \
+      "$(record | jq -c 'del(.items)')" "$(record | jq -c '.items = null')"; do
     run problems bbbbbbb1 "$broken"
     assert_output "the hub's record isn't one it can read (its heads, review or items are missing or malformed), so the change needs reviewing again"
   done
