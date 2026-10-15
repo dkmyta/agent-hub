@@ -110,6 +110,15 @@ run — retries, revisions and resubmissions included:
   $0.20)", or "(draft …, review …)" for the document stages), then the
   ticket's total. Runs that stop
   before Claude (a wrong status, a check that fails first) don't count.
+- **Reserved before Claude is used** (since 2.22.1). Once a run is admitted
+  (below), the most it can cost is written to that record as a reservation
+  before any Claude pass — if it can't be written, Claude isn't used. At the
+  end the run replaces it with what it actually cost (or lifts it, if it
+  used no Claude). A run that dies, or can't write its cost, leaves the
+  reservation, and the next run on the ticket counts it at all it reserved,
+  marked *estimated*, before it's admitted itself — runs on a ticket never
+  overlap, so a reservation found then is always a finished run's. Usage
+  is counted too much rather than too little, never lost.
 - **Checked before Claude is used — for the whole run.** A run may use
   Claude only if the ticket's spend so far plus the most the run can cost
   fits within the cap. "The most" is the sum of the configured maximum of

@@ -13,6 +13,7 @@ GET /comment?maxResults=100
 GET ?fields=attachment
 GET /attachment/content/8001
 GET /properties
+PUT /properties/agent-hub-ledger — {"pending":{"run":"1000.1","stage":"implementation-plan","reserved":6}}
 POST /comment — comment: ⏳ Revising implementation plan
 GET ?fields=status
 GET /transitions
@@ -20,6 +21,7 @@ POST /comment — comment: Needs clarification
 PUT  — {"update":{"labels":[{"add":"needs-clarification"},{"add":"needs-human"}]}}
 POST /transitions — {"transition":{"id":"21"}}
 GET /properties
+GET /properties/agent-hub-ledger
 PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":0.3,"estimated":false,"stages":{"implementation-plan":{"runs":1,"cost_usd":0.3}}}
 DELETE /comment/5001
 --- Outcome: sent back

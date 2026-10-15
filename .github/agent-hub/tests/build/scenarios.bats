@@ -191,15 +191,29 @@ test/greet.test.js expected"
   run trace
   assert_line "Apply: failure"
   assert_equal "$(remote_branches)" "main"
-  # The hub's own edit since — the description's Pull Request section, which
-  # the build writes after it opens the pull request — isn't a change to the
-  # work order: every later run on the ticket would otherwise be stale.
-  jq '.values[-1].author.accountId = "agent-hub-bot"' "$BATS_TEST_TMPDIR/edited.json" > "$BATS_TEST_TMPDIR/hub-edited.json"
+  # The hub's own edit since — its Delivery sections (Testing Instructions,
+  # Pull Request), which the build writes after it opens the pull request —
+  # isn't a change to what was approved: every later run on the ticket would
+  # otherwise be stale.
+  jq '.values[-1].author.accountId = "agent-hub-bot"
+      | .values[-1].items[0] = {field: "description",
+          fromString: "Work order. Plan summary.\nTesting Instructions\nPending\nPull Request\nPending",
+          toString: "Work order. Plan summary.\nTesting Instructions\nCheck out the branch\nPull Request\n#101"}' \
+    "$BATS_TEST_TMPDIR/edited.json" > "$BATS_TEST_TMPDIR/hub-edited.json"
   fresh_repo
   run_scenario ready CLAUDE_EDITS=edits/greet.sh CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/hub-edited.json"
   run trace
   assert_line "Apply: success"
   assert_line "--- Outcome: written"
+  # But the automation editing what was approved — the work order or the
+  # plan's summary — is a change like any other: approve again.
+  jq '.values[-1].items[0].toString = "Work order, changed. Plan summary.\nTesting Instructions\nPending\nPull Request\nPending"' \
+    "$BATS_TEST_TMPDIR/hub-edited.json" > "$BATS_TEST_TMPDIR/hub-edited-content.json"
+  fresh_repo
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/hub-edited-content.json"
+  run trace
+  assert_line "Agent: skipped"
+  grep -qx '\*\*Outcome:\*\* stale' "$RUNNER_TEMP/summary.md"
 }
 
 # A time that can't be read can't show the plan predates the approval.
@@ -560,6 +574,8 @@ ci --no-audit --no-fund"
   assert_line "Agent: skipped"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "changed files in the repository"
+  # Admitted, but stopped before Claude: its reservation is lifted, nothing counted.
+  assert_equal "$(jq -c '{pending, runs}' "$RUNNER_TEMP/mock-ledger.json")" '{"pending":null,"runs":null}'
 }
 
 @test "only the commit the checks passed on is pushed" {

@@ -22,12 +22,14 @@ GET /attachment/content/10001
 GET /changelog?startAt=0&maxResults=100
 GET ?fields=attachment
 GET /properties
+PUT /properties/agent-hub-ledger — {"pending":{"run":"1000.1","stage":"build","reserved":23}}
 POST /comment — comment: ⏳ Building
 GET ?fields=status
 GET /myself
 GET /changelog?startAt=0&maxResults=100
 GET ?fields=attachment
 GET /properties
+GET /properties/agent-hub-ledger
 PUT /properties/agent-hub-ledger — {"runs":1,"cost_usd":2.41,"estimated":false,"stages":{"build":{"runs":1,"cost_usd":2.41}}}
 GET ?fields=status
 PUT /comment/5001 — comment: ❌ Build failed

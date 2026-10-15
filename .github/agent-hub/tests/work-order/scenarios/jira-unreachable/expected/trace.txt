@@ -9,6 +9,7 @@ Report failure: success
 Remove session and credential files: success
 --- Jira calls
 GET ?fields=summary,description,status
+GET /properties
 GET ?fields=status
 POST /comment — comment: ❌ Work order generation failed
 PUT  — {"update":{"labels":[{"add":"needs-human"}]}}

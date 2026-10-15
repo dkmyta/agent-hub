@@ -30,6 +30,17 @@
     "body": null
   },
   {
+    "method": "PUT",
+    "path": "/properties/agent-hub-ledger",
+    "body": {
+      "pending": {
+        "run": "1000.1",
+        "stage": "implementation-plan",
+        "reserved": 12
+      }
+    }
+  },
+  {
     "method": "POST",
     "path": "/comment",
     "body": {
@@ -1896,6 +1907,11 @@
   {
     "method": "GET",
     "path": "/properties",
+    "body": null
+  },
+  {
+    "method": "GET",
+    "path": "/properties/agent-hub-ledger",
     "body": null
   },
   {
