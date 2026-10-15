@@ -145,7 +145,10 @@ sandbox_run() {
         my $seconds = shift() * 60; my $pid = fork;
         if (!$pid) { setpgrp(0, 0); exec @ARGV; exit 127 }
         $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 5; kill "KILL", -$pid; exit 124 };
-        alarm $seconds; waitpid($pid, 0); my $rc = $? >> 8; alarm 0;
+        # A command ended by a signal failed (128 + the signal, as a shell
+        # says it): its status has no exit code, which would read as 0.
+        alarm $seconds; waitpid($pid, 0); my $st = $?; alarm 0;
+        my $rc = ($st & 127) ? 128 + ($st & 127) : $st >> 8;
         if (kill 0, -$pid) { kill "TERM", -$pid; sleep 1; kill "KILL", -$pid }
         exit $rc' \
       "$minutes" "$srt" --settings "$settings" -c "$command"

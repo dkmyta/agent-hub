@@ -5,6 +5,32 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.21.7 — 2026-10-14
+
+Security and correctness fixes from the full review of 2.21.6 (each checked
+against the code before fixing; the rest are planned for 2.22.0).
+
+- **Critical: the agents' git could be turned against the hub's own files**
+  (introduced in 2.21.6). Its wrapper was rewritten on every pass inside the
+  agents' writable temp folder: a link an agent planted there would have made
+  the hub overwrite one of its own files — later run with the Jira and
+  GitHub credentials — and a crafted folder name would have put shell code
+  in it. The wrapper now lives where only the hub writes
+  (`$RUNNER_TEMP/agent-git`), readable in the sandbox but never writable,
+  made afresh every time, its paths single-quoted. A test plants both and
+  shows nothing changes.
+- **A check ended by a signal now fails** (128 + the signal). It reported
+  exit 0 — success — before.
+- **A licence expression with grouped terms is a person's decision.** Brackets
+  were dropped, so "SSPL-1.0 AND (MIT OR Apache-2.0)" passed when MIT was
+  allowed. Brackets around the whole expression are still read.
+- **Answered commands stay answered:** the record of them keeps every one
+  (it dropped all but the last 200), and if it can't be read, no command is
+  handled (it was treated as empty, so an answered command could run again).
+
+**Updating:** Nothing. Run **Agent hub: Sandbox check** if you like (about
+$0.15): git in the agent's commands should still pass.
+
 ## 2.21.6 — 2026-10-14
 
 From the second manual test (AGENTHUB-60: a merge conflict, a person's
