@@ -35,7 +35,7 @@ handoff_problems() {
     # The parts of the record these rules read: anything else is a record
     # the hub can'"'"'t vouch for, never eligible by default.
     if (.heads | type) != "array" or (.heads | length) == 0 or (.review | type) != "object"
-       or ((.items // []) | type) != "array" or any(.heads[]; (.head | type) != "string")
+       or (.items | type) != "array" or any(.heads[]; (.head | type) != "string")
     then "the hub'"'"'s record isn'"'"'t one it can read (its heads, review or items are missing or malformed), so the change needs reviewing again"
     else
     (.heads // []) as $heads | (.review.head // "") as $reviewed

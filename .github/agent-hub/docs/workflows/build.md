@@ -857,13 +857,15 @@ and the next revision reviews the whole pull request.
   way to give the agent instructions.
 - **Only open items in the pull request's current record**; every command is
   answered once, on the ticket (the comment marked resolved with what was
-  done, or why not). **Each command is claimed before anything is done for
-  it** (since 2.22.2): its comment's id is kept as handled on the ticket
-  (`agent-hub-items`, every one, never dropped), so it never runs twice — a
-  run that stops part-way, or can't post its answer, leaves it claimed, not
-  open again; to repeat a command, post it again (an edit to it isn't a new
-  command). If the claim can't be written, or that record can't be read, no
-  command is handled. Marking a person's comment needs the tracker account
+  done, or why not). **Each command is claimed just before anything is done
+  for it** (since 2.22.2; one at a time since 2.22.3): its comment's id is
+  kept as handled on the ticket (`agent-hub-items`, every one, never
+  dropped), so it never runs twice — a run that stops part-way, or can't
+  post its answer, leaves it claimed, not open again; to repeat a command,
+  post it again (an edit to it isn't a new command). A command after an
+  accepted `/apply` isn't claimed: it waits, open, for the next run. If a
+  claim can't be written, that command and the rest wait for the next run;
+  if that record can't be read, no command is handled. Marking a person's comment needs the tracker account
   to edit people's comments ([jira.md](../jira.md#permissions-for-the-automation-account));
   if the tracker refuses, the answer is posted as a comment of its own
   ("✅ Answered — …").

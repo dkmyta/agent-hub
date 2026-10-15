@@ -5,6 +5,33 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.22.3 — 2026-10-15
+
+From a re-check of 2.22.2 (each point checked against the code first): H3
+and M2 confirmed closed; two gaps left in H4 and H7.
+
+- **H7 — a command is claimed just before it's handled, one at a time.**
+  2.22.2 claimed every queued command up front, but a run handles one
+  `/apply` and leaves the commands after it for the next run — which then
+  found them claimed, and skipped them silently. Now each is claimed just
+  before anything is done for it; a command after an accepted `/apply`
+  stays open for the next run. A claim that can't be written stops the
+  loop there (those handled are finished; the rest wait); if none could be
+  claimed, the run fails saying so. Commands refused before the loop (a
+  paused or missing pull request, an untrusted record) are claimed too.
+- **H4 — the record's items must be there.** A record with no items, or
+  null items, read as "no decision item open"; now it blocks the hand-off
+  like any record missing what the rules read.
+- **The command log keeps its last 100 entries at every write** (it was
+  trimmed only when a command was claimed). The handled ids are all kept.
+- **Tests:** two `/apply` commands, and an `/apply` then a `/skip`, queued
+  together — the later one waits, open, and the next run handles it; and
+  the test runner stops at once with a clear message if the first `node` on
+  PATH is older than 20 (an old one failed every scenario far from the
+  cause).
+
+**Updating:** Nothing.
+
 ## 2.22.2 — 2026-10-15
 
 From a verification of the review's fixes (each point checked against the
