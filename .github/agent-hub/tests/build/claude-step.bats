@@ -42,7 +42,7 @@ claude_step() { # [jq edit to apply to the ready fixture]
   # git first on their PATH that sets it (the sandbox drops GIT_* variables).
   local bin
   bin=$(jq -r '.env.PATH | split(":")[0]' <<< "$(sed -n '/^--settings$/{n;p;}' "$RUNNER_TEMP/claude-args.txt")")
-  assert_equal "$bin" "$RUNNER_TEMP/agent-tmp/bin"
+  assert_equal "$bin" "$(cd "$RUNNER_TEMP/agent-git" && pwd -P)/bin"
   run cat "$bin/git"
   assert_output --partial "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME="
   [ ! -e "$RUNNER_TEMP/claude-review-args.txt" ] || fail "the build ran a review pass"
@@ -50,6 +50,33 @@ claude_step() { # [jq edit to apply to the ready fixture]
   run cat "$RUNNER_TEMP/summary.md"
   assert_output --partial "| ready | claude-opus-5-5 |"
   refute_output --partial "review \$0"
+}
+
+@test "the agents' git is made where only the hub writes: a link or a crafted folder name an agent planted in its temp folder changes nothing" {
+  # What an earlier pass's commands could leave in the agent's temp folder: its
+  # bin/git a link to one of the hub's files, and git-xdg a link to a folder
+  # whose name is shell code.
+  local temp="$RUNNER_TEMP/agent-tmp" hub_file="$BATS_TEST_TMPDIR/hub-file.sh" crafted
+  crafted="$BATS_TEST_TMPDIR/x\$(touch $BATS_TEST_TMPDIR/injected)"
+  mkdir -p "$temp/bin" "$crafted"
+  echo "hub code" > "$hub_file"
+  ln -s "$hub_file" "$temp/bin/git"
+  ln -s "$crafted" "$temp/git-xdg"
+  claude_step
+  assert_success
+  claude_step
+  assert_success
+  assert_equal "$(cat "$hub_file")" "hub code"
+  # The git the commands get is outside the agent's temp folder, readable but
+  # not writable in the sandbox, with its paths quoted; running it injects nothing.
+  local settings bin
+  settings=$(sed -n '/^--settings$/{n;p;}' "$RUNNER_TEMP/claude-args.txt")
+  bin=$(jq -r '.env.PATH | split(":")[0]' <<< "$settings")
+  case "$bin" in "$(cd "$temp" && pwd -P)"/* | "$temp"/*) fail "the git is in the agent's temp folder: $bin" ;; esac
+  assert_equal "$(jq -r --arg d "${bin%/bin}" '.sandbox.filesystem | [(.allowRead | index($d) != null), (.allowWrite | any(startswith($d)))] | join(" ")' <<< "$settings")" "true false"
+  run "$bin/git" --version
+  assert_success
+  [ ! -e "$BATS_TEST_TMPDIR/injected" ] || fail "shell code ran"
 }
 
 @test "the agent works from the approved plan and its instructions" {

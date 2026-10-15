@@ -113,6 +113,14 @@ real_srt() {
   assert_line "HOME=$(cd "$RUNNER_TEMP/sandbox" && pwd -P)/home"
 }
 
+@test "sandbox_run: a command ended by a signal has failed (128 + the signal), never 0" {
+  export RUNNER_TOOL_CACHE="$BATS_TEST_TMPDIR/toolcache"
+  mkdir -p "$(with_sandbox 'sandbox_dir')/node_modules/.bin"
+  ln -s "$TESTS_DIR/lib/bin/srt" "$(with_sandbox 'sandbox_dir')/node_modules/.bin/srt"
+  run with_sandbox "sandbox_run check '$WORK' 1 '$BATS_TEST_TMPDIR/log' 'kill -TERM \$\$'"
+  assert_failure 143
+}
+
 # WF-3: a step can hold several commands, each with the hub's limit; if
 # GitHub stops the step itself, limit-reason says what was running.
 @test "sandbox_run: while a command runs, limit-reason says what (install or checks); afterwards it's gone" {

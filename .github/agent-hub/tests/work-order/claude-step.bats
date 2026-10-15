@@ -508,8 +508,9 @@ $RUNNER_TEMP/plugins/repository"
   # The Node the workflow set up is readable (even in the home folder) and on
   # the commands' PATH, the step's own.
   toolchain=$(cd "$(dirname "$(command -v node)")/.." && pwd -P)
+  # (and the hub's git for the commands: readable, not writable)
   assert_equal "$(jq -c '.sandbox.filesystem' <<< "$settings")" \
-    "$(jq -nc --argjson d "$(bash -c "source '$HUB_DIR/lib/paths.sh'; sandbox_denied_reads")" --arg r "$repo" --arg t "$temp" --arg n "$toolchain" '{denyRead: $d, allowRead: [$r, $t, $n], allowWrite: [$r, $t]}')"
+    "$(jq -nc --argjson d "$(bash -c "source '$HUB_DIR/lib/paths.sh'; sandbox_denied_reads")" --arg r "$repo" --arg t "$temp" --arg n "$toolchain" --arg g "$(cd "$RUNNER_TEMP/agent-git" && pwd -P)" '{denyRead: $d, allowRead: [$r, $t, $n, $g], allowWrite: [$r, $t]}')"
   assert_equal "$(jq -r --arg bin "$toolchain/bin" '.env.PATH | split(":") | any(. == $bin)' <<< "$settings")" true
   assert_equal "$(jq -c '.sandbox.network' <<< "$settings")" '{"allowedDomains":["localhost","127.0.0.1"],"allowLocalBinding":true}'
   assert_equal "$(jq -c '.permissions.deny' <<< "$settings")" \

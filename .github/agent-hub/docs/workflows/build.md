@@ -845,7 +845,8 @@ and the next revision reviews the whole pull request.
   to edit people's comments ([jira.md](../jira.md#permissions-for-the-automation-account));
   if the tracker refuses, the answer is posted as a comment of its own
   ("✅ Answered — …"), and the command is kept as handled on the ticket
-  (`agent-hub-items`), so it isn't read again (since 2.21.6).
+  (`agent-hub-items`), so it isn't read again (since 2.21.6; every one kept,
+  and if that record can't be read no command is handled, since 2.21.7).
 - **`/skip`:** a decision item is *accepted*, any other *skipped*; the
   description's items are rewritten from the review the hub keeps on the
   ticket (the private `agent-hub-review` property: findings' full text a

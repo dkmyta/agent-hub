@@ -38,7 +38,7 @@
 # Sourced by stage.sh.
 
 build_command() {
-  local comments commands branch pr number state record before cmd
+  local comments handled commands branch pr number state record before cmd
   stage_fetch "$PLAN_APPROVED_STATUS" "$READY_FOR_REVIEW_STATUS" "$APPROVED_STATUS" || exit 0
   comments=$(tracker_comments) || stage_fail "Couldn't read $TICKET_KEY's comments from $TRACKER_NAME, so no command was handled."
   printf '%s\n' "$comments" > "$RUNNER_TEMP/comments-seen.json"
@@ -46,8 +46,11 @@ build_command() {
   cp "$RUNNER_TEMP/comments-seen.json" "$RUNNER_TEMP/command-comments.json"
   # A command is open until it's answered: its comment marked handled, or —
   # when the tracker refused that edit — its id kept as handled on the
-  # ticket (_command_reply), so it isn't read again on every later run.
-  commands=$(jq -c -L "$HUB_DIR/lib" --argjson handled "$(tracker_property agent-hub-items 2> /dev/null | jq -c '.handled // []' 2> /dev/null || echo '[]')" 'include "adf";
+  # ticket (_command_reply), so it isn't read again on every later run. If
+  # that record can't be read, no command is: an answered one could run again.
+  handled=$(tracker_property agent-hub-items | jq -ce '.handled // []') \
+    || stage_fail "Couldn't read which commands on $TICKET_KEY were already answered, so none was handled. Re-run the build; if it happens again, check the hub's Jira access."
+  commands=$(jq -c -L "$HUB_DIR/lib" --argjson handled "$handled" 'include "adf";
     [.comments[] | select((automation_comment | not) and (.id | IN($handled[]) | not)
       and ((.body | first_text) as $t | ($t | is_command("/skip")) or ($t | is_command("/apply"))))]
     | sort_by(.created) | .[]' <<< "$comments")
@@ -178,12 +181,13 @@ _command_reply() {
 }
 
 # _command_handled <comment id>: kept on the ticket (agent-hub-items,
-# handled: the last 200), so a command whose comment couldn't be marked
-# handled isn't read again by every later run.
+# handled — every one, never dropped: an answered command must not run
+# again), so a command whose comment couldn't be marked handled isn't read
+# again by a later run.
 _command_handled() {
   tracker_set_property agent-hub-items < <(tracker_property agent-hub-items \
-      | jq -c --arg id "$1" '.handled = (((.handled // []) - [$id]) + [$id] | .[-200:])') \
-    || echo "::warning::Couldn't keep comment $1 as handled on $TICKET_KEY."
+      | jq -c --arg id "$1" '.handled = (((.handled // []) - [$id]) + [$id])') \
+    || echo "::error::Couldn't keep comment $1 as handled on $TICKET_KEY: if its comment couldn't be marked handled either, a later run could act on it again — mark it by hand (strike it through)."
 }
 
 # _review_record <state file>: the review's record from the ticket

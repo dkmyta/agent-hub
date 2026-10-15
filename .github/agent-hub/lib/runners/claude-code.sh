@@ -207,18 +207,22 @@ agent_sandbox_dir() { mkdir -p "$RUNNER_TEMP/agent-tmp" && echo "$RUNNER_TEMP/ag
 # shellcheck source=lib/paths.sh
 declare -F sandbox_denied_reads > /dev/null || source "$(dirname "${BASH_SOURCE[0]}")/../paths.sh"
 
-# _git_wrapper <folder>: a git in <folder> that runs the runner's git with
-# no global or system configuration (GIT_CONFIG_GLOBAL=/dev/null,
+# _git_wrapper: prints the folder of a git that runs the runner's git with no
+# global or system configuration (GIT_CONFIG_GLOBAL=/dev/null,
 # GIT_CONFIG_NOSYSTEM=1) and none of the home folder's per-user git files
-# (~/.config/git/ignore, attributes: XDG_CONFIG_HOME, an empty folder next
-# to it), for the agent's sandboxed commands.
+# (XDG_CONFIG_HOME: an empty folder), for the agent's sandboxed commands.
+# It lives where only the hub writes — $RUNNER_TEMP/agent-git, outside the
+# agent's temp folder (agents can write there: a link planted in it would
+# turn this write onto the hub's own files) — made afresh every time from
+# the hub's own values, its paths single-quoted.
 _git_wrapper() {
-  local git
+  local git dir="$RUNNER_TEMP/agent-git"
   git=$(command -v git) || return 0
-  mkdir -p "$1" "$1/../git-xdg"
-  printf '#!/bin/sh\nGIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME="%s" exec "%s" "$@"\n' \
-    "$(cd "$1/../git-xdg" && pwd -P)" "$git" > "$1/git"
-  chmod +x "$1/git"
+  case "$dir$git" in *"'"* | *$'\n'*) echo "::warning::git's path or the runner's temp folder has a quote or a line break, so the agent's commands use git as it is." >&2; return 0 ;; esac
+  rm -rf "$dir" && mkdir -p "$dir/bin" "$dir/xdg" || return 0
+  printf "#!/bin/sh\nGIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME='%s' exec '%s' \"\$@\"\n" "$dir/xdg" "$git" > "$dir/bin/git"
+  chmod 0555 "$dir/bin/git"
+  (cd "$dir" && pwd -P)
 }
 
 # agent_settings <profile>: the --settings JSON for a profile. For build and
@@ -231,7 +235,7 @@ _git_wrapper() {
 # working directory); network to localhost only; it fails rather than run a command
 # unsandboxed, and a --settings file closes these settings to the project.
 agent_settings() {
-  local temp toolchain=""
+  local temp toolchain="" gitdir
   if [ "$1" = read-only ]; then jq -nc '{disableAllHooks: true, disableBundledSkills: true}'; return; fi
   temp=$(agent_sandbox_dir)
   # The Node the workflow set up from the repository's declared version
@@ -242,16 +246,17 @@ agent_settings() {
   # git without the home folder's ~/.gitconfig, which the sandbox rightly
   # hides (every git command would stop on it): Claude Code's sandbox drops
   # git's own variables (GIT_CONFIG_GLOBAL…) from the commands' environment,
-  # but PATH reaches them, so a git first on it sets them itself.
-  _git_wrapper "$temp/bin"
+  # but PATH reaches them, so a git first on it sets them itself — readable
+  # in the sandbox, never writable.
+  gitdir=$(_git_wrapper)
   jq -nc --argjson unreadable "$(sandbox_denied_reads)" --arg repo "$(pwd -P)" --arg temp "$temp" --arg profile "$1" \
-      --arg toolchain "$toolchain" --arg path "$PATH" --argjson denied "$AGENT_DENIED_PATHS" '{
+      --arg toolchain "$toolchain" --arg path "$PATH" --argjson denied "$AGENT_DENIED_PATHS" --arg gitdir "$gitdir" '{
     disableAllHooks: true, disableBundledSkills: true,
-    env: {PATH: "\($temp)/bin:\($path)"},
+    env: {PATH: ((if $gitdir != "" then "\($gitdir)/bin:" else "" end) + $path)},
     permissions: {deny: [$denied[] | "Edit(./\(.))", "Write(./\(.))"]},
     sandbox: {
       enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true,
-      filesystem: ({denyRead: $unreadable, allowRead: ([$repo, $temp] + (if $toolchain != "" then [$toolchain] else [] end)),
+      filesystem: ({denyRead: $unreadable, allowRead: ([$repo, $temp] + (if $toolchain != "" then [$toolchain] else [] end) + (if $gitdir != "" then [$gitdir] else [] end)),
         allowWrite: (if $profile == "build" then [$repo, $temp] else [$temp] end)}
         + (if $profile == "review" then {denyWrite: [$repo]} else {} end)),
       network: {allowedDomains: ["localhost", "127.0.0.1"], allowLocalBinding: true}}}'

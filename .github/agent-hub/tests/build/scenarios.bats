@@ -786,6 +786,16 @@ failure() { cat "$RUNNER_TEMP/failure-reason"; }
   assert_output --partial "(no minimum release age)"
 }
 
+@test "dependency changes: a licence expression with grouped terms is a person's decision, even when a group is allowed" {
+  stub_npm
+  npm_project
+  echo "MIT" > "$NPM_STUB/license-left-pad"
+  touch "$NPM_STUB/extra-tiny-dep" && echo "SSPL-1.0 AND (MIT OR Apache-2.0)" > "$NPM_STUB/license-tiny-dep"
+  deps_run 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_ALLOWED_LICENSES": "MIT,Apache-2.0"}'
+  run jq -r '.decisions[] | "\(.path): \(.reason)"' "$RUNNER_TEMP/gates.json"
+  assert_output --partial "tiny-dep@1.3.0: SSPL-1.0 AND (MIT OR Apache-2.0)"
+}
+
 @test "dependency changes: the repository's allowed licences replace the default; an expression passes if it allows one; an invalid list is refused" {
   stub_npm
   npm_project
@@ -1998,6 +2008,25 @@ resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment
   assert_line "--- Outcome: no change needed"
   run resolutions
   assert_output ""
+}
+
+@test "/skip: if the record of answered commands can't be read, no command is handled — an answered one could run again" {
+  run_scenario decision-item
+  keep_properties
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  command_run "$(command_comments '/skip D1')"
+  assert_equal "$(jq -r '[.items[] | select(.id == "D1") | .status][0]' <<< "$(pr_state)")" accepted
+  keep_properties
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  command_run "$(command_comments '/skip R9')" 'MOCK_FAIL=GET /properties/agent-hub-items'
+  run trace
+  assert_line "--- Outcome: failed"
+  run resolutions
+  assert_output ""
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "Couldn't read which commands on PROJ-99 were already answered"
 }
 
 @test "/skip: only approvers, only item ids, only open items — anything else is answered, and nothing changes" {

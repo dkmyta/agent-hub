@@ -303,9 +303,13 @@ build_dependency_checks() {
         --argjson signatures "${signatures:-0}" --argjson attestations "${attestations:-0}" '
       .allowed_licenses as $allowed
       # An SPDX expression passes if it allows a licence on the list: one of
-      # an OR, all of an AND (brackets read loosely; anything else fails).
+      # an OR, all of an AND. Brackets around the whole expression are read;
+      # any others (a grouped AND/OR) are a person'"'"'s decision, as is
+      # anything else — never read loosely, which could drop a required term.
       | def allowed: if type != "string" then false
-          else gsub("[()]"; "") | split(" OR ") | any(split(" AND ") | all(gsub("^\\s+|\\s+$"; "") | IN($allowed[]))) end;
+          else gsub("^\\s+|\\s+$"; "") | (if test("^\\([^()]*\\)$") then .[1:-1] else . end)
+            | if test("[()]") then false
+              else split(" OR ") | any(split(" AND ") | all(gsub("^\\s+|\\s+$"; "") | IN($allowed[]))) end end;
       def versions: .packages // {} | with_entries(select(.key != "") | .value = .value.version);
       ($old[0] | versions) as $o | ($lock[0] | versions) as $n
       | ([.changes[] | select(.folder == $f and .action != "remove") | .package]) as $direct
