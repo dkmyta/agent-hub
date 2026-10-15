@@ -5,6 +5,46 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.23.0 — 2026-10-15
+
+v1, the testing approach (part one), as reviewed: an installed hub's CI is
+light, CI is the merge gate, and a fast local loop.
+
+- **An installed hub's CI is one inexpensive job.** In a repository the hub
+  is installed in (it has `update.sh`'s record, `.github/agent-hub/.installed`),
+  **Agent hub: Tests** no longer runs the hub's whole suite on two jq
+  versions and again on macOS — the hub was tested where it's released. It
+  runs **Consumer contract checks** on one Linux runner: first, before
+  installing anything, `update.sh --check` — the hub's files unchanged since
+  installation, none edited, deleted or added (against the record update.sh
+  wrote; not proof of where they came from); then the consumer contract
+  checks (`npm run smoke`): the workflows' shape, the repository's extensions
+  — now including `checks.json`'s install list — and the settings'
+  contracts. Not the repository's real variables, permissions, Jira or
+  runner: that's the setup checker's job.
+- **`update.sh --check`**: the same check by hand — the installer's own
+  detection of edited, deleted and added hub files, against its record.
+- **CI is the merge gate:** in the hub's own repository the whole suite now
+  runs on every pull request on macOS (Bash 3.2) too, not only the stages'
+  scenarios. **Agent hub: Test** passes exactly when the right jobs passed —
+  the hub's own repository, an installed copy, or no hub change — and fails
+  on anything else, including a changes job that didn't say (a truth-table
+  test runs its real script).
+- **`npm run affected`** runs only the suites a change can affect, for
+  speed while working — never too few: a stage's change runs its suite and
+  every suite whose tests use that stage's files (found in the tests, so the
+  map can't fall behind); shared code, the test harness and its packages, the
+  workflows and issue templates run everything; a rename counts at both
+  paths; with no comparison base, or a git error, everything runs, saying
+  why. Tested against real temporary git repositories.
+- **Docs:** CONTRIBUTING (the gate, and the local loop), the tests README
+  (what the suite calls: no live Jira, GitHub or model calls — the real
+  sandbox and npm registry are used on purpose), updating.md.
+
+**Updating:** Nothing. An edited, deleted or added hub file in your
+repository now fails **Agent hub: Test** — change the hub only with
+`update.sh`, and move your own changes into an extension.
+
 ## 2.22.3 — 2026-10-15
 
 From a re-check of 2.22.2 (each point checked against the code first): H3

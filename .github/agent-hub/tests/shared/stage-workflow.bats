@@ -143,6 +143,9 @@ check_extensions() { # <extensions folder>: prints each problem
   if [ -f "$1/build/checks.json" ]; then
     bash -c 'source "$1"; build_checks_list' _ "$HUB_DIR/stages/build/stage.sh" < "$1/build/checks.json" > /dev/null \
       || echo "build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
+    # …and its install list, as the install step reads it.
+    bash -c 'source "$1"; build_install_list_valid' _ "$HUB_DIR/stages/build/stage.sh" < "$1/build/checks.json" \
+      || echo "build: checks.json's install list isn't folders inside the repository"
   fi
 }
 
@@ -165,6 +168,17 @@ check_extensions() { # <extensions folder>: prints each problem
 shared: checks.json
 work_order: not shared or a stage
 build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
+  # An install list outside the repository, or not folders.
+  local bad
+  for bad in '["../elsewhere"]' '["/abs"]' '"web"' '[1]'; do
+    rm -rf "$ext" && mkdir -p "$ext/build"
+    jq -n --argjson install "$bad" '{checks: [{name: "unit", command: "npm test"}], install: $install}' > "$ext/build/checks.json"
+    run check_extensions "$ext"
+    assert_output "build: checks.json's install list isn't folders inside the repository"
+  done
+  jq -n '{checks: [{name: "unit", command: "npm test"}], install: [".", "web", "packages/api"]}' > "$ext/build/checks.json"
+  run check_extensions "$ext"
+  assert_output ""
 }
 
 # A new stage can't go untested by forgetting to add it to the suite.
@@ -284,4 +298,117 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
       }' "$REPO_DIR/.github/workflows/agent-hub-pr-closed.yml"
   assert_success
   assert_output 'pull_request_target {"actions":"write"}'
+}
+
+# v1: a repository the hub is installed in (update.sh's record) runs only its
+# consumer contract checks — the hub was tested where it's released.
+@test "installed hub's CI: its own inexpensive job — the hub's files checked first, then the contract checks; the full matrix and macOS only in the hub's own repository" {
+  run node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { parse } from "yaml";
+    const wf = parse(readFileSync(process.argv[1], "utf8"));
+    const c = wf.jobs.contract;
+    console.log([
+      wf.jobs.changes.outputs.installed !== undefined,
+      wf.jobs.test.if.includes("installed != \x27true\x27"), wf.jobs["test-macos"].if.includes("installed != \x27true\x27"),
+      c.if.includes("installed == \x27true\x27"), c.strategy === undefined,
+      c.steps.findIndex((s) => (s.run ?? "").includes("update.sh --check")) < c.steps.findIndex((s) => (s.run ?? "").startsWith("npm ci")),
+      c.steps.some((s) => (s.run ?? "").includes("npm run smoke") && s.env?.AGENT_HUB_TEST_JOBS === "1"),
+      !JSON.stringify(c.steps).includes("parallel"),
+    ].join(" "));' "$REPO_DIR/.github/workflows/agent-hub-tests.yml"
+  assert_output "true true true true true true true true"
+  local file
+  for file in $(jq -r '.scripts.smoke' "$TESTS_DIR/package.json" | tr ' ' '\n' | grep '\.bats$'); do
+    [ -f "$TESTS_DIR/$file" ] || fail "the contract checks name $file, which doesn't exist"
+  done
+}
+
+@test "Agent hub: Test passes exactly when the right jobs passed — the hub's own repository, an installed copy, no hub change — and fails otherwise" {
+  local gate
+  gate=$(node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { parse } from "yaml";
+    process.stdout.write(parse(readFileSync(process.argv[1], "utf8")).jobs["test-result"].steps[0].run);' "$REPO_DIR/.github/workflows/agent-hub-tests.yml")
+  verdict() { HUB=$1 INSTALLED=$2 RESULT=$3 MACOS=$4 CONTRACT=$5 bash -e -c "$gate" > /dev/null 2>&1 && echo pass || echo fail; }
+  local row
+  #     hub    installed matrix   macOS    contract  → expected
+  while read -r row; do
+    set -- $row
+    assert_equal "$1/$2 $3 $4 $5: $(verdict "$1" "$2" "$3" "$4" "$5")" "$1/$2 $3 $4 $5: $6"
+  done <<'TABLE'
+false false skipped skipped skipped pass
+false true  skipped skipped skipped pass
+true  false success success skipped pass
+true  false success failure skipped fail
+true  false success skipped skipped fail
+true  false failure success skipped fail
+true  true  skipped skipped success pass
+true  true  skipped skipped failure fail
+true  true  skipped skipped skipped fail
+true  true  success success success fail
+"" "" skipped skipped skipped fail
+true  ""  skipped skipped success fail
+TABLE
+}
+
+# v1: `npm run affected` runs only the suites a change can affect — never
+# too few.
+affected() { AGENT_HUB_AFFECTED_DRY=1 "$TESTS_DIR/lib/affected.sh" 2>&1 | tail -n 1; }
+
+@test "affected: a stage runs its suite and every suite that uses its files; shared code everything; docs shared; nothing of the hub, nothing" {
+  files() { AGENT_HUB_AFFECTED_FILES="$1" affected; }
+  run files ".github/agent-hub/stages/build/stage.sh"
+  assert_output "Changed: 1 hub file(s); running: shared implementation-plan build"
+  # The build's tests load the plan's renderer: a change to it runs them too.
+  run files ".github/agent-hub/stages/implementation-plan/render.jq"
+  assert_output --partial "running: shared implementation-plan build"
+  run files ".github/agent-hub/stages/work-order/prompt.md"
+  assert_output --partial "running: shared work-order implementation-plan build"
+  local shared
+  for shared in .github/agent-hub/lib/stage.sh .github/workflows/agent-hub-build.yml .github/agent-hub/tests/lib/helpers.bash \
+      .github/agent-hub/tests/package-lock.json .github/ISSUE_TEMPLATE/agent-hub-request.yml; do
+    run files "$shared"
+    assert_output "running: shared work-order implementation-plan build"
+  done
+  run files ".github/agent-hub/docs/setup.md"
+  assert_output "Changed: 1 hub file(s); running: shared"
+  run files "playground/src/text.js"
+  assert_output "No hub files changed against main: nothing to run."
+}
+
+@test "affected: finds the changes with git — committed, staged, unstaged, untracked, deleted, renamed (both paths) — and runs everything when it can't be sure" {
+  local repo="$BATS_TEST_TMPDIR/repo" hub=.github/agent-hub
+  git init -q -b main "$repo"
+  mkdir -p "$repo/$hub/stages/work-order" "$repo/$hub/stages/build" "$repo/$hub/docs"
+  echo a > "$repo/$hub/stages/work-order/a.md"; echo b > "$repo/$hub/docs/b.md"; echo c > "$repo/$hub/stages/build/c.sh"
+  git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -q -m base
+  git -C "$repo" checkout -q -b work
+  in_repo() { AGENT_HUB_AFFECTED_REPO="$repo" affected; }
+  run in_repo
+  assert_output "No hub files changed against main: nothing to run."
+  # Untracked, then staged, then unstaged: docs only.
+  echo new > "$repo/$hub/docs/new.md"
+  run in_repo
+  assert_output "Changed: 1 hub file(s); running: shared"
+  git -C "$repo" add "$hub/docs/new.md"
+  run in_repo
+  assert_output "Changed: 1 hub file(s); running: shared"
+  echo more >> "$repo/$hub/docs/b.md"
+  run in_repo
+  assert_output "Changed: 2 hub file(s); running: shared"
+  # Committed: a rename from the work order's stage to the build's counts at
+  # both paths — both stages' suites run.
+  git -C "$repo" mv "$hub/stages/work-order/a.md" "$hub/stages/build/a.md"
+  git -C "$repo" -c user.name=t -c user.email=t@t commit -q -am move
+  run in_repo
+  assert_output --partial "running: shared work-order implementation-plan build"
+  # A deletion counts too.
+  git -C "$repo" checkout -q main && git -C "$repo" checkout -q -b gone
+  git -C "$repo" rm -q "$hub/stages/build/c.sh" && git -C "$repo" -c user.name=t -c user.email=t@t commit -q -m gone
+  run in_repo
+  assert_output "Changed: 1 hub file(s); running: shared implementation-plan build"
+  # No base to compare with: every suite, saying why — never "nothing".
+  run bash -c "AGENT_HUB_TEST_BASE=nowhere AGENT_HUB_AFFECTED_REPO='$repo' AGENT_HUB_AFFECTED_DRY=1 '$TESTS_DIR/lib/affected.sh' 2>&1"
+  assert_line "No comparison base (nowhere) to find the changes against — running every suite."
+  assert_line "running: shared work-order implementation-plan build"
 }

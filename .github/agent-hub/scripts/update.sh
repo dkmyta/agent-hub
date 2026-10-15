@@ -4,6 +4,7 @@
 #
 #   git clone --depth 1 --branch vX.Y.Z <hub repository URL> /tmp/agent-hub
 #   /tmp/agent-hub/.github/agent-hub/scripts/update.sh /tmp/agent-hub [--with-issue-form] [--force]
+#   .github/agent-hub/scripts/update.sh --check    # the installed hub unchanged since installation?
 #
 # Run it from the root of the repository being installed into or updated.
 # It replaces the hub's files wholesale — .github/agent-hub/ and
@@ -24,31 +25,34 @@ EXTENSIONS=.github/agent-hub-extensions
 RECORD=$HUB/.installed
 
 fail() { echo "update.sh: $1" >&2; exit 1; }
-usage() { echo "Usage: update.sh <path to a copy of the hub> [--with-issue-form] [--force]" >&2; exit 2; }
+usage() { echo "Usage: update.sh <path to a copy of the hub> [--with-issue-form] [--force] | update.sh --check" >&2; exit 2; }
 
-source="" with_form=false force=false
+source="" with_form=false force=false check=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --with-issue-form) with_form=true ;;
     --force) force=true ;;
+    --check) check=true ;;
     -*) usage ;;
     *) [ -z "$source" ] || usage; source=$1 ;;
   esac
   shift
 done
-[ -n "$source" ] || usage
+if [ "$check" = true ]; then [ -z "$source" ] && [ "$with_form" = false ] && [ "$force" = false ] || usage; else [ -n "$source" ] || usage; fi
 
 # Where: this repository's root, from a copy of the hub that isn't this repository.
 root=$(git rev-parse --show-toplevel 2>/dev/null) || fail "run it inside the repository to install into or update."
 [ "$(pwd -P)" = "$(cd "$root" && pwd -P)" ] || fail "run it from the repository's root ($root)."
-[ -f "$source/$HUB/VERSION" ] && [ -f "$source/$HUB/lib/settings.sh" ] \
-  || fail "$source isn't a copy of the agent hub (it has no $HUB/VERSION)."
-source=$(cd "$source" && pwd -P)
-[ "$source" != "$(pwd -P)" ] || fail "the hub copy is this repository."
+if [ "$check" = false ]; then
+  [ -f "$source/$HUB/VERSION" ] && [ -f "$source/$HUB/lib/settings.sh" ] \
+    || fail "$source isn't a copy of the agent hub (it has no $HUB/VERSION)."
+  source=$(cd "$source" && pwd -P)
+  [ "$source" != "$(pwd -P)" ] || fail "the hub copy is this repository."
 
-# Uncommitted changes to the hub's files would be lost or mixed in.
-if [ -n "$(git status --porcelain -- "$HUB" ":(glob).github/workflows/agent-hub-*.yml" "$FORM")" ]; then
-  fail "commit or discard the changes to the hub's files first (git status shows them)."
+  # Uncommitted changes to the hub's files would be lost or mixed in.
+  if [ -n "$(git status --porcelain -- "$HUB" ":(glob).github/workflows/agent-hub-*.yml" "$FORM")" ]; then
+    fail "commit or discard the changes to the hub's files first (git status shows them)."
+  fi
 fi
 
 work=$(mktemp -d)
@@ -73,7 +77,15 @@ hub_files() {
 }
 
 # Hub files changed here since the last install or update — edited, deleted
-# or added — would be overwritten or removed.
+# or added — would be overwritten or removed. --check reports just that: the
+# hub's files unchanged since installation (against the record update.sh
+# wrote — not proof of where they came from), and nothing added beside them.
+if [ "$check" = true ]; then
+  [ -f "$RECORD" ] || fail "no install record ($RECORD): the hub wasn't installed by this script here, so there's nothing to check against."
+  if ! grep -qE '^[0-9a-f]{64}  [^ ]' "$RECORD" || grep -vqE '^[0-9a-f]{64}  [^ ].*$' "$RECORD"; then
+    fail "the install record ($RECORD) isn't one this script wrote (a checksum and a path per line)."
+  fi
+fi
 if [ -f "$RECORD" ]; then
   awk '{ print $2 }' "$RECORD" | while read -r path; do
     if [ -f "$path" ]; then echo "$path"; else echo "$path" >> "$work/deleted"; fi
@@ -83,6 +95,14 @@ if [ -f "$RECORD" ]; then
     sed 's/$/ (deleted)/' "$work/deleted" 2> /dev/null || true
     hub_files . | awk 'NR == FNR { recorded[$2] = 1; next } !($1 in recorded) { print $1 " (added)" }' "$RECORD" -
   })
+  if [ "$check" = true ]; then
+    if [ -n "$edited" ]; then
+      printf 'These hub files were changed since the hub was installed:\n%s\n' "$edited" >&2
+      fail "the installed hub doesn't match its install record. Change the hub only with update.sh; move your changes into an extension (docs/extending.md)."
+    fi
+    echo "The hub's files are unchanged since installation ($(cat "$HUB/VERSION" 2> /dev/null || echo "version unknown"); $(wc -l < "$RECORD" | tr -d ' ') files)."
+    exit 0
+  fi
   if [ -n "$edited" ] && [ "$force" = false ]; then
     printf 'These hub files were changed in this repository since the hub was installed:\n%s\n' "$edited" >&2
     fail "updating would overwrite them. Move the changes into an extension (docs/extending.md) or propose them to the hub, then run again; --force overwrites them."

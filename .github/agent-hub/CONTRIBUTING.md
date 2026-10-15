@@ -22,8 +22,10 @@ hub's files (this folder, `.github/workflows/agent-hub-*.yml` and
 
 - **Locally, for fast feedback**: formatting and lint on every commit (a few
   seconds; skippable with `--no-verify`, so a convenience, not the gate). Run
-  the test suite yourself before opening a pull request when you've changed
-  code (about 8–10 minutes in parallel: `npm test --prefix .github/agent-hub/tests`).
+  only what your changes can affect while working (`npm run affected --prefix
+  .github/agent-hub/tests`: never too few suites — when it can't be sure, it
+  runs them all). The whole suite (`npm test`, about 10 minutes in parallel)
+  is CI's job on every pull request; run it locally to troubleshoot.
 - **In CI, as the gate**: `.github/workflows/agent-hub-tests.yml` runs the
   same checks on every pull request that changes the hub, the tests on jq
   1.7 and 1.8, and the stages' scenarios on macOS with its own Bash 3.2. The

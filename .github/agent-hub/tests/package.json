@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "lib/run-tests.sh --timing shared work-order implementation-plan build",
+    "smoke": "lib/run-tests.sh shared/stage-workflow.bats shared/settings.bats",
+    "affected": "lib/affected.sh",
     "evals": "lib/run-evals.sh",
     "update-snapshots": "UPDATE_SNAPSHOTS=1 lib/run-tests.sh shared work-order implementation-plan build"
   },

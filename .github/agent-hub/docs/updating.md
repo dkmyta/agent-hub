@@ -32,6 +32,15 @@ Everything else belongs to your repository. Anything named `agent-hub-*` in
 `.github/workflows/` belongs to the hub, so don't add your own workflows with
 that prefix — an update would remove them.
 
+**Its CI in your repository is light** (since 2.23.0): on a pull request
+that changes hub files or your extensions, **Agent hub: Tests** runs one
+inexpensive job — `update.sh --check` (the hub's files unchanged since
+installation: none edited, deleted or added), then the consumer contract
+checks (the workflows' shape, your extensions, the settings' contracts) —
+not the whole suite or its macOS run: the hub was tested where it's
+released. An edited, deleted or added hub file fails it. Run the same check
+yourself any time: `.github/agent-hub/scripts/update.sh --check`.
+
 **Don't edit the hub's files in your repository**, including through
 automated pull requests: Dependabot, for example, may propose newer action
 versions for the `agent-hub-*` workflows. Decline those — the hub's releases
