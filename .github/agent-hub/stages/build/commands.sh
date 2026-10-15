@@ -63,6 +63,11 @@ build_command() {
     _command_refuse_all "$commands" "there's no open pull request of the hub's for this ticket"
   fi
   number=$(jq -r '.number' <<< "$pr")
+  # A paused pull request isn't touched: not even its items (the pause
+  # holds for commands as for every other run).
+  if jq -e --arg label "$BUILD_PAUSED_LABEL" 'any(.labels[]?; .name == $label)' <<< "$pr" > /dev/null; then
+    _command_refuse_all "$commands" "pull request #$number is paused ($BUILD_PAUSED_LABEL) — remove the label, then post the command again"
+  fi
   if ! state=$(gh_state_read "$number" 2> "$RUNNER_TEMP/state-error"); then
     _command_refuse_all "$commands" "the hub's record in pull request #$number can't be trusted ($(head -n 1 "$RUNNER_TEMP/state-error"))"
   fi
@@ -349,7 +354,7 @@ _apply_start() {
 # request goes back to draft until every required check passes on the new
 # commit. The /apply is answered on the ticket with each item's result.
 apply_fix_apply() {
-  local branch target number start status after pr kept=false
+  local branch target number start status after pr raised kept=false
   stage_require_status "$(stage_start_status)"
   build_git
   _require_same_plan
@@ -362,6 +367,14 @@ apply_fix_apply() {
     after=$(git rev-parse HEAD)
     [ "$after" = "$(jq -r '.head' "$RUNNER_TEMP/verify.json" 2> /dev/null)" ] && [ "$after" = "$(jq -r '.after' "$FIX_RESULT")" ] \
       || stage_fail "The fix's commit isn't the one the checks passed on, so nothing was pushed."
+    # A pull request already handed off goes back to draft before its new
+    # commit is pushed: the hand-off no longer holds, and it mustn't look
+    # ready for review with a commit nobody has reviewed.
+    pr=$(gh_pr_find "$branch") || stage_fail "Couldn't read pull request #$number from GitHub, so the fix wasn't pushed."
+    if [ "$(jq -r '.draft' <<< "$pr")" = false ]; then
+      gh_pr_draft "$(jq -r '.node_id' <<< "$pr")" \
+        || stage_fail "Pull request #$number couldn't be turned back into a draft, so the fix wasn't pushed (it was handed off, and would look ready with an unreviewed commit). Re-run the /apply."
+    fi
     _reconcile_push "$branch" "$target" "$number"
     kept=true
   fi
@@ -372,8 +385,8 @@ apply_fix_apply() {
      | . + {applied: ($kept and any($fix[0].checks[]?; .finding == $n and .verdict == "resolved")),
             what: ((first($fix[0].fixes[]? | select(.finding == $n)) | .what) // ($fix[0].reason // "not attempted"))}]' \
     > "$RUNNER_TEMP/apply-results.json"
-  jq -c --slurpfile results "$RUNNER_TEMP/apply-results.json" --arg version "$(cat "$HUB_DIR/VERSION")" \
-      --arg after "$after" --argjson kept "$kept" --argjson req "$(context '.apply')" '
+  jq -c -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile results "$RUNNER_TEMP/apply-results.json" --arg version "$(cat "$HUB_DIR/VERSION")" \
+      --arg after "$after" --argjson kept "$kept" --argjson req "$(context '.apply')" --slurpfile fix "$FIX_RESULT" 'include "wording";
     (.generation + 1) as $g | (now | todate) as $at
     | . + {generation: $g, hub_version: $version}
     | if $kept then
@@ -382,7 +395,9 @@ apply_fix_apply() {
         | del(.ci) | del(.handoff)
       else . end
     | ([$results[0][] | select(.applied and .item) | .item]) as $fixed
-    | .items |= map(if (.id | IN($fixed[])) then .status = "fixed" | .fixed_in = $after | .by_command = $req.comment | .at = $at else . end)' \
+    | .items |= map(if (.id | IN($fixed[])) then .status = "fixed" | .fixed_in = $after | .by_command = $req.comment | .at = $at else . end)
+    # What the fix check newly raised about the kept fix stays, as items.
+    | if $kept then add_concerns($fix[0]; "apply-fix-check") else . end' \
     "$RECONCILE_STATE" > "$RUNNER_TEMP/state.json"
   local record
   record=$(_review_record "$RECONCILE_STATE")
@@ -408,11 +423,6 @@ apply_fix_apply() {
     fi
   done < <(jq -c '.[] | select(.thread)' "$RUNNER_TEMP/apply-results.json")
 
-  # Back to draft, so it isn't merged on the old result.
-  pr=$(gh_pr_find "$branch") || pr=""
-  if [ "$kept" = true ] && [ "$(jq -r 'if .draft == false then "ready" else "draft" end' <<< "${pr:-"{}"}")" = ready ]; then
-    gh_pr_draft "$(jq -r '.node_id' <<< "$pr")" || echo "::warning::Couldn't turn pull request #$number back into a draft."
-  fi
   if [ "$kept" = true ]; then
     printf '🔁 Applied by the agent hub (an /apply by an approver on the ticket): %s, in %s — verified, and checked by a fresh read-only session. It'"'"'s a draft until every required check passes on the new commit; then it'"'"'s handed off again.\n' \
       "$(jq -r '[.[] | select(.applied) | (.item // "a review thread")] | join(", ")' "$RUNNER_TEMP/apply-results.json")" "${after:0:7}"
@@ -424,10 +434,19 @@ apply_fix_apply() {
   # said: the ticket is private), and who asked kept there too — only ever
   # the comment as the hub read it.
   cp "$RUNNER_TEMP/command-comments.json" "$RUNNER_TEMP/comments-seen.json"
+  # The fix check's new concerns, now items: named in the answer (the ticket
+  # is private, so their titles too).
+  raised=$(jq -r --slurpfile prev "$RECONCILE_STATE" --slurpfile fix "$FIX_RESULT" '
+    ([$prev[0].items[]?.id]) as $old
+    | ([$fix[0].new_concerns[]? | select(.policy == "decision")] + [$fix[0].new_concerns[]? | select(.policy != "decision")]) as $c
+    | [.items[]? | select(.source == "apply-fix-check" and (.id | IN($old[]) | not))] as $new
+    | if ($new | length) == 0 then "" else
+        "; the fix check raised " + ([$new | to_entries[] | "\(.value.id) (\(.value.severity) \(.value.kind | gsub("-"; " ")): \($c[.key].title // "see the run"))"] | join(", "))
+      end' "$RUNNER_TEMP/state.json")
   _command_reply "$(context .apply.comment)" "$(jq -r --argjson kept "$kept" --arg after "${after:0:7}" --argjson req "$(context '.apply')" '
     (if $kept then "applied in \($after): " else "nothing applied: " end)
     + ([.[] | "\(.item // "a review thread") \(if .applied then "fixed" else "not fixed" end) — \(.what)"] | join("; "))
-    + (if $req.refused != "" then "; not applied: \($req.refused)" else "" end)' "$RUNNER_TEMP/apply-results.json")"
+    + (if $req.refused != "" then "; not applied: \($req.refused)" else "" end)' "$RUNNER_TEMP/apply-results.json")$raised"
   tracker_set_property agent-hub-items < <(tracker_property agent-hub-items | jq -c --argjson req "$(context '.apply')" \
       --slurpfile results "$RUNNER_TEMP/apply-results.json" --arg after "$after" --argjson kept "$kept" \
       '.log = ((.log // []) + [{apply: $req.comment, by: $req.by, by_name: $req.by_name, head: $req.head,

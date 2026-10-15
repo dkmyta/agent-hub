@@ -108,8 +108,9 @@ def status_lines($s; $r; $x; $p; $publish; $what):
           + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
           + (if $publish then ": \($f.title | line)" + (if ($f.file // "") != "" then " (\($f.file | code)\(if $f.line then ":\($f.line)" else "" end))" else "" end)
              else " (details on the ticket)" end)
-      elif .source == "ci-fix-check" then
-        "- **\(.id)** " + (if (.id | startswith("D")) then "decision" else "review item" end) + ", raised by a CI fix's check"
+      elif .source == "ci-fix-check" or .source == "apply-fix-check" then
+        "- **\(.id)** " + (if (.id | startswith("D")) then "decision" else "review item" end)
+          + ", raised by \(if .source == "ci-fix-check" then "a CI fix" else "an /apply" end)'s check"
           + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " ")) (details on the ticket)"
       elif (.id | startswith("D")) then
         "- **\(.id)** " + (if .path != "" then "\(.path | code) — " else "" end) + "decision: \(.reason | line)"
@@ -127,6 +128,18 @@ def status_lines($s; $r; $x; $p; $publish; $what):
 # closed. The new review's and fix check's items replace the previous
 # generation's open ones, which are closed. Manual changes (C) carry over.
 # Ids are never reused: new items continue each prefix's numbering.
+# add_concerns($fix; $source): a kept fix's new concerns (its fix check's)
+# as items, numbered on from the last D and R — shared by every path that
+# keeps a fix after the build (a CI fix, an /apply), so none is dropped.
+def add_concerns($fix; $source):
+  ([.items[]? | select(.id | startswith("D")) | .id[1:] | tonumber] | max // 0) as $d
+  | ([.items[]? | select(.id | startswith("R")) | .id[1:] | tonumber] | max // 0) as $r
+  | .items = ((.items // [])
+      + ([$fix.new_concerns[]? | select(.policy == "decision")] | to_entries
+         | map({id: "D\($d + .key + 1)", source: $source, kind: .value.kind, severity: .value.severity, area: .value.area, status: "open"}))
+      + ([$fix.new_concerns[]? | select(.policy != "decision")] | to_entries
+         | map({id: "R\($r + .key + 1)", source: $source, kind: .value.kind, severity: .value.severity, area: .value.area, fix_eligible: false, status: "open"})));
+
 def reconcile_items($prev; $fresh):
   def num: .id[1:] | tonumber;
   def gate: (.source // "gate") == "gate" and (.id | startswith("D"));

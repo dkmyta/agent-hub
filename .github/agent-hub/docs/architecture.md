@@ -361,7 +361,7 @@ stage ([workflows/build.md](workflows/build.md)).
   step installs Claude Code; the agent step gets the `AGENT_HUB_ANTHROPIC_API_KEY`
   secret as `ANTHROPIC_API_KEY` (empty unless set) — so the same workflow runs
   with a subscription login or the API.
-- Claude runs only on `workflow_dispatch` / `repository_dispatch`, never on
+- Claude runs only on `workflow_dispatch`, never on
   push, pull request or schedule (enforced by `tests/shared/claude-usage.bats`).
 - A stage's files live in `stages/<stage>/` (see [Layout](#layout)); shared
   code lives in `lib/` and `trackers/` — reuse it, don't copy it.

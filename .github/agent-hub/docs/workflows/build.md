@@ -15,7 +15,7 @@ behind them are in the [design record](build-design.md).
 
 | | |
 |---|---|
-| Trigger | `workflow_dispatch` of `agent-hub-build.yml`: Jira's Build Requested rule (plan approved) and Build Command rule (`/skip`, `/apply`) — [web requests](../jira.md#web-requests); the CI sweep and the closed-pull-request workflow; or **Run workflow** with a ticket key. `repository_dispatch` `agent-hub-build-requested` until 2.22.0 |
+| Trigger | `workflow_dispatch` of `agent-hub-build.yml`: Jira's Build Requested rule (plan approved) and Build Command rule (`/skip`, `/apply`) — [web requests](../jira.md#web-requests); the CI sweep and the closed-pull-request workflow; or **Run workflow** with a ticket key |
 | Runs on | `AGENT_HUB_RUNS_ON` — see [runners.md](../runners.md); the sandbox check first |
 | Model | `AGENT_HUB_BUILD_MODEL` for the build; the review, fix and fix check have their own ([Settings](#settings)) |
 | Stage files | `stages/build/` ([Structure](#structure)) |
@@ -668,13 +668,21 @@ anything is written:
    (`verified.head` equal to its own `head`; a flag can't carry over to
    another commit). A person's commit, a semantic sync or anything else
    needs a full review first — green CI doesn't make it eligible.
-4. **The rest** — the review finished, no decision item is open, the plan
-   and its approval still stand, and the ticket is in Implementation Plan
-   Approved.
+4. **The rest** — the record shows a finished review (`reviewed`: since
+   2.22.0 eligibility must be shown, so an unknown or missing status, or an
+   item in a state the hub doesn't know, blocks it), no decision item is
+   open, the plan and its approval still stand, and the ticket is in
+   Implementation Plan Approved.
+5. **The pull request itself, as it is now** (since 2.22.0) — still open,
+   not paused (`agent-hub-paused`), onto the target its checks were read
+   for (a retargeted pull request goes to a person), and the required
+   checks for that target, read again, all passed on exactly that head.
 
-Then the hub records the hand-off, marks the pull request ready for review
+Then the hub records the hand-off as **pending**, marks the pull request ready for review
 (CODEOWNERS are requested by GitHub then), moves the ticket to **Ready for
-Review** with `needs-human`, and comments on both. A hand-off that stops
+Review** with `needs-human`, records it **complete** (since 2.22.0: only a
+complete hand-off counts — to end a re-run, and for Done when the pull
+request is merged), and comments on both. A hand-off that stops
 part-way is finished by the next run (each write is safe to repeat) — the CI
 sweep wakes one recorded but still a draft (2.19.0), and a re-run finishes
 one marked ready whose ticket didn't move (2.21.0). **New commits after a
@@ -836,6 +844,9 @@ and the next revision reviews the whole pull request.
   command, and is refused (2.18.0). `/apply comments` takes review threads
   only from people GitHub says have write access (2.18.0) — not from every
   org member or read-only collaborator.
+- **Not on a paused pull request** (since 2.22.0): a command on one with
+  `agent-hub-paused` changes nothing and is answered — remove the label,
+  then post it again.
 - **Only item ids.** The command's first paragraph may hold only the command
   and ids; anything else refuses the whole command — item commands aren't a
   way to give the agent instructions.
@@ -878,7 +889,8 @@ and the next revision reviews the whole pull request.
   that it wasn't applied (Claude's words only on the ticket) — and is
   resolved when applied; the `/apply` is answered on the ticket item by
   item. CI and the hand-off gate run again on the new SHA. A pull request
-  that was already handed off goes **back to draft**, the ticket staying in
+  that was already handed off goes **back to draft** before the new commit
+  is pushed (since 2.22.0; if it can't, nothing is pushed), the ticket staying in
   Ready for Review (the hub never moves a ticket back into Implementation
   Plan Approved: its own move there wouldn't be an approval); the CI gate
   and hand-off also run for a ticket in Ready for Review, and mark it ready

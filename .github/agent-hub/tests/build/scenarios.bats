@@ -2029,6 +2029,17 @@ resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment
   assert_output --partial "Couldn't read which commands on PROJ-99 were already answered"
 }
 
+@test "/skip on a paused pull request: nothing changes — the command is answered, asking for it again once the label is removed" {
+  run_scenario decision-item
+  keep_properties
+  jq '.[0].labels += [{name: "agent-hub-paused"}]' "$RUNNER_TEMP/mock-github/prs.json" > "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  command_run "$(command_comments '/skip D1')"
+  assert_equal "$(jq -r '[.items[] | select(.id == "D1") | .status][0]' <<< "$(pr_state)")" open
+  run resolutions
+  assert_output --partial "not done: pull request #101 is paused (agent-hub-paused) — remove the label, then post the command again"
+}
+
 @test "/skip: only approvers, only item ids, only open items — anything else is answered, and nothing changes" {
   run_scenario decision-item
   keep_properties
@@ -2104,6 +2115,14 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
   assert_output '{"last":{"kind":"fix","verified":true,"applied":{"comment":"700"}},"r1":"fixed"}'
   # The item names the commit that fixed it.
   assert_equal "$(jq -r '[.items[] | select(.id == "R1")][0].fixed_in' <<< "$(pr_state)")" "$(branch_head)"
+  # What the fix check newly raised about the kept fix stays, as an item —
+  # numbered on, on the pull request and named on the ticket.
+  run jq -c '[.items[] | select(.source == "apply-fix-check") | {id, kind, severity, status}]' <<< "$(pr_state)"
+  assert_output '[{"id":"R3","kind":"style","severity":"low","status":"open"}]'
+  run pr_body
+  assert_output --partial "**R3** review item, raised by an /apply's check — low style"
+  run resolutions
+  assert_output --partial "the fix check raised R3 (low style: "
   run resolutions
   assert_output --partial "/comment/700 ✅ Resolved — applied in"
   assert_output --partial "R1 fixed — src/greet.js trims the name"
@@ -2211,6 +2230,24 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
   assert_line "--- Outcome: handed off"
   assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" false
   [ ! -e "$RUNNER_TEMP/mock-status" ] || fail "the ticket was moved again"
+}
+
+@test "/apply after the hand-off: if the pull request can't go back to draft, the fix isn't pushed — it never looks ready with an unreviewed commit" {
+  findings_pr
+  command_run "$(command_comments '/skip D1 D2')"
+  keep_properties
+  carry_prs
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  keep_properties
+  carry_prs
+  local before
+  before=$(branch_head)
+  apply_run '/apply R2' "MOCK_STATUS=Ready for Review" 'MOCK_GH_FAIL=POST /graphql convertPullRequestToDraft'
+  run trace
+  assert_line "--- Outcome: failed"
+  assert_equal "$(branch_head)" "$before"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "couldn't be turned back into a draft, so the fix wasn't pushed"
 }
 
 # Step 1 (2.18.0) — approvals don't rest on Jira's configuration alone.
@@ -2339,11 +2376,39 @@ SH
   assert_line "--- Outcome: failed"
   assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" false
   assert_equal "$(jq -r '.handoff.head == .heads[-1].head' <<< "$(pr_state)")" true
+  # Begun, not complete: it doesn't count as handed off yet.
+  assert_equal "$(jq -r '.handoff.state' <<< "$(pr_state)")" pending
   carry_prs
   reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
   run trace
   assert_line "--- Outcome: handed off"
   assert_equal "$(cat "$RUNNER_TEMP/mock-status")" "Ready for Review"
+  assert_equal "$(jq -r '.handoff.state' <<< "$(pr_state)")" complete
+}
+
+@test "hand-off: a pull request retargeted onto another branch isn't handed off — its checks were read for the target" {
+  built_pr
+  jq '.[0].base.ref = "release"' "$BATS_TEST_TMPDIR/prs.json" > "$BATS_TEST_TMPDIR/prs.new" && mv "$BATS_TEST_TMPDIR/prs.new" "$BATS_TEST_TMPDIR/prs.json"
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  run trace
+  assert_line "--- Outcome: blocked"
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" true
+  [ ! -e "$RUNNER_TEMP/mock-status" ] || fail "the ticket was moved"
+  run pr_comments
+  assert_output --partial "now targets release, not main"
+}
+
+@test "closed: merged after a hand-off that never finished — not Done; a person decides" {
+  built_pr
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)" 'MOCK_GH_FAIL=POST /graphql markPullRequestReadyForReview'
+  assert_equal "$(jq -r '.handoff.state' <<< "$(pr_state)")" pending
+  merge_pr
+  closed_run "MOCK_STATUS=Implementation Plan Approved"
+  run trace
+  assert_line "--- Outcome: blocked"
+  [ ! -e "$RUNNER_TEMP/mock-status" ] || fail "the ticket was moved"
+  run jira_comments
+  assert_output --partial "🔎 Merged without the hub's hand-off"
 }
 
 # COR-2 (2.20.0 review): a CI fix whose run stopped before its result was

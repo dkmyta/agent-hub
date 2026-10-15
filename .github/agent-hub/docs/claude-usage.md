@@ -172,8 +172,7 @@ they're worth running, their guards, and the PR notice that suggests them:
 - The kill switch (`AGENT_HUB_ENABLED=false`) stops runs **before they start**;
   a run already going finishes — cancel it in the Actions tab to stop it now.
 - A test checks that **every workflow that uses Claude** only runs on tracker
-  requests or manual runs (`workflow_dispatch`, and `repository_dispatch`
-  until 2.22.0) —
+  requests or manual runs (`workflow_dispatch`) —
   never on pushes, pull requests or schedules.
 - Runs from GitHub (agent stages and evals) only use the runner in
   `AGENT_HUB_RUNS_ON`; with it offline nothing runs, but a run started meanwhile

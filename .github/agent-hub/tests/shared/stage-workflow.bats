@@ -51,14 +51,15 @@ setup() {
       import { parse } from "yaml";
       const wf = parse(readFileSync(process.argv[1], "utf8"));
       const job = Object.values(wf.jobs)[0];
-      console.log(job.uses, job.with.stage, wf.on.repository_dispatch.types.join(","),
-        wf.concurrency.group === "agent-hub-${{ github.repository }}-${{ github.event.client_payload.ticket_key || inputs.ticket_key }}",
+      // Started only by workflow_dispatch (repository_dispatch removed in 2.22.0).
+      console.log(job.uses, job.with.stage, Object.keys(wf.on).join(","),
+        wf.concurrency.group === "agent-hub-${{ github.repository }}-${{ inputs.ticket_key }}",
         wf.concurrency["cancel-in-progress"], wf.concurrency.queue ?? "single",
         // What the Jira rules send (docs/jira.md, "Web requests"): a required
         // ticket key, and nothing else required.
         wf.on.workflow_dispatch.inputs.ticket_key.required === true,
         Object.entries(wf.on.workflow_dispatch.inputs).filter(([k, v]) => k !== "ticket_key" && v.required).length);' "$caller"
-    assert_output "./.github/workflows/agent-hub-stage.yml $stage agent-hub-$stage-requested true false max true 0"
+    assert_output "./.github/workflows/agent-hub-stage.yml $stage workflow_dispatch true false max true 0"
   done
 }
 

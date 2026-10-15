@@ -40,7 +40,9 @@ build_closed() {
   # hand-off.
   head=$(jq -r '.head.sha' <<< "$pr")
   if state=$(gh_state_read "$number" 2> "$RUNNER_TEMP/state-error"); then
-    handed=$(jq -r '.handoff.head // empty' <<< "$state")
+    # Only a complete hand-off counts (a record from before 2.22.0 has no
+    # state, and is taken as complete, as it was then).
+    handed=$(jq -r 'select((.handoff.state // "complete") == "complete") | .handoff.head // empty' <<< "$state")
     reason="the hub never handed it off (its required checks and items weren't all clear)"
   else
     handed="" reason="the hub's record in it can't be trusted ($(head -n 1 "$RUNNER_TEMP/state-error"))"

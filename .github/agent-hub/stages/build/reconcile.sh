@@ -467,18 +467,13 @@ ci_fix_apply() {
   fi
   # The record: the fix as the hub's head, and what this attempt did. New
   # concerns from the fix check join the items, numbered on from the last.
-  jq -c --slurpfile fix "$FIX_RESULT" --arg version "$(cat "$HUB_DIR/VERSION")" --arg start "$start" --arg after "$after" '
+  jq -c -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile fix "$FIX_RESULT" --arg version "$(cat "$HUB_DIR/VERSION")" --arg start "$start" --arg after "$after" 'include "wording";
     (.generation + 1) as $g | (now | todate) as $at | $fix[0] as $x
     | . + {generation: $g, hub_version: $version}
     | if $x.status == "kept" then
         .heads += [{generation: $g, head: $after, hub_version: $version, by: "hub", kind: "ci-fix",
                     verified: {head: $after, by: "verify-fix"}, at: $at}]
-        | ([.items[]? | select(.id | startswith("D")) | .id[1:] | tonumber] | max // 0) as $d
-        | ([.items[]? | select(.id | startswith("R")) | .id[1:] | tonumber] | max // 0) as $r
-        | .items += ([$x.new_concerns[] | select(.policy == "decision")] | to_entries
-            | map({id: "D\($d + .key + 1)", source: "ci-fix-check", kind: .value.kind, severity: .value.severity, area: .value.area, status: "open"}))
-        | .items += ([$x.new_concerns[] | select(.policy != "decision")] | to_entries
-            | map({id: "R\($r + .key + 1)", source: "ci-fix-check", kind: .value.kind, severity: .value.severity, area: .value.area, fix_eligible: false, status: "open"}))
+        | add_concerns($x; "ci-fix-check")
       else . end
     | .ci_fix.last = {head: $start, status: $x.status, reason: ($x.reason // null), after: (if $x.status == "kept" then $after else null end), at: $at}' \
     "$RECONCILE_STATE" > "$RUNNER_TEMP/state.json"

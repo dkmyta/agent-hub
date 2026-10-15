@@ -1,5 +1,5 @@
-// Lists workflows that use Claude on anything other than a ticket request
-// (repository_dispatch), a manual run (workflow_dispatch), or a call from
+// Lists workflows that use Claude on anything other than a ticket request or
+// a manual run (both workflow_dispatch), or a call from
 // another workflow (workflow_call, which inherits its caller's trigger).
 // Prints nothing when every Claude-using workflow is on-demand only.
 //
@@ -9,7 +9,7 @@ import { basename } from "node:path";
 import { parse } from "yaml";
 
 const dir = process.argv[2];
-const onDemand = ["repository_dispatch", "workflow_dispatch", "workflow_call"];
+const onDemand = ["workflow_dispatch", "workflow_call"];
 const workflows = Object.fromEntries(readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))
   .map((f) => [f, parse(readFileSync(`${dir}/${f}`, "utf8"), { merge: true })]));
 
