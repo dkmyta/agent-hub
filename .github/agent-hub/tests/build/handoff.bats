@@ -73,6 +73,15 @@ problems() { handoff_problems "$1" <<< "$2"; }
   assert_output "the automated review didn't finish"
 }
 
+@test "hand-off: eligibility is shown, never assumed — an unknown or missing review status, or an item in a state the hub doesn't know, blocks it" {
+  run problems bbbbbbb1 "$(record | jq -c '.review.status = "unknown"')"
+  assert_output "the hub's record doesn't show a finished review (unknown), so the change needs reviewing again"
+  run problems bbbbbbb1 "$(record | jq -c 'del(.review.status)')"
+  assert_output "the hub's record doesn't show a finished review (none), so the change needs reviewing again"
+  run problems bbbbbbb1 "$(record '[]' '[{"id": "R1", "status": "done-ish"}, {"id": "R2", "status": "skipped"}]')"
+  assert_output "the hub's record has an item in a state it doesn't know (R1)"
+}
+
 # gh_ci_get, stubbed: GitHub's answers for the branch, its rules, the check
 # runs and the statuses, from CI_* variables.
 gh_ci_get() {

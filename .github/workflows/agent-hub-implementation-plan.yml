@@ -1,16 +1,13 @@
 name: "Agent hub: Implementation plan"
-run-name: "Implementation plan: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}"
+run-name: "Implementation plan: ${{ inputs.ticket_key }}"
 
 # Stage 2 of the agent-hub pipeline. The tracker (the Jira "Implementation
 # Plan Requested" or "Revision Requested" rule) starts it with
-# workflow_dispatch and only the ticket key (repository_dispatch's
-# `agent-hub-implementation-plan-requested` is still accepted until 2.22.0); the shared stage workflow does the rest with this
+# workflow_dispatch and only the ticket key; the shared stage workflow does the rest with this
 # stage's files in .github/agent-hub/stages/implementation-plan. See
 # .github/agent-hub/docs/workflows/implementation-plan.md.
 
 on:
-  repository_dispatch:
-    types: [agent-hub-implementation-plan-requested]
   workflow_dispatch:
     inputs:
       ticket_key:
@@ -23,7 +20,7 @@ on:
 # cancelled, every request waits its turn (up to 100 pending), and each run
 # acts on the ticket as it finds it then.
 concurrency:
-  group: agent-hub-${{ github.repository }}-${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
+  group: agent-hub-${{ github.repository }}-${{ inputs.ticket_key }}
   cancel-in-progress: false
   queue: max
 
@@ -38,7 +35,7 @@ jobs:
     uses: ./.github/workflows/agent-hub-stage.yml
     with:
       stage: implementation-plan
-      ticket-key: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
+      ticket-key: ${{ inputs.ticket_key }}
       agent-minutes: 50
       job-minutes: 75
     secrets: inherit

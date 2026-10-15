@@ -43,7 +43,12 @@ handoff_problems() {
               and (.kind == "fix" or .kind == "ci-fix" or (.kind == "sync" and .sync.drift == "mechanical"))) | not)
           | "commit \(.head[0:7]), after the last full review, isn'"'"'t a verified fix or a mechanical merge of the target by the hub, so the change needs reviewing again")
        end),
-      (if (.review.status // "") == "incomplete" then "the automated review didn'"'"'t finish" else empty end),
+      (if (.review.status // "") == "incomplete" then "the automated review didn'"'"'t finish"
+       elif (.review.status // "") != "reviewed" then
+         "the hub'"'"'s record doesn'"'"'t show a finished review (\(.review.status // "none")), so the change needs reviewing again"
+       else empty end),
+      ([.items[]? | select((.status // "") | IN("open", "fixed", "skipped", "accepted", "closed") | not) | .id // "an item"]
+        | if length > 0 then "the hub'"'"'s record has an item in a state it doesn'"'"'t know (\(join(", ")))" else empty end),
       ([.items[]? | select((.id | startswith("D")) and .status == "open") | .id]
         | if length > 0 then "decision item\(if length == 1 then "" else "s" end) \(join(", ")) still open" else empty end)'
 }
@@ -59,7 +64,7 @@ _reconcile_ci() {
   # since would have cleared it). A hand-off that stopped part-way — still a
   # draft, or the ticket still in the approved status — is finished below
   # (each of its writes is safe to repeat).
-  if jq -e --arg head "$head" '.handoff.head == $head' "$RECONCILE_STATE" > /dev/null \
+  if jq -e --arg head "$head" '.handoff.head == $head and (.handoff.state // "complete") == "complete"' "$RECONCILE_STATE" > /dev/null \
      && jq -e '.draft == false' "$RUNNER_TEMP/reconcile-pr.json" > /dev/null 2>&1 \
      && [ "$(stage_start_status)" != "$PLAN_APPROVED_STATUS" ]; then
     echo "Pull request #$number was handed off at ${head:0:7}; nothing to do."
@@ -178,9 +183,19 @@ _ci_done() {
 _ci_record() {
   jq -c --slurpfile ci "$RUNNER_TEMP/ci.json" --arg result "$1" --arg handoff "${2:-}" '
     .ci = {head: $ci[0].head, result: $result, checks: $ci[0].checks, at: (now | todate)} | del(.superseded)
-    | if $handoff != "" then .handoff = {head: $ci[0].head, at: .ci.at} else . end' "$RECONCILE_STATE" > "$RUNNER_TEMP/state.json"
+    | if $handoff != "" then .handoff = {head: $ci[0].head, at: .ci.at, state: $handoff} else . end' "$RECONCILE_STATE" > "$RUNNER_TEMP/state.json"
   gh_state_write "$(context .pr)" "$(cat "$RUNNER_TEMP/state.json")" 2> "$RUNNER_TEMP/state-error" \
     || stage_fail "Pull request #$(context .pr)'s description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error")). A person checks it."
+}
+
+# _handoff_complete: the hand-off's writes all done (ready for review, the
+# ticket moved): its record says so. A failure here leaves it pending, which
+# the next run finishes.
+_handoff_complete() {
+  jq -c '.handoff.state = "complete"' "$RUNNER_TEMP/state.json" > "$RUNNER_TEMP/state.json.new" \
+    && mv "$RUNNER_TEMP/state.json.new" "$RUNNER_TEMP/state.json"
+  gh_state_write "$(context .pr)" "$(cat "$RUNNER_TEMP/state.json")" 2> "$RUNNER_TEMP/state-error" \
+    || stage_fail "Pull request #$(context .pr) was handed off, but its record couldn't say so ($(head -n 1 "$RUNNER_TEMP/state-error")); the next run finishes it."
 }
 
 # _ci_person <result> <why> <what to do> [force]: a person takes it from here
@@ -227,10 +242,26 @@ _handoff() {
   _require_same_plan
   pr=$(gh_pr_find "$(context .branch)") && [ "$(jq -r '.number' <<< "$pr")" = "$number" ] \
     || stage_fail "Couldn't read pull request #$number from GitHub, so it wasn't handed off."
+  # The pull request itself, as it is now: still open, not paused since the
+  # run began, onto the target its checks were read for — and those checks,
+  # read again for that target, all passed on exactly <head>.
+  [ "$(jq -r '.state' <<< "$pr")" = open ] \
+    || stage_fail "Pull request #$number was closed while the hub was checking it, so it wasn't handed off."
+  if jq -e --arg label "$BUILD_PAUSED_LABEL" 'any(.labels[]?; .name == $label)' <<< "$pr" > /dev/null; then
+    echo "::notice::Pull request #$number was paused ($BUILD_PAUSED_LABEL) while the hub was checking it, so it wasn't handed off."
+    _ci_done "paused ($BUILD_PAUSED_LABEL) before the hand-off"
+  fi
+  if [ "$(jq -r '.base.ref' <<< "$pr")" != "$(context .target)" ]; then
+    _ci_person green "pull request #$number now targets $(jq -r '.base.ref' <<< "$pr"), not $(context .target), which the hub checked it against" \
+      "set it back to $(context .target), or review it without the hub's hand-off" force
+  fi
+  [ "$(ci_status "$head" "$(ci_required "$(context .target)")" | jq -r '.state')" = green ] \
+    || stage_fail "The required checks for $(context .target), read again just before the hand-off, aren't all passed on $(_short "$head") (they changed while the hub was checking), so it wasn't handed off. The next check picks them up."
 
-  # The record first: a hand-off that stops part-way is finished by the next
-  # run (each write is safe to repeat).
-  _ci_record green handed-off
+  # The record first, as pending: a hand-off that stops part-way is finished
+  # by the next run (each write is safe to repeat), and only a complete one
+  # counts — for Done when it's merged (closed.sh), and to end a re-run.
+  _ci_record green pending
   if [ "$(jq -r '.draft' <<< "$pr")" = true ]; then
     gh_pr_ready "$(jq -r '.node_id' <<< "$pr")" \
       || stage_fail "Pull request #$number couldn't be marked ready for review. Mark it ready by hand, or re-run the build."
@@ -240,6 +271,7 @@ _handoff() {
   if [ "$(stage_start_status)" = "$PLAN_APPROVED_STATUS" ]; then
     stage_move "$(stage_transition_id "$READY_FOR_REVIEW_STATUS")" "$READY_FOR_REVIEW_STATUS"
   fi
+  _handoff_complete
   printf '✅ Ready for review: every required check passed on %s, the commit the hub verified and reviewed (with any fix and merge since, verified on exactly their commits). Over to a person for the code review.\n' "$(_short "$head")" \
     | gh_pr_comment "$number" || echo "::warning::Couldn't comment on pull request #$number."
   jq -n -L "$HUB_DIR/lib" --arg number "$number" --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$number" \

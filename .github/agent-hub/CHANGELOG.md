@@ -5,6 +5,46 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.22.0 — 2026-10-14
+
+The rest of the fixes from the full review of 2.21.6 (each checked against
+the code first), and the planned removal of `repository_dispatch`.
+
+- **Every concern a fix check raises is kept** (H1): an `/apply`'s fix check
+  could raise a new concern — a decision even — that was dropped, so the pull
+  request could be handed off without it. A CI fix and an `/apply` now share
+  one way of adding them as items (numbered on, "raised by an /apply's
+  check"), and the `/apply` answer on the ticket names them.
+- **An `/apply` on a handed-off pull request turns it back into a draft
+  before pushing** (H5): it pushed first, and if the draft step then failed
+  the pull request looked ready with an unreviewed commit. Now, if it can't
+  go back to draft, nothing is pushed.
+- **A paused pull request isn't touched by commands** (M1): `/skip` could
+  change its items before the pause was seen. A command on a paused pull
+  request now changes nothing and is answered (remove the label, then post
+  it again).
+- **The hand-off is shown to be eligible, never assumed** (H4): it needs a
+  finished review (`reviewed`) — an unknown or missing status, or an item in
+  a state the hub doesn't know, blocks it.
+- **The hand-off re-reads the pull request itself** (H8): just before
+  anything is written — still open, not paused, onto the target its checks
+  were read for (a retargeted pull request goes to a person), and the
+  required checks read again for that target.
+- **A hand-off is pending until all its writes are done** (M2): the record
+  said "handed off" before the pull request was marked ready and the ticket
+  moved, so a merge after a hand-off that stopped part-way could move the
+  ticket to Done. Now only a complete hand-off counts (a record from before
+  2.22.0 is taken as complete); a pending one is finished by the next run.
+- **`repository_dispatch` is removed**: the stage workflows start only on
+  `workflow_dispatch` (every Jira rule's URL since 2.20.0).
+
+**Updating:**
+1. **Jira:** every rule must call `…/actions/workflows/<workflow>/dispatches`
+   (the `workflow_dispatch` URL, since 2.20.0). A rule still on
+   `…/dispatches` (repository_dispatch) now starts nothing — GitHub answers
+   204, but no run appears ([jira.md](docs/jira.md#web-requests)).
+2. **The dispatch token** needs only Actions: read and write (no Contents).
+
 ## 2.21.7 — 2026-10-14
 
 Security and correctness fixes from the full review of 2.21.6 (each checked

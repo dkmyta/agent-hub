@@ -349,9 +349,9 @@ rm -f "$cfg"
 
 (422 instead of 403 means it can still write contents: only the invalid
 commit stopped it.)
-The workflows still accept those requests in 2.20.0, so the rules keep
-working while you change them; 2.22.0 removes them (after the first full
-manual test, not 2.21.0 as first announced). To change:
+**Since 2.22.0 the workflows no longer accept those requests**: a rule
+still on the old URL starts nothing (GitHub answers 204, but no run
+appears). To change:
 create the new token, update every rule's URL, body and header, check each
 rule once (the audit log shows 204), then delete the old token.
 

@@ -1,16 +1,13 @@
 name: "Agent hub: Work order"
-run-name: "Work order: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}"
+run-name: "Work order: ${{ inputs.ticket_key }}"
 
 # Stage 1 of the agent-hub pipeline. The tracker (the Jira "Work Order
 # Requested" or "Revision Requested" rule) starts it with workflow_dispatch
-# and only the ticket key (repository_dispatch's
-# `agent-hub-work-order-requested` is still accepted until 2.22.0); the shared stage workflow does the rest with this
+# and only the ticket key; the shared stage workflow does the rest with this
 # stage's files in .github/agent-hub/stages/work-order. See
 # .github/agent-hub/docs/workflows/work-order.md.
 
 on:
-  repository_dispatch:
-    types: [agent-hub-work-order-requested]
   workflow_dispatch:
     inputs:
       ticket_key:
@@ -23,7 +20,7 @@ on:
 # cancelled, every request waits its turn (up to 100 pending), and each run
 # acts on the ticket as it finds it then.
 concurrency:
-  group: agent-hub-${{ github.repository }}-${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
+  group: agent-hub-${{ github.repository }}-${{ inputs.ticket_key }}
   cancel-in-progress: false
   queue: max
 
@@ -38,7 +35,7 @@ jobs:
     uses: ./.github/workflows/agent-hub-stage.yml
     with:
       stage: work-order
-      ticket-key: ${{ github.event.client_payload.ticket_key || inputs.ticket_key }}
+      ticket-key: ${{ inputs.ticket_key }}
       agent-minutes: 35
       job-minutes: 60
     secrets: inherit
