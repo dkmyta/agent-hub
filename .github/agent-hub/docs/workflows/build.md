@@ -668,9 +668,12 @@ anything is written:
    (`verified.head` equal to its own `head`; a flag can't carry over to
    another commit). A person's commit, a semantic sync or anything else
    needs a full review first — green CI doesn't make it eligible.
-4. **The rest** — the record shows a finished review (`reviewed`: since
-   2.22.0 eligibility must be shown, so an unknown or missing status, or an
-   item in a state the hub doesn't know, blocks it), no decision item is
+4. **The rest** — the record is readable (its heads, review and items in
+   the shape these rules read), shows a finished review (`reviewed`) of a
+   commit that was itself verified on exactly that commit (since 2.22.2: a
+   person's commit the hub checks is recorded verified), and every item in a
+   state the hub knows — eligibility must be shown, so anything missing or
+   unknown blocks it (since 2.22.0) — no decision item is
    open, the plan and its approval still stand, and the ticket is in
    Implementation Plan Approved.
 5. **The pull request itself, as it is now** (since 2.22.0) — still open,
@@ -682,7 +685,9 @@ Then the hub records the hand-off as **pending**, marks the pull request ready f
 (CODEOWNERS are requested by GitHub then), moves the ticket to **Ready for
 Review** with `needs-human`, records it **complete** (since 2.22.0: only a
 complete hand-off counts — to end a re-run, and for Done when the pull
-request is merged), and comments on both. A hand-off that stops
+request is merged; a hand-off recorded before 2.22.0 has no state and can't
+show it finished, so since 2.22.2 it's finished again on an open pull
+request, and a merged one goes to a person), and comments on both. A hand-off that stops
 part-way is finished by the next run (each write is safe to repeat) — the CI
 sweep wakes one recorded but still a draft (2.19.0), and a re-run finishes
 one marked ready whose ticket didn't move (2.21.0). **New commits after a
@@ -852,12 +857,16 @@ and the next revision reviews the whole pull request.
   way to give the agent instructions.
 - **Only open items in the pull request's current record**; every command is
   answered once, on the ticket (the comment marked resolved with what was
-  done, or why not). Marking a person's comment needs the tracker account
+  done, or why not). **Each command is claimed before anything is done for
+  it** (since 2.22.2): its comment's id is kept as handled on the ticket
+  (`agent-hub-items`, every one, never dropped), so it never runs twice — a
+  run that stops part-way, or can't post its answer, leaves it claimed, not
+  open again; to repeat a command, post it again (an edit to it isn't a new
+  command). If the claim can't be written, or that record can't be read, no
+  command is handled. Marking a person's comment needs the tracker account
   to edit people's comments ([jira.md](../jira.md#permissions-for-the-automation-account));
   if the tracker refuses, the answer is posted as a comment of its own
-  ("✅ Answered — …"), and the command is kept as handled on the ticket
-  (`agent-hub-items`), so it isn't read again (since 2.21.6; every one kept,
-  and if that record can't be read no command is handled, since 2.21.7).
+  ("✅ Answered — …").
 - **`/skip`:** a decision item is *accepted*, any other *skipped*; the
   description's items are rewritten from the review the hub keeps on the
   ticket (the private `agent-hub-review` property: findings' full text a

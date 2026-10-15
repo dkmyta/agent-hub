@@ -5,6 +5,40 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.22.2 — 2026-10-15
+
+From a verification of the review's fixes (each point checked against the
+code and, for approvals, Jira's real history first): four were only partly
+closed.
+
+- **H3 — the approved part ends at the Delivery heading itself.** It ended at
+  the first "Testing Instructions" anywhere in the text, so the phrase in the
+  work order's prose let an edit after it keep the approval. Jira's history
+  gives the description as wiki markup: the approved part is now everything
+  before the heading line `h4. Testing Instructions`, only when that line is
+  there exactly once and only the Pull Request heading follows it — anything
+  else (the phrase in prose or an example, a repeated, missing or moved
+  heading) needs approving again. Checked against AGENTHUB-60's real
+  history: the build's own edits still keep the approval.
+- **H4 — the reviewed commit must itself be verified.** Only the commits
+  after it were checked. Now the reviewed commit needs a verification of
+  exactly that commit, and a person's commit the hub checks is recorded so
+  (it wasn't, though it was checked); a record missing what the rules read
+  (heads, review, items) blocks the hand-off.
+- **H7 — a command is claimed before anything is done for it.** It was kept
+  as handled only after acting, so a run that couldn't both mark its comment
+  and keep that record left it open to run again. Now each command's id is
+  kept on the ticket first — if that can't be written, nothing is done — so
+  a command never runs twice; to repeat one, post it again. The record's log
+  keeps the last 100 entries (the handled ids, all of them).
+- **M2 — a hand-off recorded before 2.22.0 isn't taken as complete.** It
+  can't show it finished: merged, it goes to a person, not to Done; still
+  open, the next CI gate run finishes it and records it complete.
+
+**Updating:** Nothing. A hub pull request open from before 2.22.0 is handed
+off again by the next CI gate run; one merged after the update is a
+person's to move to Done.
+
 ## 2.22.1 — 2026-10-14
 
 The last two fixes from the full review of 2.21.6.

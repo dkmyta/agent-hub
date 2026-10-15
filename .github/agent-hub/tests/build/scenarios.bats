@@ -197,8 +197,8 @@ test/greet.test.js expected"
   # otherwise be stale.
   jq '.values[-1].author.accountId = "agent-hub-bot"
       | .values[-1].items[0] = {field: "description",
-          fromString: "Work order. Plan summary.\nTesting Instructions\nPending\nPull Request\nPending",
-          toString: "Work order. Plan summary.\nTesting Instructions\nCheck out the branch\nPull Request\n#101"}' \
+          fromString: "Work order. Plan summary.\nh4. Testing Instructions\nPending\nh4. Pull Request\nPending",
+          toString: "Work order. Plan summary.\nh4. Testing Instructions\nCheck out the branch\nh4. Pull Request\n#101"}' \
     "$BATS_TEST_TMPDIR/edited.json" > "$BATS_TEST_TMPDIR/hub-edited.json"
   fresh_repo
   run_scenario ready CLAUDE_EDITS=edits/greet.sh CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/hub-edited.json"
@@ -207,13 +207,28 @@ test/greet.test.js expected"
   assert_line "--- Outcome: written"
   # But the automation editing what was approved — the work order or the
   # plan's summary — is a change like any other: approve again.
-  jq '.values[-1].items[0].toString = "Work order, changed. Plan summary.\nTesting Instructions\nPending\nPull Request\nPending"' \
+  jq '.values[-1].items[0].toString = "Work order, changed. Plan summary.\nh4. Testing Instructions\nPending\nh4. Pull Request\nPending"' \
     "$BATS_TEST_TMPDIR/hub-edited.json" > "$BATS_TEST_TMPDIR/hub-edited-content.json"
   fresh_repo
   run_scenario ready CLAUDE_EDITS=edits/greet.sh CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/hub-edited-content.json"
   run trace
   assert_line "Agent: skipped"
   grep -qx '\*\*Outcome:\*\* stale' "$RUNNER_TEMP/summary.md"
+  # Only the Delivery heading itself marks where the approved part ends —
+  # never the phrase in prose before it, a repeated heading, or another
+  # section after it: those can't show the approved part is unchanged.
+  local case
+  for case in \
+      '{"f": "Aim: better Testing Instructions.\nScope A\nh4. Testing Instructions\nPending", "t": "Aim: better Testing Instructions.\nScope B\nh4. Testing Instructions\nPending"}' \
+      '{"f": "WO\nh4. Testing Instructions\nx\nh4. Testing Instructions\nPending", "t": "WO\nh4. Testing Instructions\nx\nh4. Testing Instructions\nsteps"}' \
+      '{"f": "WO\nh4. Testing Instructions\nPending", "t": "WO\nh4. Testing Instructions\nPending\nh4. Acceptance Criteria\nmore"}'; do
+    jq --argjson c "$case" '.values[-1].items[0] |= (.fromString = $c.f | .toString = $c.t)' \
+      "$BATS_TEST_TMPDIR/hub-edited.json" > "$BATS_TEST_TMPDIR/hub-edited-case.json"
+    fresh_repo
+    run_scenario ready CLAUDE_EDITS=edits/greet.sh CHANGELOG_FIXTURE="$BATS_TEST_TMPDIR/hub-edited-case.json"
+    run trace
+    assert_line "Agent: skipped"
+  done
 }
 
 # A time that can't be read can't show the plan predates the approval.
@@ -2042,7 +2057,24 @@ resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment
   run resolutions
   assert_output ""
   run cat "$RUNNER_TEMP/failure-reason"
-  assert_output --partial "Couldn't read which commands on PROJ-99 were already answered"
+  assert_output --partial "Couldn't read which commands on PROJ-99 were already handled"
+}
+
+@test "/skip: a command is claimed before anything is done for it — if the claim can't be written, nothing is, so it can never run twice" {
+  run_scenario decision-item
+  keep_properties
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  command_run "$(command_comments '/skip D1')" 'MOCK_FAIL=PUT /properties/agent-hub-items'
+  run trace
+  assert_line "--- Outcome: failed"
+  # Nothing written to the pull request, nothing answered.
+  run bash -c "jq -r 'select(.method != \"GET\") | .path' '$GH_CALLS' 2> /dev/null"
+  assert_output ""
+  run resolutions
+  assert_output ""
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "Couldn't record on PROJ-99 that its commands are being handled, so none was"
 }
 
 @test "/skip on a paused pull request: nothing changes — the command is answered, asking for it again once the label is removed" {
@@ -2412,6 +2444,22 @@ SH
   [ ! -e "$RUNNER_TEMP/mock-status" ] || fail "the ticket was moved"
   run pr_comments
   assert_output --partial "now targets release, not main"
+}
+
+@test "closed: merged after a hand-off recorded by a hub before 2.22.0 (no state) — not Done; it can't show it finished" {
+  handed_off_pr
+  # As a hub before 2.22.0 recorded it: no state.
+  jq '.[0].body |= sub(",\"state\":\"complete\""; "") | .[0].versions[-1].body |= sub(",\"state\":\"complete\""; "")' \
+    "$RUNNER_TEMP/mock-github/prs.json" > "$RUNNER_TEMP/mock-github/prs.json.new" \
+    && mv "$RUNNER_TEMP/mock-github/prs.json.new" "$RUNNER_TEMP/mock-github/prs.json"
+  assert_equal "$(jq -c '.handoff | has("state")' <<< "$(pr_state)")" false
+  merge_pr
+  closed_run
+  run trace
+  assert_line "--- Outcome: blocked"
+  [ ! -e "$RUNNER_TEMP/mock-status" ] || fail "the ticket was moved"
+  run jira_comments
+  assert_output --partial "its hand-off was recorded by a hub before 2.22.0, which can't show it finished"
 }
 
 @test "closed: merged after a hand-off that never finished — not Done; a person decides" {

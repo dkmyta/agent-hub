@@ -32,6 +32,12 @@
 # /apply sent a handed-off pull request back to draft.)
 handoff_problems() {
   jq -r --arg head "$1" '
+    # The parts of the record these rules read: anything else is a record
+    # the hub can'"'"'t vouch for, never eligible by default.
+    if (.heads | type) != "array" or (.heads | length) == 0 or (.review | type) != "object"
+       or ((.items // []) | type) != "array" or any(.heads[]; (.head | type) != "string")
+    then "the hub'"'"'s record isn'"'"'t one it can read (its heads, review or items are missing or malformed), so the change needs reviewing again"
+    else
     (.heads // []) as $heads | (.review.head // "") as $reviewed
     | ([$heads[].head] | index($reviewed)) as $at
     | (if ($heads | length) == 0 or $heads[-1].head != $head then
@@ -49,8 +55,13 @@ handoff_problems() {
        else empty end),
       ([.items[]? | select((.status // "") | IN("open", "fixed", "skipped", "accepted", "closed") | not) | .id // "an item"]
         | if length > 0 then "the hub'"'"'s record has an item in a state it doesn'"'"'t know (\(join(", ")))" else empty end),
+      # The reviewed commit itself was verified, exactly: the review rests on it.
+      (if $at != null and ($heads[$at].verified.head // "") != $reviewed then
+        "the hub'"'"'s record doesn'"'"'t show the reviewed commit \($reviewed[0:7]) verified on exactly that commit, so the change needs checking and reviewing again"
+       else empty end),
       ([.items[]? | select((.id | startswith("D")) and .status == "open") | .id]
-        | if length > 0 then "decision item\(if length == 1 then "" else "s" end) \(join(", ")) still open" else empty end)'
+        | if length > 0 then "decision item\(if length == 1 then "" else "s" end) \(join(", ")) still open" else empty end)
+    end'
 }
 
 # _reconcile_ci <number> <head> <base>: the CI gate, on the head
@@ -64,7 +75,8 @@ _reconcile_ci() {
   # since would have cleared it). A hand-off that stopped part-way — still a
   # draft, or the ticket still in the approved status — is finished below
   # (each of its writes is safe to repeat).
-  if jq -e --arg head "$head" '.handoff.head == $head and (.handoff.state // "complete") == "complete"' "$RECONCILE_STATE" > /dev/null \
+  # (A record from before 2.22.0 has no state: it's finished again, so it says complete.)
+  if jq -e --arg head "$head" '.handoff.head == $head and .handoff.state == "complete"' "$RECONCILE_STATE" > /dev/null \
      && jq -e '.draft == false' "$RUNNER_TEMP/reconcile-pr.json" > /dev/null 2>&1 \
      && [ "$(stage_start_status)" != "$PLAN_APPROVED_STATUS" ]; then
     echo "Pull request #$number was handed off at ${head:0:7}; nothing to do."

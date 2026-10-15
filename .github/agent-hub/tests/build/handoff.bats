@@ -73,6 +73,24 @@ problems() { handoff_problems "$1" <<< "$2"; }
   assert_output "the automated review didn't finish"
 }
 
+@test "hand-off: the reviewed commit itself must be verified on exactly that commit, and the record readable" {
+  # No verification of the reviewed commit, or one naming another commit.
+  run problems bbbbbbb1 "$(record | jq -c 'del(.heads[0].verified)')"
+  assert_output "the hub's record doesn't show the reviewed commit bbbbbbb verified on exactly that commit, so the change needs checking and reviewing again"
+  run problems bbbbbbb1 "$(record | jq -c '.heads[0].verified.head = "ccccccc1"')"
+  assert_output --partial "doesn't show the reviewed commit bbbbbbb verified on exactly that commit"
+  # A person's commit the hub checked and reviewed is eligible.
+  run problems ddddddd1 "$(record '[{"head": "ddddddd1", "by": "people", "kind": "people", "verified": {"head": "ddddddd1", "by": "verify"}}]' | jq -c '.review.head = "ddddddd1"')"
+  assert_output ""
+  # A record missing what these rules read.
+  local broken
+  for broken in '{}' '{"heads": [], "review": {"status": "reviewed"}}' '{"heads": [{"head": 1}], "review": {}}' \
+      '{"heads": [{"head": "bbbbbbb1"}], "review": "reviewed"}' '{"heads": [{"head": "bbbbbbb1"}], "review": {}, "items": {}}'; do
+    run problems bbbbbbb1 "$broken"
+    assert_output "the hub's record isn't one it can read (its heads, review or items are missing or malformed), so the change needs reviewing again"
+  done
+}
+
 @test "hand-off: eligibility is shown, never assumed — an unknown or missing review status, or an item in a state the hub doesn't know, blocks it" {
   run problems bbbbbbb1 "$(record | jq -c '.review.status = "unknown"')"
   assert_output "the hub's record doesn't show a finished review (unknown), so the change needs reviewing again"
