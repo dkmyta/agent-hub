@@ -566,8 +566,9 @@ rename):
   re-checked by the code review, not a separate plan re-validation pass.)
 - **A merge conflict** — the merge is abandoned and nothing is pushed: a
   comment on the pull request and the ticket lists the conflicting files,
-  the ticket gets `needs-human`, and a person merges the target and
-  resolves them (outcome *blocked*). The next run re-checks what they
+  the ticket gets `needs-human`, a pull request already handed off goes back
+  to draft (since 2.21.6), and a person merges the target and resolves them
+  (outcome *blocked*). The next run re-checks what they
   pushed. (Decided 2026-10-08: a person, not an agent — a later item.)
 
 The merge is the machine user's (`Merge <target> into <branch>`), and the
@@ -840,7 +841,11 @@ and the next revision reviews the whole pull request.
   way to give the agent instructions.
 - **Only open items in the pull request's current record**; every command is
   answered once, on the ticket (the comment marked resolved with what was
-  done, or why not).
+  done, or why not). Marking a person's comment needs the tracker account
+  to edit people's comments ([jira.md](../jira.md#permissions-for-the-automation-account));
+  if the tracker refuses, the answer is posted as a comment of its own
+  ("✅ Answered — …"), and the command is kept as handled on the ticket
+  (`agent-hub-items`), so it isn't read again (since 2.21.6).
 - **`/skip`:** a decision item is *accepted*, any other *skipped*; the
   description's items are rewritten from the review the hub keeps on the
   ticket (the private `agent-hub-review` property: findings' full text a

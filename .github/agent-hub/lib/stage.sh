@@ -283,9 +283,16 @@ stage_check_caps() {
 stage_record_usage() {
   local passes="$RUNNER_TEMP/claude-passes.jsonl" pending="$RUNNER_TEMP/claude-pass-pending" usage ledger
   [ -s "$passes" ] || [ -s "$pending" ] || return 0
-  usage=$({ cat "$passes" 2> /dev/null; [ ! -s "$pending" ] || jq -nc --argjson budget "$(cat "$pending")" '{cost: null, budget: $budget}'; } \
+  # The run's cost, and each pass's (the passes record their names: the
+  # build or a draft, then any review, fix, fix check, CI fix or apply), in
+  # the order they ran — a pass cut off counts at its budget.
+  usage=$({ cat "$passes" 2> /dev/null; [ ! -s "$pending" ] || jq -nc --argjson budget "$(cat "$pending")" '{pass: "unfinished", cost: null, budget: $budget}'; } \
     | jq -sc --arg over "${PASS_OVERSHOOT_USD:-0}" '($over | tonumber) as $over
-        | {cost: (map(.cost // (.budget + $over)) | add), estimated: any(.[]; .cost == null)}')
+        | map(. + {spent: (.cost // (.budget + $over))}) as $p
+        | {cost: ($p | map(.spent) | add), estimated: any($p[]; .cost == null),
+           passes: (reduce $p[] as $x ([]; if any(.[]; .pass == $x.pass)
+             then map(if .pass == $x.pass then .cost += $x.spent else . end)
+             else . + [{pass: ($x.pass // "pass"), cost: $x.spent}] end))}')
   if ! ledger=$(tracker_ledger); then
     echo "::warning::Couldn't read $TICKET_KEY's Claude usage from $TRACKER_NAME, so this run's (\$$(jq -r '.cost * 100 | round / 100' <<< "$usage")) isn't counted towards its cap."
     return 0
@@ -303,7 +310,8 @@ stage_record_usage() {
   fi
   jq -r -L "$HUB_DIR/lib" --argjson usage "$usage" --argjson max_runs "$TICKET_MAX_RUNS" --arg max_cost "$TICKET_MAX_COST_USD" 'include "adf";
     ($max_cost | tonumber) as $max_cost |
-    "**Ticket usage:** this run \($usage.cost | usd) in total\(if $usage.estimated then " (estimated: a pass had no report)" else "" end); the ticket \(.runs - (.lifted_runs // 0)) of \($max_runs) runs and \((.cost_usd - (.lifted_cost_usd // 0)) | usd) of \($max_cost | usd) since its caps last started."' \
+    {"fix-check": "fix check", "ci-fix": "CI fix"} as $names
+    | "**Claude cost:** this run \($usage.cost | usd) (\([$usage.passes[]? | "\($names[.pass] // .pass) \(.cost | usd)"] | join(", ")))\(if $usage.estimated then " (estimated: a pass had no report)" else "" end); the ticket \(.runs - (.lifted_runs // 0)) of \($max_runs) runs and \((.cost_usd - (.lifted_cost_usd // 0)) | usd) of \($max_cost | usd) since its caps last started."' \
     <<< "$ledger" | tee -a "$GITHUB_STEP_SUMMARY"
 }
 

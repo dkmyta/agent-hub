@@ -168,11 +168,20 @@ _reconcile_sync() {
 # repository's own) go on the pull request and the ticket; the log gets the
 # count. Ends the run.
 _reconcile_conflict() {
-  local number target branch count
+  local number target branch count draft=""
   number=$(context .pr) target=$(context .target) branch=$(context .branch)
   count=$(grep -c . <<< "$2")
-  printf '%s moved by %s since this pull request last met it, and merging it in conflicts in %s, so the hub has stopped updating this pull request. A person merges %s into %s and resolves the conflicts, then re-runs the build: it re-checks what was pushed.\n\nConflicting files:\n%s\n' \
-      "$target" "$(_plural "$1" commit)" "$(_plural "$count" file)" "$target" "$branch" "$(sed 's/^/- `/; s/$/`/' <<< "$2")" \
+  # A pull request already handed off goes back to draft: it can't be
+  # merged as it is, and ready for review would say otherwise.
+  if jq -e '.draft == false' "$RUNNER_TEMP/reconcile-pr.json" > /dev/null 2>&1; then
+    if gh_pr_draft "$(jq -r '.node_id' "$RUNNER_TEMP/reconcile-pr.json")"; then
+      draft=" It's back to a draft until then."
+    else
+      echo "::warning::Couldn't turn pull request #$number back into a draft."
+    fi
+  fi
+  printf '%s moved by %s since this pull request last met it, and merging it in conflicts in %s, so the hub has stopped updating this pull request. A person merges %s into %s and resolves the conflicts, then re-runs the build: it re-checks what was pushed.%s\n\nConflicting files:\n%s\n' \
+      "$target" "$(_plural "$1" commit)" "$(_plural "$count" file)" "$target" "$branch" "$draft" "$(sed 's/^/- `/; s/$/`/' <<< "$2")" \
     | gh_pr_comment "$number" || echo "::warning::Couldn't comment on pull request #$number."
   jq -n -L "$HUB_DIR/lib" --arg number "$number" --arg target "$target" --arg branch "$branch" --arg paths "$2" --arg run "$RUN_URL" 'include "adf";
     doc([para([strong("⚠️ Merge conflict"), text(" — \($target) moved since pull request #\($number) last met it, and merging it in conflicts, so the hub has stopped updating the pull request. A person merges \($target) into \($branch) and resolves the conflicts, then re-runs the build. "),

@@ -228,7 +228,10 @@ agent_settings() {
   jq -nc --argjson unreadable "$(sandbox_denied_reads)" --arg repo "$(pwd -P)" --arg temp "$temp" --arg profile "$1" \
       --arg toolchain "$toolchain" --arg path "$PATH" --argjson denied "$AGENT_DENIED_PATHS" '{
     disableAllHooks: true, disableBundledSkills: true,
-    env: {PATH: $path},
+    # git without the home folder'"'"'s ~/.gitconfig (which the sandbox rightly
+    # hides) or the system'"'"'s: set here, where the commands get it, as well as
+    # in the environment Claude Code starts with (_claude).
+    env: {PATH: $path, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1"},
     permissions: {deny: [$denied[] | "Edit(./\(.))", "Write(./\(.))"]},
     sandbox: {
       enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true,
@@ -309,9 +312,9 @@ _claude() {
     --allowedTools "$allowed" \
     "${PLUGIN_ARGS[@]}" \
     < /dev/null > "$output" || true
-  jq -c --arg budget "$3" '{cost: (.total_cost_usd // null), budget: ($budget | tonumber)}' "$output" 2> /dev/null \
+  jq -c --arg budget "$3" --arg pass "${CLAUDE_PASS:-pass}" '{pass: $pass, cost: (.total_cost_usd // null), budget: ($budget | tonumber)}' "$output" 2> /dev/null \
     | tail -n 1 | grep . >> "$RUNNER_TEMP/claude-passes.jsonl" \
-    || jq -nc --arg budget "$3" '{cost: null, budget: ($budget | tonumber)}' >> "$RUNNER_TEMP/claude-passes.jsonl"
+    || jq -nc --arg budget "$3" --arg pass "${CLAUDE_PASS:-pass}" '{pass: $pass, cost: null, budget: ($budget | tonumber)}' >> "$RUNNER_TEMP/claude-passes.jsonl"
   rm -f "$RUNNER_TEMP/claude-pass-pending"
   cat "$output"
   rm -f "$output"
@@ -416,6 +419,9 @@ agent_run() {
     _extension_text guidance.md "Repository guidance"
   } > "$prompt"
   _require_budget "$(agent_budget "$CLAUDE_MAX_BUDGET_USD")"
+  # The pass's name in the run's cost line: the build's one pass, or a
+  # document stage's draft (its review is a pass of its own).
+  CLAUDE_PASS=$([ "$STAGE" = build ] && echo build || echo draft) \
   _claude "$CLAUDE_MODEL" "$CLAUDE_FALLBACK_MODEL" "$(agent_budget "$CLAUDE_MAX_BUDGET_USD")" \
     "$prompt" "$(jq -c . "$schema")" \
     "$(printf '%s\n\n<ticket>\n%s\n</ticket>' "$1" "$(cat "$RUNNER_TEMP/ticket.md")")" \
@@ -510,7 +516,7 @@ agent_review() {
   _extension_text review.md "Repository review checklist" >> "$prompt"
 
   _require_budget "$(agent_budget "$REVIEW_CLAUDE_MAX_BUDGET_USD")"
-  _claude "$REVIEW_CLAUDE_MODEL" "$REVIEW_CLAUDE_FALLBACK_MODEL" "$(agent_budget "$REVIEW_CLAUDE_MAX_BUDGET_USD")" "$prompt" "$schema" \
+  CLAUDE_PASS=review _claude "$REVIEW_CLAUDE_MODEL" "$REVIEW_CLAUDE_FALLBACK_MODEL" "$(agent_budget "$REVIEW_CLAUDE_MAX_BUDGET_USD")" "$prompt" "$schema" \
     "$input" > "$RUNNER_TEMP/agent-review-output.json"
 
   if [ ! -s "$RUNNER_TEMP/agent-review-output.json" ] || ! jq -e \
@@ -575,7 +581,9 @@ agent_pass() {
     if [ "$1" = review ]; then _extension_text review.md "Repository review checklist"; fi
   } > "$prompt"
   _require_budget "$4"
-  AGENT_PROFILE=$1 _claude "$2" "$3" "$4" "$prompt" "$(jq -c . "$6")" "$7" > "$RUNNER_TEMP/pass-output.json"
+  # The pass is named for its prompt's folder (review, fix, fix-check, …).
+  AGENT_PROFILE=$1 CLAUDE_PASS=$(basename "$(dirname "$5")") \
+    _claude "$2" "$3" "$4" "$prompt" "$(jq -c . "$6")" "$7" > "$RUNNER_TEMP/pass-output.json"
   _fallback_warning "$2" "$3" "$RUNNER_TEMP/pass-output.json" "$(basename "$(dirname "$5")") pass" >&2
   cat "$RUNNER_TEMP/pass-output.json"
 }
@@ -613,12 +621,11 @@ agent_cleanup() {
 # summary — result, the models that did the work (5%+ of the cost; Claude Code
 # also uses a small model internally), whether the review changed the outcome
 # (left out for a stage with no review pass in its agent step), Claude Code
-# version, how it reached Claude (agent_access), duration, turns and
-# API-equivalent cost.
+# version, how it reached Claude (agent_access), duration and turns. The cost
+# is the run's Claude cost line (stage_record_usage).
 agent_summary() {
   # The status is one agent_check accepted (ready, or one the stage lists).
   jq -r '"status=\(.structured_output.status)"' "$AGENT_OUTPUT" >> "$GITHUB_OUTPUT"
-  # shellcheck disable=SC1112 # curly apostrophe intended
   jq -r --arg title "$1" --arg model "$CLAUDE_MODEL" --arg version "${CLAUDE_VERSION:-unknown}" \
       --arg access "$(jq -r '.label // "unknown"' "$RUNNER_TEMP/agent-access.json" 2> /dev/null || echo unknown)" \
       --slurpfile review <(cat "$AGENT_REVIEW" 2> /dev/null || true) '
@@ -627,20 +634,19 @@ agent_summary() {
        | join(", ") | if . == "" then $model else . end) as $models
     | ($review[0] // {}) as $r
     | "### \($title): \(env.TICKET_KEY)\n",
-      # A stage without an expert-review pass in its agent step (the build:
-      # its code review and fix are steps of their own, listed after this)
-      # gets a table of this pass alone — no review columns to read as $0.
+      # The cost of the run, every pass, is one line at its end
+      # (stage_record_usage: the code review and fix of a build come after
+      # this step). A stage without an expert-review pass in its agent step
+      # (the build) has no review columns.
       if $review == [] then
-        "| Result | Models | Claude Code | Claude access | Duration | Turns | Cost (API-equivalent) |",
-        "|---|---|---|---|---|---|---|",
-        "| \(.structured_output.status) | \($models) | \($version) | \($access) | \(.duration_ms / 1000 | floor)s | \(.num_turns) | $\($total * 100 | round / 100) (this pass) |",
-        "",
-        "Later passes (a code review, a fix) are listed below; **Ticket usage** has the run’s total.",
+        "| Result | Models | Claude Code | Claude access | Duration | Turns |",
+        "|---|---|---|---|---|---|",
+        "| \(.structured_output.status) | \($models) | \($version) | \($access) | \(.duration_ms / 1000 | floor)s | \(.num_turns) |",
         ""
       else
-        "| Result | Review | Length | Models | Claude Code | Claude access | Duration | Turns (draft + review) | Cost (API-equivalent) |",
-        "|---|---|---|---|---|---|---|---|---|",
-        "| \(.structured_output.status) | \(if $r.skipped then "skipped (sent back)" elif $r.outcome_changed then "outcome changed (was \(.draft_status))" else "\($r.changes // [] | length) change(s)" end) | \(if (.draft_chars // 0) > 0 then "\(.final_chars) chars (\(((.final_chars - .draft_chars) * 100 / .draft_chars) | round)% vs draft)" else "-" end) | \($models) | \($version) | \($access) | \(.duration_ms / 1000 | floor)s | \(.draft_turns // .num_turns) + \(.review_turns // 0) | $\($total * 100 | round / 100) (draft $\((.draft_cost // $total) * 100 | round / 100), review $\((.review_cost // 0) * 100 | round / 100)) |",
+        "| Result | Review | Length | Models | Claude Code | Claude access | Duration | Turns (draft + review) |",
+        "|---|---|---|---|---|---|---|---|",
+        "| \(.structured_output.status) | \(if $r.skipped then "skipped (sent back)" elif $r.outcome_changed then "outcome changed (was \(.draft_status))" else "\($r.changes // [] | length) change(s)" end) | \(if (.draft_chars // 0) > 0 then "\(.final_chars) chars (\(((.final_chars - .draft_chars) * 100 / .draft_chars) | round)% vs draft)" else "-" end) | \($models) | \($version) | \($access) | \(.duration_ms / 1000 | floor)s | \(.draft_turns // .num_turns) + \(.review_turns // 0) |",
         ""
       end' \
     "$AGENT_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
