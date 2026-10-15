@@ -182,6 +182,12 @@ running it as a variant (above) instead. Otherwise:
 3. `npm run update-snapshots --prefix .github/agent-hub/tests`, then check `expected/trace.txt`
    is what the workflow should do.
 
+## Live tests
+
+End to end against a real tracker, GitHub, the runner and Claude: a written
+procedure, not part of this suite — `tools/live-tests/` in the hub's own
+repository (outside the hub's folder, so it isn't installed with it).
+
 ## Live evals
 
 Why and when to run them: [docs/evals.md](../docs/evals.md).

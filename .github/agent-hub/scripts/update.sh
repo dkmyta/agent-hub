@@ -16,13 +16,16 @@
 #
 # It records what it installed (.github/agent-hub/.installed: a checksum per
 # file), so the next update can tell when a hub file was edited here and stop
-# before overwriting it; --force overwrites anyway.
+# before overwriting it; --force overwrites anyway. And where it came from
+# (.github/agent-hub/.installed-from: the version, and the hub copy's commit
+# and tag when it's a git clone).
 set -euo pipefail
 
 HUB=.github/agent-hub
 FORM=.github/ISSUE_TEMPLATE/agent-hub-request.yml
 EXTENSIONS=.github/agent-hub-extensions
 RECORD=$HUB/.installed
+FROM=$HUB/.installed-from
 
 fail() { echo "update.sh: $1" >&2; exit 1; }
 usage() { echo "Usage: update.sh <path to a copy of the hub> [--with-issue-form] [--force] | update.sh --check" >&2; exit 2; }
@@ -68,10 +71,10 @@ checksums() {
 
 # hub_files <root>: the hub's files under <root>, relative, one per line —
 # regular files only (no links), without installed test dependencies or the
-# install record.
+# install records.
 hub_files() {
   (cd "$1" && {
-    if [ -d "$HUB" ]; then find "$HUB" -type f ! -path "$RECORD" ! -path "*/node_modules/*"; fi
+    if [ -d "$HUB" ]; then find "$HUB" -type f ! -path "$RECORD" ! -path "$FROM" ! -path "*/node_modules/*"; fi
     if [ -d .github/workflows ]; then find .github/workflows -maxdepth 1 -type f -name 'agent-hub-*.yml'; fi
   } | sort)
 }
@@ -101,6 +104,7 @@ if [ -f "$RECORD" ]; then
       fail "the installed hub doesn't match its install record. Change the hub only with update.sh; move your changes into an extension (docs/extending.md)."
     fi
     echo "The hub's files are unchanged since installation ($(cat "$HUB/VERSION" 2> /dev/null || echo "version unknown"); $(wc -l < "$RECORD" | tr -d ' ') files)."
+    if [ -f "$FROM" ]; then echo "Installed from: $(grep -E '^(commit|tag):' "$FROM" | tr '\n' ' ' | sed 's/ $//')"; fi
     exit 0
   fi
   if [ -n "$edited" ] && [ "$force" = false ]; then
@@ -128,6 +132,20 @@ hub_files . | while read -r path; do rm -f "$path"; done
 rm -rf "$HUB"
 (cd "$source" && tar cf - -T "$files") | tar xf -
 checksums < "$files" > "$RECORD"
+
+# Where it came from: the hub copy's commit and tag, when the copy is a git
+# clone of its own (not a folder inside another repository). "unknown"
+# otherwise, and the commit is marked when the copy had uncommitted changes.
+commit=unknown tag=none
+if [ "$(git -C "$source" rev-parse --show-toplevel 2> /dev/null)" = "$source" ]; then
+  commit=$(git -C "$source" rev-parse HEAD 2> /dev/null) || commit=unknown
+  tag=$(git -C "$source" describe --tags --exact-match HEAD 2> /dev/null) || tag=none
+  if [ "$commit" != unknown ] && [ -n "$(git -C "$source" status --porcelain 2> /dev/null)" ]; then
+    commit="$commit (with uncommitted changes)"
+  fi
+fi
+# No date: an update to the same commit changes nothing (git has the date).
+printf 'version: %s\ncommit: %s\ntag: %s\n' "$to" "$commit" "$tag" > "$FROM"
 
 # A repository without extensions gets a note on where they go — read by
 # people only (the stages load shared/ and stage folders, never this file).

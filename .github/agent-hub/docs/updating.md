@@ -118,8 +118,12 @@ It stops, changing nothing, when:
   hand), so local changes can't be detected — check, then use `--force`.
 
 It knows what it installed from `.github/agent-hub/.installed` — a checksum
-of every file it installed, written on every install and update. Commit it
-with the rest.
+of every file it installed, written on every install and update. Beside it,
+`.github/agent-hub/.installed-from` records where the files came from: the
+version, and the hub copy's commit and tag when the copy is a git clone
+(`unknown` and `none` otherwise; the commit is marked when the copy had
+uncommitted changes). `update.sh --check` prints them. Commit both with the
+rest.
 
 ## Releasing a version (hub maintainers)
 

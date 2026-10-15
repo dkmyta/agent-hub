@@ -22,6 +22,7 @@ unless they start with `.github/`.
   agent-hub/
     VERSION, CHANGELOG.md         the release, and what changed in each (docs/updating.md)
     .installed                    in an installed repository: what the update script installed
+    .installed-from               … and where from: the version, and the hub copy's commit and tag
     lib/
       settings.sh                 shared settings: repository variables and defaults
       load.sh                     what each workflow step sources (from the hub's copy in RUNNER_TEMP)
@@ -365,6 +366,12 @@ stage ([workflows/build.md](workflows/build.md)).
   push, pull request or schedule (enforced by `tests/shared/claude-usage.bats`).
 - A stage's files live in `stages/<stage>/` (see [Layout](#layout)); shared
   code lives in `lib/` and `trackers/` — reuse it, don't copy it.
+- The repository a run executes in (where its workflow, runs and `RUN_URL`
+  are) is today the repository it changes (its code, pull requests and
+  checks): both are `GITHUB_REPOSITORY`. Keep the two apart in new code: reach
+  the changed repository through `lib/github.sh` and `lib/ci.sh`, not new
+  `/repos/$GITHUB_REPOSITORY` calls elsewhere, and don't add new assumptions
+  that the two are the same.
 
 ### Agent passes
 
