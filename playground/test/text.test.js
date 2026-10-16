@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { slugify, titleCase, truncate, wordCount } from "../src/text.js";
+import { reverseWords, slugify, titleCase, truncate, wordCount } from "../src/text.js";
 
 test("slugify lowercases and joins words with hyphens", () => {
   assert.equal(slugify("Hello, World!"), "hello-world");
@@ -54,4 +54,18 @@ test("titleCase keeps whitespace between words exactly", () => {
 test("titleCase returns empty or whitespace-only text unchanged", () => {
   assert.equal(titleCase(""), "");
   assert.equal(titleCase("   "), "   ");
+});
+
+test("reverseWords reverses word order", () => {
+  assert.equal(reverseWords("one two three"), "three two one");
+  assert.equal(reverseWords("hello"), "hello");
+});
+
+test("reverseWords collapses whitespace and trims the ends", () => {
+  assert.equal(reverseWords("  one \t two\n\nthree  "), "three two one");
+});
+
+test("reverseWords returns empty or whitespace-only text as an empty string", () => {
+  assert.equal(reverseWords(""), "");
+  assert.equal(reverseWords("   "), "");
 });
