@@ -46,7 +46,7 @@ unless they start with `.github/`.
       review.md                   the stage's review checklist
       render.jq, revise.sh        output → ticket layout; revisions
       <pass>/                     a further pass's prompt.md and schema.json (the build's review/, fix/, fix-check/; "Agent passes")
-    scripts/                      update.sh (install and update), CI helpers
+    scripts/                      update.sh (install and update), check-setup.sh (the read-only setup checker), CI helpers
     tests/                        the test suite and evals
     docs/
 ```

@@ -5,6 +5,42 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.25.0 — 2026-10-16
+
+v1, setup simplification (part one): a read-only setup checker.
+
+- **`scripts/check-setup.sh`** checks a repository's hub setup and reports
+  each part as **verified** (checked and right), **unverified** (it couldn't
+  check: why, and where to check by hand) or **blocked** (checked and wrong:
+  how to fix it). It never reports a pass it didn't check, and exits 1 if
+  anything is blocked. It checks:
+  - the hub's files are unchanged since installation;
+  - the `agent-hub` environment is limited to the default branch, holding the
+    required secrets, with none of the hub's secrets at the repository level;
+  - the variable names are ones the hub reads, and the Claude Code pin is
+    exact;
+  - the default branch requires checks, each bound to the app that posts it;
+  - workflow permissions are read-only;
+  - a runner with the labels is online, and Claude Code on this machine
+    matches the pin;
+  - in Jira, as the service account: its credentials work, the status names
+    match, and the approvers group exists.
+
+  It only reads GitHub (through `gh`, as you) and Jira (with the service
+  account's credentials, asked for or from the environment, never shown or
+  on a command line). The automation rules, the service account's role and
+  the tokens' exact permissions are left for later, and reported as
+  unverified.
+- **Docs:** setup.md's "Check it" starts with it; jira.md's "Checking the
+  setup" points to it; the live-test journeys require it to pass first.
+- **Fix: `npm run affected` missed new files outside `tests/`.** It listed
+  untracked files only below the folder it runs from (`tests/`), so a new
+  shared file elsewhere in the hub selected too few suites. It now looks in
+  the whole repository, with a test run from a subfolder.
+
+**Updating:** Nothing. Run `.github/agent-hub/scripts/check-setup.sh
+--jira-project <KEY>` to check your setup.
+
 ## 2.24.3 — 2026-10-16
 
 The test suite sweep, finished: two duplicate runs gone, and a policy that

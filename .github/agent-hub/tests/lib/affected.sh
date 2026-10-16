@@ -41,7 +41,7 @@ else
   changed=$( { g diff --name-only --no-renames "$base" \
                && g diff --name-only --no-renames \
                && g diff --name-only --no-renames --cached \
-               && g ls-files --others --exclude-standard --full-name; } 2> /dev/null) \
+               && g ls-files --others --exclude-standard --full-name -- ':/'; } 2> /dev/null) \
     || everything "Git couldn't list the changes"
 fi
 hub_changed=$(grep -E "^($hub/|\.github/workflows/agent-hub-|\.github/agent-hub-extensions/|\.github/ISSUE_TEMPLATE/agent-hub-)" <<< "$changed" | sort -u || true)

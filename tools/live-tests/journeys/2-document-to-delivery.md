@@ -12,6 +12,7 @@ build, its review, the CI gate, the hand-off, the merge.
 
 ## Before you start
 
+- **The setup checker passes in the test repository** (`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`): nothing blocked; anything unverified checked by hand. Keep its output with the evidence.
 - [Journey 1](1-planning-and-revision.md) finished on this ticket, or any
   ticket in Implementation Plan with a plan for
   [reverse-words](../fixtures/tickets/reverse-words.md).

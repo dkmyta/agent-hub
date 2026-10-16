@@ -328,6 +328,36 @@ is missing.
 
 ## 8. Check it
 
+1. **The setup checker** (read-only, no Claude), from the repository, with the
+   GitHub CLI signed in as you (an admin, for the runner and protection
+   checks):
+
+   ```sh
+   .github/agent-hub/scripts/check-setup.sh --jira-project <KEY>
+   ```
+
+   It reports each part of the setup as **verified** (checked and right),
+   **unverified** (it couldn't check: why, and where to check by hand) or
+   **blocked** (checked and wrong: how to fix it), and exits 1 if anything
+   is blocked. It checks:
+   - the hub's files are unchanged since installation;
+   - the `agent-hub` environment is limited to the default branch, holding the
+     required secrets, with none of the hub's secrets at the repository level;
+   - the variable names are ones the hub reads (catching typos), and the
+     Claude Code pin is exact once the build is on;
+   - the default branch requires checks, each bound to the app that posts it;
+   - workflow permissions are read-only by default;
+   - a runner with the labels is online, and Claude Code on the machine it
+     runs on matches the pin;
+   - in Jira, as the service account: its credentials work, the status names
+     match, and the approvers group exists.
+
+   It asks for the service account's Jira credentials, or reads
+   `AGENT_HUB_JIRA_DOMAIN`, `AGENT_HUB_JIRA_EMAIL` and
+   `AGENT_HUB_JIRA_API_TOKEN` from the environment. It never shows them or
+   puts them on a command line, and changes nothing. `--no-jira` skips Jira.
+   The automation rules aren't checked: compare them with
+   [jira.md](jira.md).
 1. **Actions → Agent hub: Work order → Run workflow** with the key of a test
    ticket in the Work Order status. The ticket should get a work order.
 2. Create a ticket through the tracker and confirm its rule triggers a run.

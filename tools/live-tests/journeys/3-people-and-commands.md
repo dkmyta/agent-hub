@@ -17,6 +17,7 @@ hand-off (step 4) and before the merge (step 5)**, then finish journey 2.
 
 ## Before you start
 
+- **The setup checker passes in the test repository** (`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`): nothing blocked; anything unverified checked by hand. Keep its output with the evidence.
 - Journey 2 reached step 4 on this ticket: the pull request handed off,
   the ticket in Ready for Review.
 - You're in the approvers group; the build token is a machine user's.

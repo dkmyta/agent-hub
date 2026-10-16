@@ -396,6 +396,12 @@ affected() { AGENT_HUB_AFFECTED_DRY=1 "$TESTS_DIR/lib/affected.sh" 2>&1 | tail -
   echo more >> "$repo/$hub/docs/b.md"
   run in_repo
   assert_output "Changed: 2 hub file(s); running: shared"
+  # Untracked anywhere in the repository, whatever folder it runs from (npm
+  # runs it from tests/): a new shared script runs everything.
+  mkdir -p "$repo/$hub/tests" "$repo/$hub/scripts" && echo s > "$repo/$hub/scripts/new.sh"
+  run bash -c "AGENT_HUB_AFFECTED_REPO='$repo/$hub/tests' AGENT_HUB_AFFECTED_DRY=1 '$TESTS_DIR/lib/affected.sh' 2>&1"
+  assert_line --partial "scripts/new.sh is shared code"
+  rm "$repo/$hub/scripts/new.sh"
   # Committed: a rename from the work order's stage to the build's counts at
   # both paths — both stages' suites run.
   git -C "$repo" mv "$hub/stages/work-order/a.md" "$hub/stages/build/a.md"
