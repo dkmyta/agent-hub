@@ -4,10 +4,10 @@ The foundations for using GitHub Projects as the tracker instead of Jira:
 where tickets live, the board and its statuses, views, labels, the intake
 form and access. Choosing between the two: [trackers.md](trackers.md).
 
-> **Status:** foundations only. **The agent stages aren't connected to GitHub
-> issues yet**, so a ticket on this board doesn't start a work order or plan.
-> Connecting them mirrors the Jira setup and is documented here once it's
-> built. Until then, use [Jira](jira.md) for the full pipeline.
+> **Status:** foundations only, and a possible alternative tracker — whether
+> it's taken further isn't decided. **The agent stages aren't connected to
+> GitHub issues**, so a ticket on this board doesn't start a work order or
+> plan. Use [Jira](jira.md) for the pipeline.
 
 The statuses and labels are the same as Jira's, so both trackers read the
 same way.

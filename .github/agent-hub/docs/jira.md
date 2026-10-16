@@ -7,9 +7,8 @@ recommendations. Names shown are the defaults; status
 and label names can be changed per repository with variables (see
 [setup.md](setup.md#4-set-variables-only-what-differs-from-the-defaults)).
 
-Using GitHub Projects instead? See [trackers.md](trackers.md) and
-[github-projects.md](github-projects.md) — the statuses, labels and `/revise`
-requests are the same.
+Jira is the supported tracker. GitHub Projects is a possible alternative, not
+yet decided ([trackers.md](trackers.md)).
 
 The examples assume a **team-managed** project. In a company-managed project
 the same settings live in the workflow scheme and permission scheme.
@@ -185,8 +184,9 @@ that owns the ticket's current status.
 | Part | Setting |
 |---|---|
 | **Trigger** | *Work item commented* |
-| **Condition** | Work type = **Task** |
 | **Condition** | *Smart values condition*: `{{comment.body.trim().toLowerCase()}}` **matches regular expression** `(?s)^/revise(\s.*)?$` — only comments starting with the word `/revise` |
+| **Condition** | Work type = **Task** |
+| **Condition** | *User condition*: the comment's author (**Initiator**) is in group **`agent-hub-approvers`** (your `AGENT_HUB_APPROVERS_GROUP`), or a wider group of the people who work these tickets |
 | **If/else block** | |
 | → **If** Status = **Intake** | Edit work item: Labels **remove** `needs-details` and `needs-human` → Transition to **Work Order** → Send web request to `agent-hub-work-order.yml` (as in Work Order Requested) |
 | → **Else if** Status = **Work Order** | Edit work item: Labels **remove** `needs-human` → Send web request to `agent-hub-work-order.yml` |
@@ -212,12 +212,9 @@ as input. `/revise` on its own (no text) retries. How revisions work:
   Claude with nothing to revise.
 - Description edits never start a revision (outside Intake) — they're manual
   changes, kept as they are.
-- Anyone who can comment can start a run, and each run uses Claude. Limit
-  it before production: add a *User condition* to this rule — the commenter
-  is in the project's role or group for the people who work these tickets —
-  before the If/else block (the same people as `AGENT_HUB_APPROVERS_GROUP`,
-  or a wider group of contributors). Without one, anyone who can comment on
-  a ticket spends Claude usage on it, up to its caps.
+- Each run uses Claude, so the *User condition* limits who can start one:
+  the approvers group, or a wider group of contributors. Without it, anyone
+  who can comment on a ticket spends Claude usage on it, up to its caps.
 - The command word is the `AGENT_HUB_REVISE_COMMAND` variable (default `/revise`);
   if you change it, change this rule to match. Later stages add their
   statuses to this rule.
@@ -277,6 +274,33 @@ triggers can still count towards the automation quota. The workflows keep
 their changes few — label changes go in the same update as the description,
 or together in one — and Project settings → Automation → **Usage** shows
 what's being used.
+
+Each rule's conditions are listed cheapest and most selective first — the
+comment's pattern, then status and work type, the user condition (a group
+lookup) last — and Jira stops at the first that fails. The order doesn't
+change what a rule does; set them up in the order shown.
+
+### If the automation quota runs out
+
+Jira stops running the rules until the quota resets, and nothing starts by
+itself. The workflows still work, started by hand: **Actions → the stage's
+workflow → Run workflow**, with the ticket key, after doing what the rule
+would have done:
+
+| Instead of | Do this, then run |
+|---|---|
+| Work Order Requested | Move the ticket to **Work Order** and remove `needs-details` and `needs-human` → *Agent hub: Work order* |
+| Implementation Plan Requested | Approve the work order as usual, remove `needs-human` and `needs-clarification` → *Agent hub: Implementation plan* |
+| Build Requested | Approve the plan as usual, remove the same labels → *Agent hub: Build* |
+| Revision Requested | Comment `/revise …` as usual (the run reads every unresolved one) → the workflow of the stage that owns the ticket's status |
+| Build Command | Comment `/skip …` or `/apply …` as usual → *Agent hub: Build* with **wake** `command` |
+
+The approvals are still checked by each run (who moved the ticket, and
+since when nothing changed), so starting a run by hand authorises nothing:
+it's refused like any other run when the ticket isn't approved. Starting
+runs needs write access to the repository. What doesn't depend on Jira's
+rules keeps working: the CI sweep, the hand-off, and a merged or closed pull
+request's handling.
 
 ## Web requests
 
@@ -415,9 +439,9 @@ change ([build.md](workflows/build.md#review-items-and-apply)).
 | Part | Setting |
 |---|---|
 | **Trigger** | *Work item commented* |
-| **Condition** | Work type = **Task** |
 | **Condition** | *Smart values condition*: `{{comment.body.trim().toLowerCase()}}` **matches regular expression** `(?s)^/(skip|apply)(\s.*)?$` |
 | **Condition** | Status is one of **Implementation Plan Approved**, **Ready for Review**, **Approved** |
+| **Condition** | Work type = **Task** |
 | **Condition** | *User condition*: the comment's author (**Initiator**) is in group **`agent-hub-approvers`** (your `AGENT_HUB_APPROVERS_GROUP`) |
 | **Action** | Send web request |
 | **Rule details** | Allow rule trigger **off**; notify on error **on** |
@@ -682,8 +706,10 @@ and ticket):
 - [ ] The dispatch token (Actions: read and write only) in every rule's
       `Authorization` header, hidden; each rule's URL naming its workflow,
       and `"ref"` your default branch
-- [ ] Revision Requested limited to the people who work the tickets (a User
-      condition)
+- [ ] Revision Requested and Build Command limited by their User condition
+      (the approvers group, or for Revision Requested a wider group of the
+      people who work the tickets)
+- [ ] Each rule's conditions in the order shown (cheapest first)
 
 ## Recommended: do these in Jira, not in the workflows
 

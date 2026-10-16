@@ -19,7 +19,7 @@ on:
         required: true
         type: string
       wake:
-        description: Set by the hub (ci, closed) or the Build Command rule (command) — leave empty
+        description: Set by the hub (ci, closed) or the Build Command rule (command) — leave empty, or command to act on /skip and /apply comments by hand
         required: false
         type: string
         default: ""

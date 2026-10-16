@@ -1,6 +1,6 @@
 # Agent hub pipeline
 
-The agent hub pipeline: the tracker (Jira or GitHub Projects) hands tickets
+The agent hub pipeline: the tracker (Jira) hands tickets
 to GitHub Actions, where Claude Code does the preparation work — a work
 order, then a technical implementation plan, then the code as a pull
 request, reviewed, fixed and through your CI before a person reviews it (the
@@ -33,8 +33,8 @@ work order or plan (or retry a failed run) — for Jira, see
 
 Any repository can use it: install the hub with its script (this folder and
 the `agent-hub-*` workflows — [docs/updating.md](docs/updating.md)), register
-a runner, set a few secrets, and connect a tracker — no workflow edits. Jira is ready today; GitHub Projects is being added as an
-alternative with the same stages — see [docs/trackers.md](docs/trackers.md). Start
+a runner, set a few secrets, and connect a tracker — no workflow edits. Jira is the supported tracker; GitHub Projects is a possible
+alternative, not yet decided — see [docs/trackers.md](docs/trackers.md). Start
 with **[docs/setup.md](docs/setup.md)**.
 
 > By default the agents run on a **self-hosted runner** where Claude Code is

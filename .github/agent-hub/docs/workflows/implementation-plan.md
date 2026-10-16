@@ -50,6 +50,10 @@ stateDiagram-v2
   clarification — flagged by Claude" comment (each question, why it matters,
   who should answer), `needs-clarification` and `needs-human`. Answer in a
   comment or the work order, then approve again.
+  What's settled stays settled (since 2.26.0): a decision the approved work
+  order records, or a person's answer in the comments, binds the plan — it
+  isn't asked again or quietly changed; if the code shows one can't work as
+  written, the plan says so under Risks (or asks, when it changes the scope).
 - **Failed** — "❌ Implementation plan failed" with the reason and the run
   link; `needs-human`; it stays where it was. Comment `/revise` to retry.
 
