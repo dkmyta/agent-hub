@@ -8,7 +8,7 @@ export SUITE_DIR="$TESTS_DIR/build"
 export FIXTURES="$SUITE_DIR/fixtures"
 # The build's development gate on, and Claude Code pinned to the stub's
 # version (settings.sh); tests check both.
-export VARS='{"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9"}'
+export VARS='{"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9"}'
 # The secret scan's and the sandbox runtime's stand-ins (lib/bin/gitleaks,
 # lib/bin/srt), so nothing is downloaded; the repository's checks still run
 # (unsandboxed), with the Node the tests run on.
