@@ -49,8 +49,8 @@ STAGE_DIR="$HUB_DIR/stages/$STAGE"
 # (docs/extending.md). Owned by the repository, so hub updates never touch it.
 EXTENSIONS_DIR=${EXTENSIONS_DIR:-.github/agent-hub-extensions}
 
-# Where tickets live: trackers/<tracker>/tracker.sh. Jira is the only one so far
-# (GitHub Projects is planned).
+# Where tickets live: trackers/<tracker>/tracker.sh. Jira is the only one
+# (GitHub Projects is a possible alternative, not yet decided).
 setting_into TRACKER AGENT_HUB_TRACKER jira
 # What runs the agent: lib/runners/<runner>.sh. Claude Code is the only one so far.
 setting_into AGENT_RUNNER AGENT_HUB_RUNNER claude-code

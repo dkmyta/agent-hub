@@ -31,7 +31,7 @@ source "$HUB_DIR/lib/toolchain.sh"
 case "$1" in
   tracker)
     source "$HUB_DIR/trackers/$TRACKER/tracker.sh"
-    # Stages that change code also get GitHub (the machine user's token)
+    # Stages that change code also get GitHub (the build token)
     # and the pull request's state block — never the agent step.
     if [ "${CODE_STAGE:-false}" = true ]; then
       source "$HUB_DIR/lib/github.sh"

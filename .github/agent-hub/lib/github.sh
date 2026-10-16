@@ -3,7 +3,7 @@
 # description, through GitHub's REST and GraphQL APIs and git.
 #
 # Requires: GITHUB_REPOSITORY (owner/name), AGENT_HUB_GITHUB_TOKEN (the
-# machine user's fine-grained token: this repository, Contents and Pull
+# build token (fine-grained): this repository, Contents and Pull
 # requests read/write). Optional: AGENT_HUB_CI_TOKEN (the workflow's own
 # GITHUB_TOKEN, read-only, for CI results: gh_ci_get), GITHUB_API_URL,
 # GITHUB_SERVER_URL (GitHub Enterprise), GH_REMOTE (the remote to push to;
@@ -76,7 +76,7 @@ gh_graphql() {
 # gh_ci_get <path>: a read of CI results — check runs, commit statuses, the
 # checks a branch requires — with the workflow's own token (AGENT_HUB_CI_TOKEN:
 # checks, statuses and contents read). A fine-grained token can't be given
-# the Checks permission, so the machine user's can't read them in a private
+# the Checks permission, so the build token can't read them in a private
 # repository; this one can, and it can't write anything.
 gh_ci_get() { GH_READ_CI=1 gh_request -X GET "$GH_API$1"; }
 
@@ -118,13 +118,17 @@ gh_user_can_write() {
 }
 
 # gh_thread_reply <number> <comment id> < text: reply on a review comment's
-# thread.
-gh_thread_reply() { jq -Rsc '{body: .}' | gh_api POST "/repos/$GITHUB_REPOSITORY/pulls/$1/comments/$2/replies" > /dev/null; }
+# thread, marked as the hub's (GH_REPLY_MARKER) so /apply comments never
+# reads it as a request — whoever owns the build token.
+GH_REPLY_MARKER='<!-- agent-hub:reply -->'
+gh_thread_reply() {
+  jq -Rsc --arg m "$GH_REPLY_MARKER" '{body: "\(.)\n\($m)"}' | gh_api POST "/repos/$GITHUB_REPOSITORY/pulls/$1/comments/$2/replies" > /dev/null
+}
 
 GH_OWNER=${GITHUB_REPOSITORY%%/*}
 GH_NAME=${GITHUB_REPOSITORY#*/}
 
-# The machine user's login (the token's owner): what its own edits and
+# The build token's account (its owner): what its own edits and
 # comments are recognised by.
 gh_login() { gh_api GET /user | jq -r '.login'; }
 

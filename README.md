@@ -5,8 +5,8 @@ where Claude Code prepares tickets (a work order, then an implementation plan)
 and writes the results back to the tracker — Jira (GitHub Projects is a
 possible alternative, not yet decided). The build stage turns an approved plan into a pull request: it
 reviews and fixes its own work, waits for your CI and hands the pull request
-to a person. It's complete, and in preview — not yet for real tickets —
-until its manual test is done.
+to a person. It's complete, and off until a repository turns it on, once
+its production checklist is done.
 
 [`playground/`](playground/) is a tiny project in this repository to try the
 build on, and [`tools/live-tests/`](tools/live-tests/) the procedure for

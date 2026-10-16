@@ -89,7 +89,7 @@ and retries as the tracker's calls ([Known gaps](#known-gaps-every-stage)).
 | Function | Does |
 |---|---|
 | `gh_api`, `gh_graphql` | A REST or GraphQL call on this repository |
-| `gh_login`, `gh_repo_visibility` | The machine user's login; `public` or `private` |
+| `gh_login`, `gh_repo_visibility` | The build token's account (its login); `public` or `private` |
 | `gh_pr_find`, `gh_pr_open_draft`, `gh_pr_update_body`, `gh_label` | The stage's pull request |
 | `gh_pr_body_versions` | Every version of the description, oldest first, with who wrote it (GitHub's edit history records the whole description after each edit; read in full, a page at a time) |
 | `gh_branch_status`, `gh_branch_head`, `gh_descends` | The branch: absent, orphan, open, foreign, merged, closed or deleted; a rewritten history is detected |
@@ -100,7 +100,7 @@ and retries as the tracker's calls ([Known gaps](#known-gaps-every-stage)).
 **The state block** (`lib/state.sh`): the hub's bookkeeping for a pull request,
 in one hidden block at the end of its description. It's read only if there's
 exactly one, closed block, with a supported schema version and the required
-fields, and if every edit to the description by anyone but the machine user
+fields, and if every edit to the description by anyone but the build token's account
 left the block byte-for-byte unchanged (edits elsewhere in the description
 are fine). Facts — the branch head, the plan, approvals, checks — are always
 re-derived from their sources, never taken from the block.
@@ -148,6 +148,9 @@ data to it: `{fields: {summary, description (ADF), status: {name}, attachment:
 [{id, filename, created, author: {displayName, accountId}}]}}`, and comments as
 `{comments: [{id, created, updated, author: {displayName, accountType, accountId}, body (ADF)}]}`
 (`accountType: "app"` marks the automation's own).
+The calls are tracker-neutral; the data isn't yet: the stages read that
+shape directly and render ADF, so another tracker's adapter translates both
+ways (a tracker-neutral ticket model is after v1).
 
 | Function | Does |
 |---|---|

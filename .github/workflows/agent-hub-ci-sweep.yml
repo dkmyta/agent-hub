@@ -34,9 +34,9 @@ permissions:
 
 jobs:
   sweep:
-    # The kill switch, and — until the build is enabled for real tickets —
-    # only while the build preview is on.
-    if: vars.AGENT_HUB_ENABLED != 'false' && vars.AGENT_HUB_BUILD_PREVIEW == 'true'
+    # The kill switch, and only where the build is turned on
+    # (AGENT_HUB_BUILD_ENABLED, or its earlier name AGENT_HUB_BUILD_PREVIEW).
+    if: vars.AGENT_HUB_ENABLED != 'false' && (vars.AGENT_HUB_BUILD_ENABLED == 'true' || vars.AGENT_HUB_BUILD_PREVIEW == 'true')
     runs-on: ${{ fromJSON(vars.AGENT_HUB_RUNS_ON || '["self-hosted", "claude"]') }}
     timeout-minutes: 5
     steps:

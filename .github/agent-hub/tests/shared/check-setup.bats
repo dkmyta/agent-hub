@@ -40,8 +40,9 @@ jira_answer() { printf '%s' "$2" > "$JIRA_FIX/$(printf '%s' "$1" | tr -c 'A-Za-z
 # good_setup: the answers of a repository set up as the docs say.
 good_setup() {
   local r=repos/o/r
-  gh_answer $r '{"default_branch": "main"}'
-  gh_answer "$r/actions/variables?per_page=100" '{"variables": [{"name": "AGENT_HUB_BUILD_PREVIEW", "value": "true"}, {"name": "AGENT_HUB_CLAUDE_CODE_VERSION", "value": "2.1.285"}, {"name": "AGENT_HUB_APPROVERS_GROUP", "value": "agent-hub-approvers"}]}'
+  gh_answer $r '{"default_branch": "main", "visibility": "public"}'
+  gh_answer "$r/actions/permissions/fork-pr-contributor-approval" '{"approval_policy": "all_external_contributors"}'
+  gh_answer "$r/actions/variables?per_page=100" '{"variables": [{"name": "AGENT_HUB_BUILD_ENABLED", "value": "true"}, {"name": "AGENT_HUB_CLAUDE_CODE_VERSION", "value": "2.1.285"}, {"name": "AGENT_HUB_APPROVERS_GROUP", "value": "agent-hub-approvers"}]}'
   gh_answer "$r/environments/agent-hub" '{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}'
   gh_answer "$r/environments/agent-hub/deployment-branch-policies" '{"branch_policies": [{"name": "main"}]}'
   gh_answer "$r/environments/agent-hub/secrets?per_page=100" '{"secrets": [{"name": "AGENT_HUB_JIRA_DOMAIN"}, {"name": "AGENT_HUB_JIRA_EMAIL"}, {"name": "AGENT_HUB_JIRA_API_TOKEN"}, {"name": "AGENT_HUB_GITHUB_TOKEN"}]}'
@@ -64,6 +65,7 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
   assert_line "verified    secrets — 4 required, in the environment"
   assert_line "verified    required checks — Agent hub: Test"
   assert_line "verified    runner — online: mac"
+  assert_line "verified    fork pull requests — every outside contributor's workflow runs wait for approval"
   assert_line "verified    Jira credentials — they sign in as Agent Hub Bot — the service account, not you?"
   assert_line "verified    Jira statuses — PROJ's Task has all 8 of the hub's statuses"
   assert_line "verified    approvers group — agent-hub-approvers, 2 member(s)"
@@ -71,7 +73,7 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
   # no install record, and the automation rules aren't read.
   assert_line --partial "unverified  hub files — no install record"
   assert_line --partial "unverified  Jira automation rules — not checked here"
-  assert_line "13 verified, 2 unverified, 0 blocked."
+  assert_line "14 verified, 2 unverified, 0 blocked."
   # Reads only, and the token goes to curl in a file, not its arguments.
   run grep -vE '^(gh api -X GET |curl -sS -K )' "$CALLS_LOG"
   assert_output ""
@@ -112,7 +114,7 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
 }
 
 @test "check-setup: variables — a name the hub doesn't read, an inexact Claude Code pin with the build on, runner labels that aren't a list" {
-  gh_answer "repos/o/r/actions/variables?per_page=100" '{"variables": [{"name": "AGENT_HUB_BUILD_PREVIEW", "value": "true"}, {"name": "AGENT_HUB_CLAUDE_CODE_VERSION", "value": "latest"}, {"name": "AGENT_HUB_BUID_TARGET_BRANCH", "value": "main"}, {"name": "AGENT_HUB_WORK_ORDER_MODEL", "value": "x"}, {"name": "AGENT_HUB_RUNS_ON", "value": "self-hosted"}]}'
+  gh_answer "repos/o/r/actions/variables?per_page=100" '{"variables": [{"name": "AGENT_HUB_BUILD_ENABLED", "value": "true"}, {"name": "AGENT_HUB_CLAUDE_CODE_VERSION", "value": "latest"}, {"name": "AGENT_HUB_BUID_TARGET_BRANCH", "value": "main"}, {"name": "AGENT_HUB_WORK_ORDER_MODEL", "value": "x"}, {"name": "AGENT_HUB_RUNS_ON", "value": "self-hosted"}]}'
   check
   assert_failure
   assert_line --partial "unverified  variable names — AGENT_HUB_BUID_TARGET_BRANCH: not settings the hub reads — a typo?"
@@ -150,6 +152,23 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
   assert_line "verified    runner — GitHub-hosted (ubuntu-latest)"
   CLAUDE_HERE=2.1.299 check
   assert_line --partial "blocked     Claude Code on this machine — 2.1.299, but the pin is 2.1.285"
+}
+
+@test "check-setup: fork pull requests — approval for first-time contributors only, unreadable; not checked for a private repository or GitHub-hosted runners" {
+  gh_answer "repos/o/r/actions/permissions/fork-pr-contributor-approval" '{"approval_policy": "first_time_contributors"}'
+  check
+  assert_failure
+  assert_line --partial "blocked     fork pull requests — approval is 'first_time_contributors'"
+  gh_fails "repos/o/r/actions/permissions/fork-pr-contributor-approval" 403
+  check
+  assert_line --partial "unverified  fork pull requests — the approval setting couldn't be read (HTTP 403"
+  gh_answer repos/o/r '{"default_branch": "main", "visibility": "private"}'
+  check
+  refute_output --partial "fork pull requests"
+  gh_answer repos/o/r '{"default_branch": "main", "visibility": "public"}'
+  gh_answer "repos/o/r/actions/variables?per_page=100" '{"variables": [{"name": "AGENT_HUB_BUILD_PREVIEW", "value": "true"}, {"name": "AGENT_HUB_CLAUDE_CODE_VERSION", "value": "2.1.285"}, {"name": "AGENT_HUB_RUNS_ON", "value": "[\"ubuntu-latest\"]"}]}'
+  check
+  refute_output --partial "fork pull requests"
 }
 
 @test "check-setup: Jira — no credentials, rejected ones, statuses missing, a group missing or unreadable; skipped with --no-jira" {

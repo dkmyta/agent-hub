@@ -73,7 +73,7 @@ setup() {
   assert_output "agent-hub"
 }
 
-# Only code stages get the machine user's token, and only in the two steps
+# Only code stages get the build token, and only in the two steps
 # that call GitHub and run no repository code: fetch and apply.
 @test "the GitHub token reaches only a code stage's fetch and apply steps" {
   run node --input-type=module -e '

@@ -20,10 +20,10 @@ permissions:
 
 jobs:
   wake:
-    # The kill switch; only while the build preview is on; only the hub's own
+    # The kill switch; only where the build is turned on; only the hub's own
     # pull requests (its label, its branch prefix, this repository).
     if: >-
-      vars.AGENT_HUB_ENABLED != 'false' && vars.AGENT_HUB_BUILD_PREVIEW == 'true'
+      vars.AGENT_HUB_ENABLED != 'false' && (vars.AGENT_HUB_BUILD_ENABLED == 'true' || vars.AGENT_HUB_BUILD_PREVIEW == 'true')
       && contains(github.event.pull_request.labels.*.name, vars.AGENT_HUB_BUILD_LABEL || 'agent-hub')
       && startsWith(github.event.pull_request.head.ref, 'agent-hub/')
       && github.event.pull_request.head.repo.full_name == github.repository
