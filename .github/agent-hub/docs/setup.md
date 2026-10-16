@@ -187,7 +187,8 @@ your CI's checks** — branch protection or a ruleset (Settings → Branches or
 Rules): the hub hands a pull request off only once every required check has
 passed on its head, so with none required it never hands off. It reads them
 with the workflow's own token (read-only), and the **Agent hub: CI sweep**
-workflow wakes it every 10 minutes; nothing to set up, except that GitHub
+workflow wakes it as soon as your CI's workflows finish (and every 10 minutes
+as a backstop); nothing to set up, except that GitHub
 turns schedules off in a repository with no activity for 60 days (turn it
 back on under Actions). Your Jira workflow must allow Implementation Plan
 Approved → Ready for Review ([jira.md](jira.md#transitions)).
@@ -424,7 +425,7 @@ check GitHub's billing page for current ones. Measured on this hub:
 | Workflow | Runs on (default) | On GitHub-hosted runners in a private repository |
 |---|---|---|
 | The stages (work order, plan, build), the closed-pull-request workflow | Your runner (`AGENT_HUB_RUNS_ON`) | About 45–90 minutes per ticket, all stages (~$0.30–0.55 at $0.006 a minute); the Claude API costs far more ([claude-usage.md](claude-usage.md)) |
-| The CI sweep (every 10 minutes, where the build is turned on) | Your runner | At least one billed minute per run: about 4,300 minutes a month (~$26) — over the Free plan's minutes on its own |
+| The CI sweep (when CI finishes on the hub's pull requests, and every 10 minutes as a backstop, where the build is turned on) | Your runner | At least one billed minute per run: the schedule alone is about 4,300 minutes a month (~$26) — over the Free plan's minutes on its own; each finished CI workflow on a hub pull request adds one run (other completions are skipped, unbilled) |
 | The hub's own tests (`agent-hub-tests.yml`) | Always GitHub-hosted (Ubuntu and macOS) | Only when a pull request changes hub files (in a project repository: a hub update): about 17 Linux and 11 macOS minutes per pull request (~$0.80, about 130 included minutes), and about $1 more after it merges |
 | Your own CI | As you set it | Runs on every push the build makes (the build, each fix, each `/apply`) |
 

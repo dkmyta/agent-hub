@@ -60,10 +60,11 @@ with **[docs/setup.md](docs/setup.md)**.
 
 ## Documentation
 
+- [Working tickets with the agent hub](docs/people.md) — for the people on the tickets: what happens, the items and commands, what each comment means, what to do when
 - [Setup](docs/setup.md) — add the hub to a repository and connect a tracker
 - [Installing and updating](docs/updating.md) — versions, the update script, what it replaces and keeps, releasing
-- [Choosing a tracker](docs/trackers.md) — Jira or GitHub Projects: what's shared, what differs, and what's ready
-- [GitHub Projects setup](docs/github-projects.md) — the foundations: board, statuses, views, labels, intake form and access (stages not connected yet)
+- [Trackers](docs/trackers.md) — Jira, and GitHub Projects as a possible alternative (not yet decided)
+- [GitHub Projects setup](docs/github-projects.md) — the foundations only: board, statuses, views, labels, intake form and access (stages not connected)
 - [Jira setup](docs/jira.md) — statuses, labels, rules, sending tickets back and asking for changes (`/revise`), permissions, and what to automate in Jira
 - [Extending the stages](docs/extending.md) — add your codebase's knowledge per stage: guidance, review checks, expert agents and skills
 - [Architecture and conventions](docs/architecture.md) — how the pipeline is built; the standard every new stage follows

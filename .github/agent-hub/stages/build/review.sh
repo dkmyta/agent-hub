@@ -26,6 +26,31 @@ _review_incomplete() {
   echo "**Code review:** didn't finish — $1." >> "$GITHUB_STEP_SUMMARY"
 }
 
+# DECIDED: what approvers already decided on earlier reviews' items —
+# skipped, or accepted (a decision) — with the finding each was about, for a
+# re-review not to raise them again (2.28.0) and for the hint on a new item
+# that looks like one (wording.jq, like_decided). Made by a reconcile run's
+# start (reconcile.sh), which can read the ticket. Into decided.json: [] on a
+# first build, or when the ticket's record of the last review isn't the one
+# the pull request's record names (_review_record). Carried from record to
+# record (build_review_record), so a decision outlives the next review.
+DECIDED="$RUNNER_TEMP/decided.json"
+_decided_findings() {
+  local record
+  record=$(_review_record "$RECONCILE_STATE" 2> /dev/null) || record='{}'
+  jq -n --argjson rec "$record" --slurpfile state "$RECONCILE_STATE" '
+    def cut: if type == "string" and length > 300 then .[0:300] + "…" else . end;
+    ($rec.decided // []) as $old
+    | [($state[0].items // [])[] | select(.status == "skipped" or .status == "accepted") | . as $i
+        | (if .source == "review" then [($rec.review.findings // [])[] | select(.n == $i.finding)][0]
+           elif .source == "fix-check" then [($rec.fix.new_concerns // [])[] | select(.n == $i.concern)][0]
+           else null end) as $f
+        | select($f != null)
+        | {id: $i.id, status: $i.status, kind: $f.kind, area: $f.area, file: ($f.file // ""), line: $f.line,
+           title: $f.title, evidence: ($f.evidence | cut)}] as $new
+    | [$old[], $new[]] | unique_by(.id) | .[-40:]' > "$DECIDED" 2> /dev/null || echo '[]' > "$DECIDED"
+}
+
 # review_policy < findings JSON: each finding with its policy outcome — a
 # decision kind or a decision area (a security finding, whatever its kind),
 # or one outside the plan, is a person's decision. (The fix check's new
@@ -46,6 +71,8 @@ step_review() {
   base=$(context .base)
   [ "$head" = "$(jq -r '.head' "$RUNNER_TEMP/verify.json" 2> /dev/null)" ] \
     || { _review_incomplete "the commit isn't the one the checks passed on" "$head"; return 0; }
+  # Made when the run started (reconcile.sh), where the ticket can be read.
+  [ -s "$DECIDED" ] || echo '[]' > "$DECIDED"
   # A CI fix (handoff.sh): no code review — the failed checks are the
   # findings, each fix-eligible, for the fix pass (fix.sh) to work on, with
   # what the check reported as the evidence. The earlier review still
@@ -87,6 +114,10 @@ step_review() {
     "$(cat "$RUNNER_TEMP/ticket.md")" \
     "$(jq -r 'if (.checks | length) == 0 then "The repository declares no checks." else .checks[] | "\(.name) (\(.command)): \(.result)" end' "$RUNNER_TEMP/verify.json")" \
     "$(cat "$diff")")
+  # A re-review: what approvers already decided, for it not to raise again.
+  if [ "$(jq 'length' "$DECIDED")" -gt 0 ]; then
+    input+=$(printf '\n\n<decided>\n%s\n</decided>\n' "$(jq -r '.[] | "- \(.id), \(.status) by an approver: \(.title) (\(.kind)\(if .file != "" then ", \(.file)\(if .line then ":\(.line)" else "" end)" else "" end)). \(.evidence)"' "$DECIDED")")
+  fi
 
   # In its own clean copy of exactly the verified commit — not the checkout,
   # where the build agent may have left files (ignored ones too) — which its

@@ -300,6 +300,29 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
   assert_output 'pull_request_target {"actions":"write"}'
 }
 
+# The CI sweep wakes as soon as CI finishes (2.28.0): any completed workflow,
+# but the job runs only for a pull request from one of the hub's branches in
+# this repository — so it never wakes itself — and the schedule stays as the
+# backstop. Read-only apart from requesting a run; nothing from the event in
+# a shell command.
+@test "the CI sweep: woken by completed CI on the hub's own pull requests only, with the schedule kept; reads only, then requests a run" {
+  run node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { parse } from "yaml";
+    const wf = parse(readFileSync(process.argv[1], "utf8"));
+    const job = wf.jobs.sweep;
+    console.log([
+      JSON.stringify(wf.on.workflow_run), wf.on.schedule !== undefined, "workflow_dispatch" in wf.on,
+      ["github.event.workflow_run.event == \x27pull_request\x27", "startsWith(github.event.workflow_run.head_branch, \x27agent-hub/\x27)",
+       "github.event.workflow_run.head_repository.full_name == github.repository", "github.event_name != \x27workflow_run\x27"]
+        .every((part) => job.if.includes(part)),
+      Object.entries(wf.permissions).filter(([, v]) => v === "write").map(([k]) => k).join(","),
+      job.steps.every((step) => !/\$\{\{/.test(step.run ?? "")),
+    ].join(" "));' "$REPO_DIR/.github/workflows/agent-hub-ci-sweep.yml"
+  assert_success
+  assert_output '{"workflows":["*"],"types":["completed"]} true true true actions true'
+}
+
 # v1: a repository the hub is installed in (update.sh's record) runs only its
 # consumer contract checks — the hub was tested where it's released.
 @test "installed hub's CI: its own inexpensive job — the hub's files checked first, then the contract checks; the full matrix and macOS only in the hub's own repository" {

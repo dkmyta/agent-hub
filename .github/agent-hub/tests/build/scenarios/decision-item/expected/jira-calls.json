@@ -959,7 +959,8 @@
       },
       "manual_changes": [],
       "publish": true,
-      "what": "the build's commit"
+      "what": "the build's commit",
+      "decided": []
     }
   },
   {

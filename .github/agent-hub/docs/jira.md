@@ -8,7 +8,8 @@ and label names can be changed per repository with variables (see
 [setup.md](setup.md#4-set-variables-only-what-differs-from-the-defaults)).
 
 Jira is the supported tracker. GitHub Projects is a possible alternative, not
-yet decided ([trackers.md](trackers.md)).
+yet decided ([trackers.md](trackers.md)). For the people working the tickets:
+[people.md](people.md).
 
 The examples assume a **team-managed** project. In a company-managed project
 the same settings live in the workflow scheme and permission scheme.

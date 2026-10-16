@@ -64,6 +64,9 @@ _reconcile_start() {
     stage_fail "The hub's record in pull request #$number can't be trusted ($(head -n 1 "$RUNNER_TEMP/state-error")), so nothing was changed."
   fi
   printf '%s\n' "$state" > "$RECONCILE_STATE"
+  # What approvers decided on earlier reviews, for the review step (which
+  # can't read the ticket) — review.sh, _decided_findings.
+  _decided_findings
   # Built from another plan: a person decides.
   if [ "$(jq -r '.plan.sha256' <<< "$state")" != "$(context .plan.sha256)" ]; then
     _sweep_leaves "pull request #$number was built from an earlier plan"
@@ -314,11 +317,12 @@ reconcile_apply() {
   # A new review's record for /skip and /apply, and its hash for the state
   # (build_review_record); a carried review keeps the earlier one.
   local record=""
+  [ -s "$DECIDED" ] || echo '[]' > "$DECIDED"
   [ "$(jq -r '.status' "$CODE_REVIEW")" = carried ] \
     || record=$(build_review_record "the pull request's current head (after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT"))")
   jq -n -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile prev "$RECONCILE_STATE" --slurpfile gates "$RUNNER_TEMP/gates.json" \
       --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --arg version "$(cat "$HUB_DIR/VERSION")" --arg record "$record" \
-      --slurpfile ctx "$BUILD_CONTEXT" --arg head "$(git rev-parse HEAD)" 'include "wording";
+      --slurpfile ctx "$BUILD_CONTEXT" --arg head "$(git rev-parse HEAD)" --slurpfile decided "$DECIDED" 'include "wording";
     $prev[0] as $p | ($p.generation + 1) as $g | $ctx[0] as $c | ($c.sync.head // $c.start_head) as $checked
     | (now | todate) as $at
     | $p + {generation: $g, hub_version: $version, superseded: null,
@@ -334,7 +338,8 @@ reconcile_apply() {
                verified: {head: $head, by: "verify-fix"}, at: $at}] else [] end)),
         review: (if $review[0].status == "carried" then $p.review else $review[0] | {status, head, cost: (.cost // 0), record: $record} end),
         fix: ($fix[0] | {status, before, after}),
-        items: (if $review[0].status == "carried" then $p.items else reconcile_items($p.items; review_items($gates[0]; $review[0]; $fix[0])) end),
+        items: (if $review[0].status == "carried" then $p.items
+                else reconcile_items($p.items; review_items($gates[0]; $review[0]; $fix[0])) | like_decided($review[0].findings; $decided[0]) end),
         totals: $gates[0].totals}' > "$RUNNER_TEMP/state.json"
   # Handed off before these commits: the hand-off was for an earlier head, so
   # it no longer holds — the record drops it and the pull request goes back
@@ -366,6 +371,11 @@ reconcile_apply() {
     fi
   fi
   _reconcile_report "$number"
+  # The testing steps no longer describe the code — unless only a merge the
+  # earlier review still covers (mechanical drift) changed it.
+  [ "$(jq -r '.status' "$CODE_REVIEW")" = carried ] \
+    || _testing_stale "$(jq -r '.heads[-1].head' "$RUNNER_TEMP/state.json")" \
+      "$(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT")"
   # A new review: its findings, for /skip and /apply (commands.sh).
   [ -z "$record" ] || build_save_review
   echo "[$TICKET_KEY]($TICKET_URL): pull request #$number re-checked after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT") — generation $(jq -r '.generation' "$RUNNER_TEMP/state.json")." >> "$GITHUB_STEP_SUMMARY"
@@ -410,7 +420,7 @@ _reconcile_report() {
          elif ($r.findings | length) == 0 then [para($r.summary | sentence)]
          else [para("\($r.summary | sentence) The findings:"),
            bullets([$ritems[] | . as $i | ([$r.findings[] | select(.n == $i.finding)] | first) as $f
-             | [strong("\(.id) — \($f.title | unstop)"), text(" (\(.severity) \(.kind | gsub("-"; " "))\(if (.id | startswith("D")) then "; a decision" elif .status == "fixed" then "; fixed\(if .fixed_in then " in \(.fixed_in[0:7]), checked" else "" end)" elif .fix_eligible then "; fix-eligible, not fixed" else "" end))")]
+             | [strong("\(.id) — \($f.title | unstop)"), text(" (\(.severity) \(.kind | gsub("-"; " "))\(if (.id | startswith("D")) then "; a decision" elif .status == "fixed" then "; fixed\(if .fixed_in then " in \(.fixed_in[0:7]), checked" else "" end)" elif .fix_eligible then "; fix-eligible, not fixed" else "" end)\(if .like then "; like \(.like.id), \(.like.status) by an approver" else "" end))")]
                + (if $f.file != "" then [text(" "), code(if $f.line then "\($f.file):\($f.line)" else $f.file end)] else [] end)
                + [text(". \($f.evidence | sentence)")]
                + (if ($f.suggestion // "") != "" then [text(" Suggested: \($f.suggestion | sentence)")] else [] end)])]
@@ -484,6 +494,7 @@ ci_fix_apply() {
     || stage_fail "Pull request #$number's description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error"))$([ "$status" != kept ] || echo ", though the CI fix was pushed"). A person checks it."
   _ci_fix_report "$number" "$status" "$start" "$after"
   if [ "$status" = kept ]; then
+    _testing_stale "$after" "a CI fix"
     echo "[$TICKET_KEY]($TICKET_URL): CI fix pushed to pull request #$number ($(_short "$after")); CI runs again." >> "$GITHUB_STEP_SUMMARY"
     stage_outcome revised
   else
