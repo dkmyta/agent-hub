@@ -77,6 +77,14 @@ Things to know:
 - **The machine is trusted**: a self-hosted runner can reach anything the
   machine can. The agent hub pipeline never runs on `pull_request` events, so code
   from forks never runs on it — a test enforces this. Keep it that way.
+- **On a public repository, a fork's pull request brings its own workflow
+  files**, and one of them could ask for `runs-on: [self-hosted, claude]`.
+  Set **Settings → Actions → General → Approval for running fork pull
+  request workflows from contributors** to **Require approval for all
+  external contributors**, so no such run starts until a person approves it
+  — and don't approve one that adds or changes a workflow. The
+  [setup checker](setup.md#8-check-it) checks this setting (it needs admin
+  access to read it).
 - **Everyone with write access can run code on it.** Anyone who can push a
   branch can push a workflow of their own with `runs-on: [self-hosted,
   claude]`, and it runs as the runner's user, outside any sandbox — able to
@@ -191,10 +199,18 @@ keep it fixed and upgrade deliberately:
    own — a dedicated runner user does both). Back to the pinned version if
    it already updated: `npm i -g @anthropic-ai/claude-code@<pinned version>`
    (for an npm install), then `claude --version`.
-3. To upgrade: run `claude update` on the runner, run the
-   [sandbox check](#checking-the-sandbox), then **Agent hub: Evals** with stage
-   **all**, and — for the build — set `AGENT_HUB_CLAUDE_CODE_VERSION` to the new
-   version.
+3. To upgrade, in this order (a build between steps 1 and 4 stops at its
+   first step, saying both versions — nothing is half-done):
+   1. On the runner: `npm i -g @anthropic-ai/claude-code@<new version>` (an
+      npm install) or `claude update`, then `claude --version`.
+   2. Run the [sandbox check](#checking-the-sandbox) (uses Claude, about
+      $0.25). If any check fails, go back to the previous version and don't
+      run the build.
+   3. Optionally, **Agent hub: Evals** with stage **all**, to see whether the
+      agents' decisions changed (uses Claude; see [evals.md](evals.md)).
+   4. Set `AGENT_HUB_CLAUDE_CODE_VERSION` to the new version, then run the
+      [setup checker](setup.md#8-check-it) on the runner: "Claude Code pin"
+      and "Claude Code on this machine" should both be verified.
 
 On GitHub-hosted runners, `AGENT_HUB_CLAUDE_CODE_VERSION` is the version
 installed; pin it and change it deliberately.

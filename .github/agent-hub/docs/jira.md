@@ -321,7 +321,7 @@ gets **204** with no body.
 
 The dispatch token is a fine-grained GitHub token for this repository only,
 with **Actions: Read and write** and nothing else (Metadata: read is added
-by GitHub), ideally owned by a machine user. Name it
+by GitHub), owned by you in v1 ([who owns the tokens](setup.md#6-plan-for-credential-expiry)). Name it
 `agent-hub-dispatch-<repo>` in GitHub, so it isn't confused with the build's
 token ([the two GitHub tokens](setup.md#the-two-github-tokens)).
 
@@ -466,7 +466,9 @@ or skipped what is kept on the ticket, not on the pull request.
 
 `/apply R2 D1` fixes those items; `/apply all` every open R item (never a
 decision); `/apply comments` the pull request's unresolved review threads
-from people with write access (they can be combined: `/apply R2 comments`).
+from people with write access — yours too when the build token is your own
+(the hub skips only its own marked replies; [the build token](setup.md#the-build-token-and-branch-protection))
+— and they can be combined: `/apply R2 comments`.
 The fix goes through the same checks as the review's fix pass, CI runs again
 on it, and a pull request already handed off goes back to draft until it's
 handed off again — the ticket stays in Ready for Review. `/apply` works only

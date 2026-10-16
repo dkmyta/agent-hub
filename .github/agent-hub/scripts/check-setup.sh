@@ -51,6 +51,7 @@ get() {
 echo "Agent hub setup check: $repo"
 get "repos/$repo" || { echo "check-setup.sh: can't read $repo (HTTP $code)." >&2; exit 2; }
 default=$(jq -r '.default_branch' <<< "$body")
+visibility=$(jq -r '.visibility // ""' <<< "$body")
 
 # The repository variables, as the stages read them (VARS).
 vars='{}'
@@ -61,7 +62,8 @@ else
   vars_read=false
 fi
 var() { jq -r --arg n "$1" '.[$n] // empty' <<< "$vars"; }
-preview=$(var AGENT_HUB_BUILD_PREVIEW)
+preview=$(var AGENT_HUB_BUILD_ENABLED)
+[ "$preview" = true ] || [ "$(var AGENT_HUB_BUILD_PREVIEW)" != true ] || preview=true
 
 ## The installed files.
 if [ -f "$hub/.installed" ]; then
@@ -131,7 +133,7 @@ if [ "$vars_read" = true ]; then
   version=$(var AGENT_HUB_CLAUDE_CODE_VERSION)
   if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then result verified "Claude Code pin" "AGENT_HUB_CLAUDE_CODE_VERSION=$version"
   elif [ "$preview" = true ]; then result blocked "Claude Code pin" "the build needs an exact version in AGENT_HUB_CLAUDE_CODE_VERSION, not '${version:-unset}' (docs/runners.md)"
-  else result unverified "Claude Code pin" "not set; the build needs it once AGENT_HUB_BUILD_PREVIEW is true (docs/runners.md)"; fi
+  else result unverified "Claude Code pin" "not set; the build needs it once AGENT_HUB_BUILD_ENABLED is true (docs/runners.md)"; fi
   runs_on=$(var AGENT_HUB_RUNS_ON)
   if [ -n "$runs_on" ] && ! jq -e 'type == "array" and length > 0 and all(type == "string")' <<< "$runs_on" > /dev/null 2>&1; then
     result blocked "runner labels" "AGENT_HUB_RUNS_ON must be a JSON list of labels, e.g. [\"self-hosted\", \"claude\"], not '$runs_on'"
@@ -190,6 +192,22 @@ elif get "repos/$repo/actions/runners?per_page=100"; then
   fi
 else
   result unverified "runner" "runners couldn't be listed (HTTP $code; needs admin access)"
+fi
+
+## Fork pull requests: on a public repository, an outside contributor's pull
+## request runs its own workflow files — which could ask for the self-hosted
+## runner — unless every such run waits for a person's approval.
+if jq -e 'index("self-hosted")' <<< "$runs_on" > /dev/null && [ "$visibility" = public ]; then
+  if get "repos/$repo/actions/permissions/fork-pr-contributor-approval"; then
+    policy=$(jq -r '.approval_policy // "unknown"' <<< "$body")
+    if [ "$policy" = all_external_contributors ]; then
+      result verified "fork pull requests" "every outside contributor's workflow runs wait for approval"
+    else
+      result blocked "fork pull requests" "approval is '$policy': with a self-hosted runner on a public repository, require approval for all external contributors (Settings → Actions → General; docs/runners.md)"
+    fi
+  else
+    result unverified "fork pull requests" "the approval setting couldn't be read (HTTP $code; needs admin access)"
+  fi
 fi
 version=$(var AGENT_HUB_CLAUDE_CODE_VERSION)
 if [ -n "$version" ] && command -v claude > /dev/null; then

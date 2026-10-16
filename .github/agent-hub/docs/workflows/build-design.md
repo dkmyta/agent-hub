@@ -10,8 +10,9 @@ record is history. Each release's changes are in the
 
 ## Production checklist
 
-The preview gate (`AGENT_HUB_BUILD_PREVIEW`) comes off only once all of
-these hold, checked one by one:
+Before a repository turns the build on (`AGENT_HUB_BUILD_ENABLED`; until
+2.27.0 the preview gate, `AGENT_HUB_BUILD_PREVIEW`), all of these hold,
+checked one by one:
 
 - [ ] **The manual test:** every path of the stage on a real ticket and a
       real repository — build, review and fix, CI gate and hand-off, a CI
@@ -30,9 +31,10 @@ these hold, checked one by one:
       allowed to create or approve pull requests; required checks bound
       to the app that posts them (the CI gate warns about any that aren't);
       the dispatch token with Actions: read and write only; the build token
-      the machine user's fine-grained one, with no Workflows permission (a
-      person's own token, as in the 2.21 manual test, let the hub push a
-      merge that changed `.github/workflows/`).
+      fine-grained, this repository only, with no Workflows permission (a
+      token with it, as in the 2.21 manual test, let the hub push a merge
+      that changed `.github/workflows/`) — your own in v1, its limits
+      accepted ([setup.md](../setup.md#the-build-token-and-branch-protection)).
 - [ ] **Jira** ([jira.md](../jira.md#checklist-for-a-new-installation)):
       `AGENT_HUB_APPROVERS_GROUP` set — required for real tickets: without
       it every item command is refused and approvals rest on the workflow's
@@ -40,11 +42,9 @@ these hold, checked one by one:
       approval transitions restricted to people; Revision Requested limited
       to the people who work the tickets; the five rules on the
       `workflow_dispatch` URLs.
-- [ ] **The CI sweep and the closed-pull-request workflow change with the
-      gate:** both run only while `AGENT_HUB_BUILD_PREVIEW` is `true`
-      (`agent-hub-ci-sweep.yml`, `agent-hub-pr-closed.yml`). When the gate
-      comes off, change their condition in the same release, or hand-offs
-      and Done stop silently.
+- [x] **The CI sweep and the closed-pull-request workflow follow the
+      switch** (2.27.0): both run where `AGENT_HUB_BUILD_ENABLED` (or
+      `AGENT_HUB_BUILD_PREVIEW`) is `true`, the same as the build.
 - [ ] **The credentials' expiry dates** in a calendar, and someone who reads
       failed-run notifications ([setup.md](../setup.md#6-plan-for-credential-expiry)).
 
@@ -276,7 +276,7 @@ pull request and the run summary.
 | Private ticket content in a public repository | The publication policy |
 | A persistent self-hosted runner | Runner hardening; ephemeral runners first after v1 |
 | CI result delivery limits | A spike; results only wake the run, which reads the checks itself |
-| The machine user account | A fine-grained token, one repository, no workflow or admin access; push restrictions; rotation documented |
+| The build token's account | A fine-grained token, one repository, no workflow or admin access; push restrictions; rotation documented. v1: a person's own token, with its limits documented (no self-approval; that person's state-block edits unflagged); a separate identity (a GitHub App) after v1 |
 | Jira and GitHub disagree | Each authoritative in its area; stale runs stop; an unresolved mismatch goes to a person |
 
 ## Decisions
@@ -291,7 +291,7 @@ description · the shared stage workflow with a `code-stage` input (changed
 in 2.5.0 from a sibling code-stage workflow: the build fits the same fetch,
 agent, apply, send-back and report shape, so one workflow and one test
 harness serve every stage; code stages add only the full history and the
-machine user's token for the fetch and apply steps, which run no repository code) · the review as a fresh read-only
+build token for the fetch and apply steps, which run no repository code) · the review as a fresh read-only
 session in the same job · plan approval authorises the governance changes the
 plan describes · CI green against GitHub's evaluation commit with GitHub's own
 `isRequired` · post-merge CI waited for when it runs · the per-ticket group

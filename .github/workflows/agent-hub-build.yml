@@ -8,7 +8,7 @@ run-name: "Build: ${{ inputs.ticket_key }}${{ inputs.wake == 'ci' && ' (CI gate)
 # workflow_dispatch and only the ticket key; the shared stage
 # workflow does the rest with this stage's files in
 # .github/agent-hub/stages/build, as a code stage: the steps without an agent
-# get the machine user's token to push the branch and open a draft pull
+# get the build token to push the branch and open a draft pull
 # request. See .github/agent-hub/docs/workflows/build.md.
 
 on:

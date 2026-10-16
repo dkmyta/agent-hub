@@ -88,9 +88,9 @@ step_fetch() {
   # own move there wouldn't be an approval.
   stage_fetch "$PLAN_APPROVED_STATUS" "$READY_FOR_REVIEW_STATUS" "$APPROVED_STATUS" || exit 0
   stage_set_mode new
-  # Not for real tickets yet (settings.sh): stop before anything else.
-  [ "$BUILD_PREVIEW" = true ] \
-    || stage_fail "The build stage is in preview: it runs only where the repository variable AGENT_HUB_BUILD_PREVIEW is true, until its manual test and the runner requirements are done (docs/workflows/build.md, Status). Nothing was built."
+  # Only where the repository turned it on (settings.sh): stop before anything else.
+  [ "$BUILD_ENABLED" = true ] \
+    || stage_fail "The build stage is off: it runs only where the repository variable AGENT_HUB_BUILD_ENABLED is true (docs/workflows/build.md, Status). Nothing was built."
   _require_pinned_claude
   _require_limits
   # A Node project builds only with the Node version it declares (the
@@ -428,14 +428,14 @@ _branch() {
   case "$status" in "open "*) _reconcile_start "${status#open }" ;; esac
 }
 
-# _committer: the account the token belongs to (the machine user), for the
+# _committer: the account the build token belongs to, for the
 # commit the verify step makes (it has no token): its login and its GitHub
 # noreply address (<id>+<login>@users.noreply.github.com), which GitHub
 # attributes to the account — from /user, so the token needs no email
 # permission. Added to build-context.json.
 _committer() {
   local user
-  user=$(gh_api GET /user) || stage_fail "Couldn't read the machine user from GitHub, so nothing was built."
+  user=$(gh_api GET /user) || stage_fail "Couldn't read the build token's account from GitHub, so nothing was built."
   jq --argjson user "$user" '. + {committer: {name: $user.login, email: "\($user.id)+\($user.login)@users.noreply.github.com"}}' \
     "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
 }
@@ -630,7 +630,7 @@ step_verify() {
   # sandbox kept the agent from reading (it can't create one today: this is
   # a second line), so a file with more than one link is never committed.
   _refuse_hard_links
-  # Commit everything the agent left in the checkout, as the machine user.
+  # Commit everything the agent left in the checkout, as the build token's account.
   git add -A
   if git diff --cached --quiet; then
     stage_fail "Claude reported the build finished but changed no files, so there's nothing to push."

@@ -14,7 +14,7 @@ and how the evals fit in.
   document stages (work order, plan) run it in two passes: a **draft**, then
   an **expert review** that checks and improves it (see
   [architecture.md](architecture.md#expert-review-every-stage)); both read the
-  repository and research. The build (in preview) runs **one
+  repository and research. The build (where it's turned on) runs **one
   pass** that edits the checkout and runs the repository's checks in the
   sandbox, then — in its own *Review* step — a **code review**: a fresh,
   read-only session whose findings become items on the pull request; when

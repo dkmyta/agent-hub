@@ -46,7 +46,7 @@ on:
       code-stage:
         description: >-
           Check out the full history and give the steps that don't run an agent
-          the machine user's GitHub token (AGENT_HUB_GITHUB_TOKEN) to the fetch
+          the build token (AGENT_HUB_GITHUB_TOKEN) to the fetch
           and apply steps only, to check and push the stage's branch and open
           its pull request. No other step gets it.
         required: false
@@ -184,7 +184,7 @@ jobs:
       - name: Fetch ticket
         id: start
         timeout-minutes: 3
-        # The machine user's GitHub token reaches only this step and Apply —
+        # The build token reaches only this step and Apply —
         # the two that call GitHub, and run no repository code — and only
         # for a code stage. Never an agent step, nor (later) install or
         # verify steps, which run the repository's own code.

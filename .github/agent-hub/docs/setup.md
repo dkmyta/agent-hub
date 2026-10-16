@@ -11,7 +11,7 @@ the hub needs editing: each repository supplies its own **runner**,
 | Step | The checker verifies |
 |---|---|
 | [1. Add the files](#1-add-the-files) | the hub's files are unchanged since installation |
-| [2. Set up a runner](#2-set-up-a-runner) | a runner with the labels is online; Claude Code matches the pin (on the runner's machine) |
+| [2. Set up a runner](#2-set-up-a-runner) | a runner with the labels is online; Claude Code matches the pin (on the runner's machine); fork pull requests wait for approval (public repository) |
 | [3. Add secrets](#3-add-secrets) | the `agent-hub` environment, limited to the default branch, holds the required secrets; none at the repository level |
 | [4. Set variables](#4-set-variables-only-what-differs-from-the-defaults), and the repository settings there | the variable names; required checks bound to their apps; read-only workflow permissions |
 | [5. Set up your tracker](#5-set-up-your-tracker) | the service account's credentials, the status names and the approvers group (the rules aren't checked: compare them with [jira.md](jira.md)) |
@@ -85,7 +85,7 @@ The tracker's secrets are for Jira:
 | `AGENT_HUB_JIRA_EMAIL` | Yes | The Jira account the automation acts as — a dedicated service account ([adding it](jira.md#adding-the-service-account)), barred from approving ([how](jira.md#restrict-approvals-to-people)) |
 | `AGENT_HUB_JIRA_API_TOKEN` | Yes | An [API token](https://id.atlassian.com/manage-profile/security/api-tokens) **made while signed in as that service account** — not your own account: the token and the email must be the same account, or every run fails at its first step ([how](jira.md#adding-the-service-account)) |
 | `AGENT_HUB_ANTHROPIC_API_KEY` | Only for the Claude API | See [runners.md](runners.md#using-the-claude-api) |
-| `AGENT_HUB_GITHUB_TOKEN` | For the build stage | The **build token**, named `agent-hub-build-<repo>` in GitHub (not the Jira rules' dispatch token — [the two GitHub tokens](#the-two-github-tokens)): a **machine user's** fine-grained token for this repository only, with Contents and Pull requests read/write — no Workflows, no Administration. The build pushes and opens pull requests with it (a workflow's own token wouldn't start your CI), and commits as its account, with that account's GitHub noreply address; branch protection keeps that user from merging. Only the build's fetch and apply steps get it — never an agent step, nor any step that runs the repository's code. **For development**, your own fine-grained token (same scope) works: the build's commits and pull requests are then yours, and branch protection can't stop you merging them — use a machine user before the build runs real tickets |
+| `AGENT_HUB_GITHUB_TOKEN` | For the build stage | The **build token**, named `agent-hub-build-<repo>` in GitHub (not the Jira rules' dispatch token — [the two GitHub tokens](#the-two-github-tokens)): **your own** fine-grained token for this repository only, with Contents and Pull requests read/write — no Workflows, no Administration ([what that means, and the after-v1 options](#the-build-token-and-branch-protection)). The build pushes and opens pull requests with it (a workflow's own token wouldn't start your CI), and commits as its account, with that account's GitHub noreply address. Only the build's fetch and apply steps get it — never an agent step, nor any step that runs the repository's code |
 
 ## 4. Set variables (only what differs from the defaults)
 
@@ -137,10 +137,12 @@ API-equivalent dollars ([claude-usage.md](claude-usage.md)):
 | `REVIEW_MAX_BUDGET_USD` | `2.00` | `5.00` | Cap for the expert review |
 | `REVISION_MAX_BUDGET_USD` | `1.00` | `2.00` | Cap for each pass of a revision, which is scoped to the requested changes |
 
-The build (`BUILD`) is **in preview**: the whole flow is built, but it runs
-only with `AGENT_HUB_BUILD_PREVIEW=true` until its manual test and the
-runner requirements are done ([build.md](workflows/build.md#status); the
-production checklist in [build-design.md](workflows/build-design.md)). A Node
+The build (`BUILD`) is **off until you turn it on**: set
+`AGENT_HUB_BUILD_ENABLED=true` (`AGENT_HUB_BUILD_PREVIEW=true`, its name
+before 2.27.0, still works) once the
+[production checklist](workflows/build-design.md#production-checklist) is
+done ([build.md](workflows/build.md#status)). Off, the CI sweep and the
+closed-pull-request workflow don't run either. A Node
 project must declare its Node version (an `.nvmrc`, for example: see
 [build.md](workflows/build.md#toolchain)); its dependencies are installed
 from its lockfile, and the hub runs its checks on every build's commit
@@ -229,29 +231,53 @@ can reach. Before the build runs real tickets:
 
 **Before the build's first run** — required, or it stops at its first step,
 saying which:
-- `AGENT_HUB_BUILD_PREVIEW` set to `true` (the build is in preview);
+- `AGENT_HUB_BUILD_ENABLED` set to `true` (the build is off by default);
 - `AGENT_HUB_CLAUDE_CODE_VERSION` set to an exact version (`2.1.285`, not
   `latest`), matching the runner's Claude Code on a self-hosted runner;
-- the build token (`AGENT_HUB_GITHUB_TOKEN`) and the machine user below.
+- the build token (`AGENT_HUB_GITHUB_TOKEN`), below.
 
-**The machine user and branch protection.** The build pushes and opens pull
-requests as a GitHub account of its own, which people's review then holds
-back from merging:
-1. Create a GitHub account for automation (a machine user, e.g.
-   `<org>-agent-hub`), with two-factor authentication on.
-2. Invite it to this repository with the **Write** role, and accept the
-   invitation as it. In an organisation, allow fine-grained tokens for
-   members (Settings → Personal access tokens), and approve its token if
-   your organisation requires approval.
-3. As it, create the build token (fine-grained, this repository only,
-   Contents and Pull requests read and write) and put it in the
-   `AGENT_HUB_GITHUB_TOKEN` secret, in the `agent-hub` environment.
-4. Protect the target branch (branch protection or a ruleset): require a
+### The build token and branch protection
+
+The build pushes, opens pull
+requests and replies on review threads with the build token, as the account
+that owns it. In v1 that's **your own token** — no extra GitHub account:
+1. Signed in as yourself, create a **fine-grained** token named
+   `agent-hub-build-<repo>`: **this repository only**, **Contents** and
+   **Pull requests** read and write, nothing else (no Workflows, no
+   Administration). Put it in the `AGENT_HUB_GITHUB_TOKEN` secret, in the
+   `agent-hub` environment. (A fine-grained token reaches repositories owned
+   by you or by an organisation you're a member of.)
+2. Protect the target branch (branch protection or a ruleset): require a
    pull request before merging with **at least one approval**, **require
    approval of the most recent push** (so the hub's later pushes need a
    fresh approval), the required checks (above), and restrict who can push
-   to it directly — not the machine user. GitHub never lets an account
-   approve its own pull request, so a person always approves the hub's.
+   to it directly.
+
+**What your own token means** — the hub's commits, pull requests and thread
+replies are posted as you:
+- **Someone else approves the hub's pull requests**: GitHub never lets an
+  account approve its own. Working alone, review it yourself and merge as an
+  admin (bypassing the approval rule).
+- **`/apply comments` still takes your review comments** (since 2.27.0): the
+  hub tells its own thread replies apart by a hidden marker
+  (`<!-- agent-hub:reply -->`), not by who posted them. (Don't paste that
+  marker into a review comment: it would be skipped.)
+- **Your own edits to the pull request's state block aren't flagged**: the
+  hub's edit check tells the token's account from everyone else, and here
+  that's you. Anyone else's edit is still caught.
+
+**After v1, a separate identity** removes those limits — not needed for v1:
+- **A GitHub App** (the planned full fix): short-lived tokens minted in the
+  workflow, a bot identity, least privilege, no personal token to rotate.
+- **A machine user** (a GitHub account for automation, two-factor
+  authentication on), invited with the **Write** role, owning the build
+  token, and excluded from pushing to the target branch. In an
+  organisation's repository its token can be fine-grained (allow
+  fine-grained tokens for members, and approve its token if required). In a
+  repository owned by a personal account it must be a **classic** token with
+  only the `repo` scope — never `workflow` — because a fine-grained token
+  can't reach a repository its owner only collaborates on
+  ([GitHub's docs](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)).
 
 The hub doesn't check these settings itself: the manual test does
 ([build-design.md](workflows/build-design.md#production-checklist)).
@@ -273,7 +299,7 @@ Build Requested and Build Command), each with its web request pointing at
 
 Those web requests need **a GitHub token for Jira**: a fine-grained token for
 **this repository only**, with **Actions: Read and write** and nothing else
-(it starts workflows; it can't push code), ideally owned by a machine user —
+(it starts workflows; it can't push code), owned by you —
 see [step 6](#6-plan-for-credential-expiry) and
 [what it can do](jira.md#web-requests).
 
@@ -306,19 +332,21 @@ description:
 | Used by | Jira's rules, to start the stages | The build's fetch and apply steps |
 | Lives in | Jira only ([jira.md](jira.md#web-requests)) | The `AGENT_HUB_GITHUB_TOKEN` secret only |
 | Repository permissions | Actions: read and write (since 2.20.0; Contents before) | Contents: read and write; Pull requests: read and write |
-| Never | In GitHub's secrets | In Jira; in an agent step or one running the repository's code; with **Workflows** permission (a classic token or a person's own has it, and then the hub can push a merge that changes `.github/workflows/`, which a person should do) |
+| Never | In GitHub's secrets | In Jira; in an agent step or one running the repository's code; with **Workflows** permission (a classic token with the `workflow` scope, or a fine-grained one granted it, lets the hub push a merge that changes `.github/workflows/`, which a person should do) |
 
 **Don't share one token between them**: each would then carry the other's
 exposure (Jira holding a token that can push code and open pull requests),
 and rotating or revoking one would break both.
 
-**Own them with accounts that aren't a person's**, so they don't break when
-someone leaves or changes role:
+**Who owns them:**
 - **Jira**: a dedicated service account for `AGENT_HUB_JIRA_EMAIL` / `AGENT_HUB_JIRA_API_TOKEN` — required, so it can be barred from approving and the hub can tell its own plan files from people's. Your own account works for testing the document stages, not the build ([jira.md](jira.md#permissions-for-the-automation-account)).
-- **GitHub**: a machine user (a GitHub account for automation) that owns the
-  fine-grained token in the Jira rule, limited to the repository with
-  **Actions: Read and write**. (A GitHub App can't be used here: its tokens
-  must be minted by signing a JWT, which Jira automation can't do.)
+- **GitHub**: in v1 both GitHub tokens are yours, so renew them before they
+  expire (above) and replace them if you leave the project. After v1, a
+  machine user can own them instead ([the build token](#the-build-token-and-branch-protection)); on a
+  repository owned by a personal account it can only hold classic tokens,
+  too broad for the dispatch token — there, move the repository into an
+  organisation first. (A GitHub App can't hold the dispatch token: its
+  tokens must be minted by signing a JWT, which Jira automation can't do.)
 
 **Know when something fails:**
 - **Jira**: the rule's *Notify on error* setting emails the rule owner when the
@@ -359,6 +387,8 @@ is missing.
    - workflow permissions are read-only by default;
    - a runner with the labels is online, and Claude Code on the machine it
      runs on matches the pin;
+   - on a public repository with a self-hosted runner, fork pull requests'
+     workflows wait for approval from every external contributor;
    - in Jira, as the service account: its credentials work, the status names
      match, and the approvers group exists.
 
@@ -394,7 +424,7 @@ check GitHub's billing page for current ones. Measured on this hub:
 | Workflow | Runs on (default) | On GitHub-hosted runners in a private repository |
 |---|---|---|
 | The stages (work order, plan, build), the closed-pull-request workflow | Your runner (`AGENT_HUB_RUNS_ON`) | About 45–90 minutes per ticket, all stages (~$0.30–0.55 at $0.006 a minute); the Claude API costs far more ([claude-usage.md](claude-usage.md)) |
-| The CI sweep (every 10 minutes, while the build preview is on) | Your runner | At least one billed minute per run: about 4,300 minutes a month (~$26) — over the Free plan's minutes on its own |
+| The CI sweep (every 10 minutes, where the build is turned on) | Your runner | At least one billed minute per run: about 4,300 minutes a month (~$26) — over the Free plan's minutes on its own |
 | The hub's own tests (`agent-hub-tests.yml`) | Always GitHub-hosted (Ubuntu and macOS) | Only when a pull request changes hub files (in a project repository: a hub update): about 17 Linux and 11 macOS minutes per pull request (~$0.80, about 130 included minutes), and about $1 more after it merges |
 | Your own CI | As you set it | Runs on every push the build makes (the build, each fix, each `/apply`) |
 

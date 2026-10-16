@@ -23,13 +23,14 @@ stage_setting_into BUILD_FIX_FALLBACK_MODEL FIX_FALLBACK_MODEL claude-opus-5-5
 stage_setting_into BUILD_FIX_MAX_BUDGET_USD FIX_MAX_BUDGET_USD 3.00
 stage_setting_into BUILD_FIX_CHECK_MAX_BUDGET_USD FIX_CHECK_MAX_BUDGET_USD 1.00
 
-# In preview: the stage runs only where a repository opts in, with the
-# repository variable AGENT_HUB_BUILD_PREVIEW=true. The whole flow is built;
-# the gate comes off after its manual test and the runner prerequisites
-# (docs/workflows/build-design.md, "Production checklist"). The
-# CI sweep and closed-pull-request workflows check this variable too, and
-# change with it.
+# Off unless a repository turns it on, with the repository variable
+# AGENT_HUB_BUILD_ENABLED=true (or AGENT_HUB_BUILD_PREVIEW=true, its name
+# before 2.27.0). The CI sweep and closed-pull-request workflows check the
+# same variables, so a repository without the build never runs them. Before
+# turning it on: docs/workflows/build-design.md, "Production checklist".
+stage_setting_into BUILD_ENABLED ENABLED false
 stage_setting_into BUILD_PREVIEW PREVIEW false
+[ "$BUILD_ENABLED" = true ] || [ "$BUILD_PREVIEW" != true ] || BUILD_ENABLED=true
 
 # The Claude Code version the build runs with: exact (e.g. 2.1.280), never
 # "latest" — the build's boundary rests on how that version enforces the

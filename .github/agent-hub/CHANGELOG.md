@@ -5,6 +5,47 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.27.0 — 2026-10-16
+
+v1, production readiness: the build is a switch, not a preview, and its
+GitHub token is your own.
+
+- **The build is off until a repository turns it on:**
+  `AGENT_HUB_BUILD_ENABLED=true` replaces the preview gate
+  (`AGENT_HUB_BUILD_PREVIEW=true` still works). The CI sweep and the
+  closed-pull-request workflow follow the same switch. The production
+  checklist (build-design.md) is what to do before turning it on.
+- **The build token is your own in v1** (setup.md, "The build token and
+  branch protection"): a fine-grained token for this repository only,
+  Contents and Pull requests, no Workflows. What that means is documented:
+  someone else approves the hub's pull requests (or an admin merges), and
+  your own edits to its state block aren't flagged. A separate identity —
+  a GitHub App, or a machine user — is after v1. The earlier docs asked for
+  a machine user with a fine-grained token, which GitHub doesn't allow on a
+  repository owned by a personal account.
+- **`/apply comments` takes the token owner's review comments too:** the
+  hub's thread replies carry a hidden marker (`<!-- agent-hub:reply -->`)
+  and are skipped by it, not by their author.
+- **Setup checker: fork pull requests.** On a public repository with a
+  self-hosted runner, it checks that every external contributor's workflow
+  runs wait for approval (runners.md explains why).
+- **Upgrading the pinned Claude Code**, step by step (runners.md): the
+  runner first, the sandbox check, optionally the evals, then the pin, then
+  the setup checker.
+- **Docs:** "machine user" wording replaced by "the build token's account";
+  architecture.md says the tracker interface's data is Jira-shaped.
+
+**Updating:**
+- Optional: rename the repository variable `AGENT_HUB_BUILD_PREVIEW` to
+  `AGENT_HUB_BUILD_ENABLED` (same value).
+- Check the build token is fine-grained, this repository only, with
+  Contents and Pull requests read and write and **no Workflows** permission;
+  if not, regenerate it that way and replace `AGENT_HUB_GITHUB_TOKEN` in the
+  `agent-hub` environment.
+- On a public repository with a self-hosted runner: Settings → Actions →
+  General → require approval for **all external contributors** (the setup
+  checker reports it).
+
 ## 2.26.0 — 2026-10-16
 
 v1: the Jira setup tidied, so the docs match a working installation.
