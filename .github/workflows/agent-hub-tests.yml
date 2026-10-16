@@ -267,6 +267,12 @@ jobs:
         working-directory: .github/agent-hub/tests
         run: npm test
 
+      # When it fails: the disk and temp space left, to tell a full disk
+      # (e.g. "tar: Write error") from a real failure.
+      - name: Disk space
+        if: failure()
+        run: df -h / "$RUNNER_TEMP" "${TMPDIR:-/tmp}"
+
   # The checks to require: each passes if its jobs passed, or were skipped
   # because the hub didn't change. Changing the jq versions never changes the
   # name of a required check.
