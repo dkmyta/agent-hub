@@ -31,7 +31,10 @@ export function titleCase(text) {
     word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
 }
 
-/** "one two three" → "three two one"; whitespace between words becomes single spaces. */
+/**
+ * "one two three" → "three two one"; whitespace between words becomes single spaces.
+ * Empty or whitespace-only text returns an empty string.
+ */
 export function reverseWords(text) {
   const trimmed = text.trim();
   return trimmed === "" ? "" : trimmed.split(/\s+/).reverse().join(" ");
