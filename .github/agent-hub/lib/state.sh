@@ -140,7 +140,7 @@ gh_state_read() {
 # description as it is now (re-checked first), then verify it.
 gh_state_write() {
   local versions reason current intended me after
-  me=$(gh_login) || { echo "the machine user couldn't be identified" >&2; return 1; }
+  me=$(gh_login) || { echo "the build token's account couldn't be identified" >&2; return 1; }
   versions=$(gh_pr_body_versions "$1") || { echo "the description's history couldn't be read" >&2; return 1; }
   reason=$(state_trusted "$versions" "$me") || { echo "$reason" >&2; return 1; }
   current=$(jq -r '.[-1].body' <<< "$versions")

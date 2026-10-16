@@ -52,7 +52,9 @@ use_run_env() {
     export EXTENSIONS_DIR=${TEST_EXTENSIONS_DIR:-$1/extensions}
   fi
   export JIRA_DOMAIN=example.atlassian.net JIRA_EMAIL=bot@example.com JIRA_API_TOKEN=test-token
-  export GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=example/repo GITHUB_RUN_ID=1000
+  # The run's identity, fixed: a re-run of the suite in CI has GitHub's own
+  # GITHUB_RUN_ATTEMPT (2, 3…), which would otherwise leak into the snapshots.
+  export GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=example/repo GITHUB_RUN_ID=1000 GITHUB_RUN_ATTEMPT=1
   mkdir -p "$STEP_OUTPUTS"
   [ -e "$1/agent-hub" ] || ln -s "$HUB_DIR" "$1/agent-hub"
   # Code stages scan before every push: with MOCK_GITLEAKS=1, the stand-in

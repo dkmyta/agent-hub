@@ -258,7 +258,7 @@ _command_end() {
 # request (apply-request.json) and the fix pass's findings
 # (apply-findings.json), numbered 1…, each from exactly one item or thread.
 _apply_request() {
-  local cmd=$1 number=$2 pr=$3 words=$4 id head record threads login refused="" n=0 item finding
+  local cmd=$1 number=$2 pr=$3 words=$4 id head record threads refused="" n=0 item finding
   id=$(jq -r '.id' <<< "$cmd")
   if [ -z "$words" ] || grep -qvE '^([drc][0-9]+|all|comments)$' <<< "$words"; then
     _command_reply "$id" "not done: /apply takes only item ids from the pull request's Items, all (every open R item) or comments (its unresolved review threads) — nothing else on that line"; return
@@ -300,10 +300,12 @@ _apply_request() {
     jq -nc --argjson n "$n" --arg i "$item" '{n: $n, item: $i}' >> "$RUNNER_TEMP/apply-sources.jsonl"
   done
   # The review threads: unresolved, from people with write access, as read
-  # now — the snapshot the fix is attributed to.
+  # now — the snapshot the fix is attributed to. The hub's own replies are
+  # told apart by their marker, not by who wrote them: with a person's own
+  # build token they're posted as that person, whose comments still count.
   if grep -qx comments <<< "$words"; then
     local writers="[]" who
-    login=$(gh_login) && threads=$(gh_graphql 'query($owner: String!, $name: String!, $number: Int!) {
+    threads=$(gh_graphql 'query($owner: String!, $name: String!, $number: Int!) {
         repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { pageInfo { hasNextPage } nodes {
           id isResolved path line comments(first: 100) { totalCount nodes { databaseId body authorAssociation author { login } } } } } } } }' \
         "$(jq -nc --arg o "$GH_OWNER" --arg n "$GH_NAME" --argjson num "$number" '{owner: $o, name: $n, number: $num}')") \
@@ -316,8 +318,9 @@ _apply_request() {
       rm -f "$RUNNER_TEMP/apply-findings.jsonl"; return
     fi
     # Who may ask for changes: write access, as GitHub says for each one.
-    for who in $(jq -r --arg me "$login" '[.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)
-        | .comments.nodes[].author.login // empty | select(. != $me and (endswith("[bot]") | not))] | unique[]' <<< "$threads"); do
+    for who in $(jq -r --arg m "$GH_REPLY_MARKER" '[.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)
+        | .comments.nodes[] | select((.body // "") | contains($m) | not)
+        | .author.login // empty | select(endswith("[bot]") | not)] | unique[]' <<< "$threads"); do
       if gh_user_can_write "$who"; then writers=$(jq -c --arg w "$who" '. + [$w]' <<< "$writers"); fi
     done
     while IFS= read -r thread; do
@@ -329,8 +332,9 @@ _apply_request() {
         suggestion: "Make the change the reviewer asks for, if it is within the approved plan; otherwise leave it and say why."}' <<< "$thread" >> "$RUNNER_TEMP/apply-findings.jsonl"
       # Replies go to the thread's first comment: GitHub takes no reply to a reply.
       jq -c --argjson n "$n" '{n: $n, thread: .id, reply_to: .root}' <<< "$thread" >> "$RUNNER_TEMP/apply-sources.jsonl"
-    done < <(jq -c --argjson writers "$writers" '.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)
-      | . + {people: [.comments.nodes[] | select(.author.login != null and (.author.login | IN($writers[])))],
+    done < <(jq -c --argjson writers "$writers" --arg m "$GH_REPLY_MARKER" '.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)
+      | . + {people: [.comments.nodes[] | select(.author.login != null and (.author.login | IN($writers[]))
+                                             and ((.body // "") | contains($m) | not))],
              root: .comments.nodes[0].databaseId}
       | select((.people | length) > 0) | del(.comments)' <<< "$threads")
   fi

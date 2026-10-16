@@ -6,10 +6,11 @@ handed to people to review and merge.
 
 ## Status
 
-**Complete, in preview:** it runs only where the repository variable
-`AGENT_HUB_BUILD_PREVIEW` is `true`, until its manual test and the runner
-requirements are done — the production checklist is in
-[build-design.md](build-design.md#production-checklist). Each part's release
+**Complete, off until a repository turns it on** (since 2.27.0; before, in
+preview): it runs only where the repository variable
+`AGENT_HUB_BUILD_ENABLED` (or its earlier name, `AGENT_HUB_BUILD_PREVIEW`)
+is `true`. Turn it on once the
+[production checklist](build-design.md#production-checklist) holds. Each part's release
 is in the [CHANGELOG](../../CHANGELOG.md); the decisions and the history
 behind them are in the [design record](build-design.md).
 
@@ -571,7 +572,7 @@ rename):
   (outcome *blocked*). The next run re-checks what they
   pushed. (Decided 2026-10-08: a person, not an agent — a later item.)
 
-The merge is the machine user's (`Merge <target> into <branch>`), and the
+The merge is made with the build token (`Merge <target> into <branch>`), and the
 base the gates and the review compare with becomes the target's head, so
 they see the pull request's own changes only. Updates are merges — **never
 a rebase or a force-push**; the push is rejected if anyone pushed meanwhile.
@@ -776,7 +777,7 @@ approved — in a hidden block in the pull request description
 - **Kept in the block:** counters, totals, item status — hub bookkeeping.
 - **Edit-history check:** GitHub keeps a pull request description's full edit
   history with the editor of each edit. Every edit since the hub's last write
-  (all pages of the history) must be the machine user's; otherwise the block
+  (all pages of the history) must be by the build token's account; otherwise the block
   is untrusted and the run stops for a person. Every write is preceded, in the
   same run, by this check.
 - **One writer:** only runs in the per-ticket group write the block.
@@ -883,7 +884,11 @@ and the next revision reviews the whole pull request.
   instruction. `all` is every open R item, never a decision (a decision only
   by its id); `comments` is the pull request's unresolved review threads
   from people with write access, as read when the run starts — the snapshot
-  the fix is attributed to. Each finding comes from the review the hub kept
+  the fix is attributed to. The hub's own replies carry a hidden marker
+  (`<!-- agent-hub:reply -->`) and are skipped by it, not by their author
+  (2.27.0): with a person's own build token the replies are that person's,
+  whose review comments still count. The full fix — a separate identity,
+  a GitHub App — is after v1 ([setup.md](../setup.md#the-build-token-and-branch-protection)). Each finding comes from the review the hub kept
   (a decision as the gates flagged it); a manual change, the "review didn't
   finish" decision or an item without a kept finding can't be applied. The
   kept review is used only while it's the one the pull request's record
@@ -940,7 +945,7 @@ and the next revision reviews the whole pull request.
 | Each pass | Budget and time limit | The run fails with the reason; nothing pushed |
 | Changed files / lines | 50 / 2,000, plus a single-file limit (*provisional*) | Draft kept; a person decides |
 
-**No feedback loops:** the machine user's pushes, comments and reviews never
+**No feedback loops:** the build token's pushes, comments and reviews never
 start the relay; the hub's comments never begin with `/revise`, `/apply` or
 `/skip`; only the transition to Implementation Plan Approved starts a build;
 moves into Ready for Review, Approved or Done start nothing; a person's
@@ -1002,7 +1007,7 @@ on Linux).
 |---|---|---|
 | Claude login or API key | Agent steps (the login lives on the runner machine, so every job on it, and everyone with write access, can reach it: [runners.md](../runners.md#self-hosted-runner-with-a-claude-subscription)) | Apply steps' environment |
 | Jira token | Fetch, apply and report steps (a curl config file, removed after) | Agent steps |
-| Machine user token (fine-grained: this repository; Contents and Pull requests read/write; no Workflows, no Administration) | Fetch and apply steps (a git credential file, removed after) | Agent steps; the checkout (`persist-credentials: false`) |
+| Build token (fine-grained: this repository; Contents and Pull requests read/write; no Workflows, no Administration — a person's own in v1) | Fetch and apply steps (a git credential file, removed after) | Agent steps; the checkout (`persist-credentials: false`) |
 | `GITHUB_TOKEN` | Reading CI results and the job's logs; the CI sweep and closed-pull-request workflows requesting the build (`actions: write`) | Pushes (they wouldn't trigger CI) |
 
 ### Required GitHub settings
@@ -1011,7 +1016,7 @@ Set up as [setup.md](../setup.md) describes, and checked in the manual test
 (the hub doesn't check them itself): branch protection on the target branch
 with at least one approval, *require approval of the most recent reviewable
 push*, required status checks bound to their app, and push restrictions
-excluding the machine user (so it can't merge or push to the target). Secret scanning with push protection,
+on the target (only people merge or push to it). Secret scanning with push protection,
 and Dependabot or CodeQL, are recommended — the deterministic security gates
 are the repository's own (CI, scanners, linters, type checks) plus the hub's
 secret scan before every push. **Pull request workflows must not hold deploy
@@ -1045,7 +1050,7 @@ Trust levels are in [architecture.md](../architecture.md#trust-levels).
 | Piece | What |
 |---|---|
 | `.github/workflows/agent-hub-build.yml` | Caller: triggers (Jira, the CI sweep, a closed pull request; manual) with the `wake` input saying which, the per-ticket concurrency group, limits; one job runs start → install → build → verify → review → fix → verify fix → apply (or the reconcile, CI gate or command path) |
-| `agent-hub-stage.yml` with `code-stage: true` | The shared stage workflow, as for every stage, plus the full history and the machine user's token for the fetch and apply steps only; the install and dependency steps join it as steps that only code stages run, without the token |
+| `agent-hub-stage.yml` with `code-stage: true` | The shared stage workflow, as for every stage, plus the full history and the build token for the fetch and apply steps only; the install and dependency steps join it as steps that only code stages run, without the token |
 | `stages/build/` | `stage.sh`, `prompt.md`, `schema.json`, `settings.sh`, `contract.jq` (the plan's contract), `gates.sh`, `pr-body.jq` (the pull request template), `wording.jq` (wording the pull request and the ticket's report share, and the items) |
 | `stages/build/fix.sh`, `stages/build/fix/`, `stages/build/fix-check/` | The fix pass, the fix check and Verify fix (2.10.0); each pass's `prompt.md` and `schema.json` |
 | `stages/build/closed.sh`, `.github/workflows/agent-hub-pr-closed.yml` | A hub pull request closed (2.15.0): Done only if the hub handed it off and it was merged; otherwise a comment |
@@ -1085,7 +1090,7 @@ transitions ([jira.md](../jira.md#permissions-for-the-automation-account)).
 | Boundary checks | `scripts/check-sandbox.sh`: real Claude Code against hostile settings and sandbox escape attempts, results checked on disk ([runners.md](../runners.md#checking-the-sandbox)) | Yes, about $0.30, confirmed with `use-claude` |
 | Evals | Manual, `use-claude`, capped; one build case on a small fixture repository | Yes |
 | Fuzz | `tests/shared/fuzz.bats`: the state block, the plan's contract, plan sections and ADF from generated input with a fixed seed | No |
-| Manual test | Real systems, before the preview gate comes off ([build-design.md](build-design.md#production-checklist)) | Yes |
+| Manual test | Real systems, before the build is turned on for real tickets ([build-design.md](build-design.md#production-checklist)) | Yes |
 
 ## Settings
 

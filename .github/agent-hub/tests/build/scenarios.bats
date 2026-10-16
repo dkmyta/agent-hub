@@ -16,7 +16,7 @@ setup() {
   fresh_repo
 }
 
-@test "ready: the plan built, committed as the machine user, pushed and opened as a labelled draft pull request" {
+@test "ready: the plan built, committed as the build token's account, pushed and opened as a labelled draft pull request" {
   run_scenario ready --full
   assert_equal "$(remote_branches)" "agent-hub/PROJ-99
 main"
@@ -109,7 +109,7 @@ test/greet.test.js expected"
   run git --git-dir="$REMOTE" log -1 --format=%s agent-hub/PROJ-99
   assert_output "Build PROJ-99 from its approved implementation plan"
   fresh_repo
-  run_scenario ready MOCK_GH_VISIBILITY=public 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_PUBLISH_TICKET_CONTENT": "true"}' \
+  run_scenario ready MOCK_GH_VISIBILITY=public 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_PUBLISH_TICKET_CONTENT": "true"}' \
     'CLAUDE_FIXTURE_EDIT=.structured_output.build.commit_message = "feat: greet\n\nCo-authored-by: Someone <s@example.com>\nSigned-off-by: X <x@example.com>"'
   run jq -r 'select(.path | endswith("/pulls")) | .body.title' "$GH_CALLS"
   assert_output "PROJ-99: Greet people by name"
@@ -360,8 +360,8 @@ test/greet.test.js expected"
 main"
 }
 
-# Until the install step (3c), builds run only where a repository opts in.
-@test "not enabled (AGENT_HUB_BUILD_PREVIEW unset): fails before Claude, GitHub or the plan, saying why" {
+# Builds run only where a repository turns them on.
+@test "not enabled (AGENT_HUB_BUILD_ENABLED unset): fails before Claude, GitHub or the plan, saying why" {
   run_scenario ready VARS=
   run trace
   assert_line "Fetch ticket: failure"
@@ -370,15 +370,16 @@ main"
   run writes
   refute_line "GET /attachment/content/10001"
   run cat "$RUNNER_TEMP/failure-reason"
-  assert_output --partial "The build stage is in preview"
+  assert_output --partial "The build stage is off"
 }
 
 # The build's sandbox rests on the Claude Code version, so it runs only with
 # an exact pinned version that the runner has — checked before any Claude use.
 @test "Claude Code version: unpinned, 'latest' or a mismatch stops the build before Claude, GitHub or the plan" {
   local vars
+  # (The first also shows the switch's name before 2.27.0 still turns it on.)
   for vars in '{"AGENT_HUB_BUILD_PREVIEW": "true"}' \
-      '{"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "latest"}'; do
+      '{"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "latest"}'; do
     run_scenario ready VARS="$vars"
     run trace
     assert_line "Agent: skipped"
@@ -386,7 +387,7 @@ main"
     run cat "$RUNNER_TEMP/failure-reason"
     assert_output --partial "needs an exact Claude Code version"
   done
-  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "2.1.280"}'
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "2.1.280"}'
   run trace
   assert_line "Agent: skipped"
   run cat "$RUNNER_TEMP/failure-reason"
@@ -455,14 +456,14 @@ SH
 }
 
 @test "a size limit that isn't a whole number stops the build before Claude, GitHub or the plan" {
-  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MAX_FILES": "many"}'
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MAX_FILES": "many"}'
   run trace
   assert_line "Agent: skipped"
   [ ! -s "$GH_CALLS" ] || fail "GitHub was called"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "AGENT_HUB_BUILD_MAX_FILES must be a whole number"
   # A time limit of 0 would be no limit at all.
-  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_CHECK_MINUTES": "0"}'
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_CHECK_MINUTES": "0"}'
   run trace
   assert_line "Agent: skipped"
   run cat "$RUNNER_TEMP/failure-reason"
@@ -696,7 +697,7 @@ break_main() {
   # The agent fixes it: removes the failing test along with the plan's change.
   printf 'bash -e "%s"\nrm test/broken.test.js\n' "$FIXTURES/edits/greet.sh" > "$BATS_TEST_TMPDIR/fix.sh"
   run_scenario ready CLAUDE_EDITS="$BATS_TEST_TMPDIR/fix.sh" \
-    'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "warn"}'
+    'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "warn"}'
   run trace
   assert_line "Install dependencies: success"
   assert_line "Verify: success"
@@ -707,13 +708,13 @@ break_main() {
   fresh_repo
   break_main
   run_scenario ready CLAUDE_EDITS="$BATS_TEST_TMPDIR/fix.sh" \
-    'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "off"}'
+    'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "off"}'
   run trace
   assert_line "Apply: success"
   run grep -c "^Baseline check" "$RUNNER_TEMP/log.txt"
   assert_output 0
 
-  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "sometimes"}'
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "sometimes"}'
   run trace
   assert_line "Agent: skipped"
   run cat "$RUNNER_TEMP/failure-reason"
@@ -723,7 +724,7 @@ break_main() {
 @test "baseline: a check failing after the build that also failed before it says so" {
   break_main
   run_scenario ready CLAUDE_EDITS=edits/greet.sh \
-    'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "warn"}'
+    'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_BASELINE": "warn"}'
   run trace
   assert_line "Verify: failure"
   run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | tostring' "$CALLS"
@@ -817,7 +818,7 @@ failure() { cat "$RUNNER_TEMP/failure-reason"; }
   touch "$NPM_STUB/extra-tiny-dep" && echo "(MIT AND SSPL-1.0)" > "$NPM_STUB/license-tiny-dep"
   echo moderate > "$NPM_STUB/advisory-left-pad"
   touch "$NPM_STUB/lockfile-v2"
-  deps_run 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS": "0"}'
+  deps_run 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS": "0"}'
   run trace
   assert_line "Apply: success"
   run grep -c -e "--before" -e " view " "$NPM_STUB/calls"
@@ -834,7 +835,7 @@ failure() { cat "$RUNNER_TEMP/failure-reason"; }
   npm_project
   echo "MIT" > "$NPM_STUB/license-left-pad"
   touch "$NPM_STUB/extra-tiny-dep" && echo "SSPL-1.0 AND (MIT OR Apache-2.0)" > "$NPM_STUB/license-tiny-dep"
-  deps_run 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_ALLOWED_LICENSES": "MIT,Apache-2.0"}'
+  deps_run 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_ALLOWED_LICENSES": "MIT,Apache-2.0"}'
   run jq -r '.decisions[] | "\(.path): \(.reason)"' "$RUNNER_TEMP/gates.json"
   assert_output --partial "tiny-dep@1.3.0: SSPL-1.0 AND (MIT OR Apache-2.0)"
 }
@@ -844,10 +845,10 @@ failure() { cat "$RUNNER_TEMP/failure-reason"; }
   npm_project
   echo "(GPL-3.0-only OR MIT)" > "$NPM_STUB/license-left-pad"
   touch "$NPM_STUB/extra-tiny-dep" && echo "GPL-3.0-only" > "$NPM_STUB/license-tiny-dep"
-  deps_run 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_ALLOWED_LICENSES": "MIT,GPL-3.0-only"}'
+  deps_run 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_ALLOWED_LICENSES": "MIT,GPL-3.0-only"}'
   run jq '.decisions | length' "$RUNNER_TEMP/gates.json"
   assert_output 0
-  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_ALLOWED_LICENSES": "MIT;GPL-3.0"}'
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_ALLOWED_LICENSES": "MIT;GPL-3.0"}'
   run failure
   assert_output --partial "AGENT_HUB_BUILD_ALLOWED_LICENSES must be SPDX licence ids separated by commas"
 }
@@ -896,7 +897,7 @@ stops() {
   assert_output --partial "isn't an npm project with a package.json and package-lock.json"
   [ ! -s "$NPM_STUB/calls" ] || fail "npm ran before every change was checked"
   # An invalid minimum release age.
-  run_scenario ready 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS": "soon"}'
+  run_scenario ready 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS": "soon"}'
   run failure
   assert_output --partial "AGENT_HUB_BUILD_MIN_RELEASE_AGE_DAYS must be a whole number of days"
 }
@@ -1234,7 +1235,7 @@ assert_fully_discarded() {
   assert_fully_discarded "it would add 1 decision item(s) for a person"
   fresh_repo
   local vars=$VARS
-  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MAX_LINES": "10"}'
+  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_MAX_LINES": "10"}'
   export VARS=$vars
   assert_fully_discarded "it would add 1 decision item(s) for a person"
   fresh_repo
@@ -1336,7 +1337,7 @@ pass_row() { # <pass name>: that row's cells, one per line
   local var
   for var in REVIEW_MAX_BUDGET_USD FIX_MAX_BUDGET_USD FIX_CHECK_MAX_BUDGET_USD; do
     fresh_repo
-    run_scenario ready CLAUDE_EDITS=edits/greet.sh "VARS={\"AGENT_HUB_BUILD_PREVIEW\": \"true\", \"AGENT_HUB_CLAUDE_CODE_VERSION\": \"9.9.9\", \"AGENT_HUB_BUILD_$var\": \"0\"}"
+    run_scenario ready CLAUDE_EDITS=edits/greet.sh "VARS={\"AGENT_HUB_BUILD_ENABLED\": \"true\", \"AGENT_HUB_CLAUDE_CODE_VERSION\": \"9.9.9\", \"AGENT_HUB_BUILD_$var\": \"0\"}"
     run trace
     assert_line "Agent: skipped"
     run cat "$RUNNER_TEMP/failure-reason"
@@ -1780,7 +1781,7 @@ ci_fix_run() { # [VAR=value...]: a run that finds the required check "test" fail
   built_pr
   ci_fix_run
   carry_prs
-  ci_fix_run 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_CI_FIX_ATTEMPTS": "1"}'
+  ci_fix_run 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_CI_FIX_ATTEMPTS": "1"}'
   run trace
   assert_line "--- Outcome: blocked"
   assert_line "Agent: skipped"
@@ -1794,7 +1795,7 @@ ci_fix_run() { # [VAR=value...]: a run that finds the required check "test" fail
   run trace
   assert_line "--- Outcome: no change needed"
   [ ! -e "$RUNNER_TEMP/mock-github/comments.jsonl" ]
-  reconcile_run 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_CI_WAIT_MINUTES": "0"}'
+  reconcile_run 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_BUILD_CI_WAIT_MINUTES": "0"}'
   run trace
   assert_line "--- Outcome: blocked"
   run pr_comments
@@ -2058,7 +2059,7 @@ command_comments() {
 }
 # keep_properties: the ticket's issue properties from this run, for the next.
 keep_properties() { mkdir -p "$BATS_TEST_TMPDIR/properties" && cp "$RUNNER_TEMP"/mock-property-*.json "$BATS_TEST_TMPDIR/properties/" 2> /dev/null || true; }
-APPROVERS_VARS='VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_APPROVERS_GROUP": "agent-hub-approvers"}'
+APPROVERS_VARS='VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_APPROVERS_GROUP": "agent-hub-approvers"}'
 command_run() {
   reconcile_run AGENT_HUB_WAKE=command "$APPROVERS_VARS" 'MOCK_GROUPS={"dana-lead": ["agent-hub-approvers"]}' \
     "MOCK_PROPERTIES_FROM=$BATS_TEST_TMPDIR/properties" "$@"
@@ -2181,7 +2182,7 @@ resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment
   assert_output --partial "not done: the comment was edited by someone other than its author"
   assert_equal "$(jq -r '.items[0].status' <<< "$(pr_state)")" open
   # No group set: no command is accepted.
-  command_run "$(command_comments '/skip D1')" 'VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9"}'
+  command_run "$(command_comments '/skip D1')" 'VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9"}'
   run resolutions
   assert_output --partial "not done: item commands need the approvers group set"
   # Words other than ids: the whole command refused.
@@ -2322,6 +2323,28 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
   assert_output '"T1"'
 }
 
+# A person's own build token (the v1 default): the hub posts as the token's
+# owner, so its replies are told apart by their marker — the owner's own
+# review comments still count.
+@test "/apply comments: with the build token's owner as a reviewer, their comments count and the hub's marked replies don't" {
+  findings_pr
+  local marker='<!-- agent-hub:reply -->'
+  local threads
+  threads=$(jq -nc --arg m "$marker" '[{"id": "T1", "isResolved": false, "path": "src/greet.js", "line": 2, "comments": {"nodes": [
+      {"databaseId": 601, "body": "Trim the name (OWNER-ASK).", "authorAssociation": "OWNER", "author": {"login": "agent-hub-bot"}},
+      {"databaseId": 602, "body": "Not applied by the agent hub (HUB-REPLY-TEXT).\n\($m)", "authorAssociation": "OWNER", "author": {"login": "agent-hub-bot"}}]}}]')
+  apply_run '/apply comments' "MOCK_GH_THREADS=$threads" 'MOCK_GH_PERMISSIONS={"agent-hub-bot": "write"}'
+  run trace
+  assert_line "--- Outcome: revised"
+  run cat "$RUNNER_TEMP/claude-fix-prompt.txt"
+  assert_output --partial "OWNER-ASK"
+  refute_output --partial "HUB-REPLY-TEXT"
+  # Its own reply carries the marker.
+  run jq -r '.body' "$RUNNER_TEMP/mock-github/thread-replies.jsonl"
+  assert_output --partial "✅ Applied by the agent hub in"
+  assert_output --partial "$marker"
+}
+
 # COR-4: the review threads are read in full or not used at all.
 @test "/apply comments: more review threads than one page, or a thread with more comments than one, is refused — nothing applied" {
   findings_pr
@@ -2404,7 +2427,7 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
 
 # Step 1 (2.18.0) — approvals don't rest on Jira's configuration alone.
 @test "approval: with an approvers group set, the plan's approver must be in it — checked by the hub" {
-  local vars='VARS={"AGENT_HUB_BUILD_PREVIEW": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_APPROVERS_GROUP": "agent-hub-approvers"}'
+  local vars='VARS={"AGENT_HUB_BUILD_ENABLED": "true", "AGENT_HUB_CLAUDE_CODE_VERSION": "9.9.9", "AGENT_HUB_APPROVERS_GROUP": "agent-hub-approvers"}'
   run_scenario ready CLAUDE_EDITS=edits/greet.sh "$vars" 'MOCK_GROUPS={"dana-lead": ["agent-hub-approvers"]}'
   run trace
   assert_line "--- Outcome: written"

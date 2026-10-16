@@ -174,7 +174,7 @@ _drop_fix() {
 }
 
 # _commit_candidate <reviewed commit>: the fix pass's changes, committed on
-# top of the reviewed commit as the machine user; prints the commit. Fails —
+# top of the reviewed commit as the build token's account; prints the commit. Fails —
 # the checkout back at the reviewed commit, the reason on standard error — if
 # it isn't at that commit, left a hard-linked file, or changed nothing.
 _commit_candidate() {

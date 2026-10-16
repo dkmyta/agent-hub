@@ -219,8 +219,8 @@ Shared ones (revisions, failures, retries) are in
 
 ## Known gaps
 
-- **Approving a plan starts the build** only where the build preview is
-  enabled ([build.md](build.md)); otherwise the Build Requested rule
+- **Approving a plan starts the build** only where the build is turned on
+  ([build.md](build.md#status)); otherwise the Build Requested rule
   ([jira.md](../jira.md#rule-build-requested)) clears `needs-human` and the
   build stops at its first step, saying it isn't enabled.
 - **The full plan is an attachment**; the summary shows what the build may

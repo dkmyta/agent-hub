@@ -123,7 +123,7 @@ reconcile_reviews() { jq -e '.people_commits > 0 or .sync.drift == "semantic"' "
 
 # _reconcile_sync: in the fetch step, once the committer is known — when the
 # target branch has moved past where the pull request last met it, it's
-# merged into the checked-out head as the machine user (a merge commit:
+# merged into the checked-out head as the build token's account (a merge commit:
 # never a rebase or a force-push; Apply pushes it like any hub commit). The
 # drift is classified first, from paths alone. A conflict is left to a
 # person (_reconcile_conflict). The base becomes the target's head, so the
