@@ -950,7 +950,7 @@ stops() {
 # The code review (review.sh): a fresh, read-only pass after Verify. Its
 # findings become the pull request's items by the hub's policy; it never
 # changes the code, and a review that can't finish never costs the build.
-@test "review: a fresh session with the review profile, given the plan, the hub's checks and the build's whole diff" {
+@test "review: a fresh session with the review profile, given the plan, the hub's checks and the build's whole diff; with no fix-eligible findings, no fix pass" {
   run_scenario ready CLAUDE_EDITS=edits/greet.sh
   run cat "$RUNNER_TEMP/trace.txt"
   assert_line "Review: success"
@@ -979,6 +979,10 @@ stops() {
   refute_output --partial "GIT_DIR"
   run cat "$RUNNER_TEMP/claude-pass-env.txt"
   assert_line "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1"
+  # It found nothing fix-eligible, so no fix pass ran.
+  run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
+  assert_output '{"status":"none","reason":"no fix-eligible findings"}'
+  [ ! -e "$RUNNER_TEMP/claude-fix-args.txt" ]
 }
 
 @test "review: findings sorted by the policy — decisions for a person, fix-eligible and review items; Claude's text only where ticket text may go" {
@@ -1141,13 +1145,6 @@ pushed_head_subject() { local remote; remote=$(git -C "$STEP_CWD" remote get-url
   assert_output '{"status":"open","fixed_in":null}'
 }
 
-@test "fix: no fix-eligible findings, no fix pass" {
-  run_scenario ready CLAUDE_EDITS=edits/greet.sh
-  run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
-  assert_output '{"status":"none","reason":"no fix-eligible findings"}'
-  [ ! -e "$RUNNER_TEMP/claude-fix-args.txt" ]
-}
-
 @test "fix: the fix pass edits with the build profile on the fix model and budget; the fix check is read-only and sees exactly the fix" {
   fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh
   local args="$RUNNER_TEMP/claude-fix-args.txt"
@@ -1212,11 +1209,6 @@ assert_fully_discarded() {
   for file in fix-gates.json fix-gates-before.json check-commit.json verify checks; do
     [ ! -e "$RUNNER_TEMP/$file" ] || fail "$file left behind"
   done
-}
-
-@test "fix matrix: a clean fix is kept" {
-  fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh
-  assert_equal "$(jq -r '.status' "$RUNNER_TEMP/fix.json")" kept
 }
 
 @test "fix matrix: a new out-of-scope file, or a must-not-touch area changed alongside a good fix — the whole candidate discarded" {
