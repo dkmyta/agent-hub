@@ -5,6 +5,39 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.28.0 — 2026-10-16
+
+v1, for the people working the tickets: a guide, faster hand-offs, testing
+steps that say when they're out of date, and decisions that stick.
+
+- **A guide for the people on the tickets** (`docs/people.md`): what happens
+  at each status, who can do what, the items (D, R, C) and their statuses,
+  the commands, what each of the hub's comments means, and what to do when
+  a decision blocks the hand-off, CI fails, someone pushes, the target moves,
+  a merge conflicts or a command is refused.
+- **Hand-off as soon as CI finishes:** the CI sweep also runs when any
+  workflow run of a pull request from one of the hub's branches completes
+  (`workflow_run` on every workflow, `"*"`); every other completion skips
+  its job without a runner. The 10-minute schedule stays as the backstop,
+  for CI outside GitHub Actions (GitHub can delay it by hours).
+- **Testing Instructions that say when they're out of date:** after the hub
+  re-checks people's commits or a merge with semantic drift, or pushes a CI
+  fix or an `/apply`, the ticket's Testing Instructions start with "⚠️ The
+  code changed after these steps were written — by …, at <commit>". Not for
+  a merge the earlier review still covers.
+- **A decision outlives the next review:** a re-review is given what
+  approvers skipped or accepted on earlier reviews (from the review the hub
+  kept, checked against the pull request's record) and told not to raise
+  them again unless the code changed; a new item on the same file and kind
+  still says "like R5, skipped by an approver". The list is carried from
+  review to review (code review prompt changed: the eval reminder flags it).
+- **Live-test runbook:** journey 3 now expects `/apply comments` to work with
+  your own build token, and checks the carried decisions and the testing
+  note.
+
+**Updating:** Nothing. (The CI sweep starts showing a skipped run for each
+completed workflow that isn't a hub pull request's CI: they use no runner.)
+
 ## 2.27.0 — 2026-10-16
 
 v1, production readiness: the build is a switch, not a preview, and its

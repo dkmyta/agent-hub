@@ -20,7 +20,8 @@ hand-off (step 4) and before the merge (step 5)**, then finish journey 2.
 - **The setup checker passes in the test repository** (`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`): nothing blocked; anything unverified checked by hand. Keep its output with the evidence.
 - Journey 2 reached step 4 on this ticket: the pull request handed off,
   the ticket in Ready for Review.
-- You're in the approvers group; the build token is a machine user's.
+- You're in the approvers group. The build token can be your own (since
+  2.27.0, `/apply comments` takes the token owner's review comments too).
 - A clone of the test repository, with your own git identity.
 
 ## Steps
@@ -59,8 +60,9 @@ Then `comment` `/apply comments`.
 
 - The fix lands; the thread gets a reply with the commit and is resolved;
   the command is answered on the ticket.
-- If the build token is a person's own, this step can't pass: record it as
-  blocked.
+- With the build token your own, the reply on the thread is posted as you,
+  with the hidden marker `<!-- agent-hub:reply -->` (passed live on
+  AGENTHUB-61, 2.27.0).
 
 **5. Skip what's left.** `comment` `/skip <every remaining id>`.
 
@@ -78,6 +80,10 @@ then `start build`.
 
 - A sync with semantic drift: the whole change reviewed again on the merged
   commit.
+- The items skipped in step 5 aren't raised again as new items (2.28.0);
+  any new one on the same file and kind says "like <id>, skipped by an
+  approver". The ticket's Testing Instructions start with a note that the
+  code changed after they were written.
 
 **8. A conflict.** Push [conflict](../fixtures/target-moves/conflict.md),
 then `start build`.

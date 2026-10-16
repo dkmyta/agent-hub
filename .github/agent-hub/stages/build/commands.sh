@@ -441,6 +441,7 @@ apply_fix_apply() {
     fi
   done < <(jq -c '.[] | select(.thread)' "$RUNNER_TEMP/apply-results.json")
 
+  [ "$kept" = false ] || _testing_stale "$after" "an /apply"
   if [ "$kept" = true ]; then
     printf '🔁 Applied by the agent hub (an /apply by an approver on the ticket): %s, in %s — verified, and checked by a fresh read-only session. It'"'"'s a draft until every required check passes on the new commit; then it'"'"'s handed off again.\n' \
       "$(jq -r '[.[] | select(.applied) | (.item // "a review thread")] | join(", ")' "$RUNNER_TEMP/apply-results.json")" "${after:0:7}"

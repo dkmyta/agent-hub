@@ -892,15 +892,20 @@ step_apply() {
 # /skip and /apply use it only while it still matches (review_record_hash).
 build_review_record() {
   local record limit
+  # What approvers decided on earlier reviews (review.sh, _decided_findings),
+  # carried into this record.
+  [ -s "$RUNNER_TEMP/decided.json" ] || echo '[]' > "$RUNNER_TEMP/decided.json"
   for limit in 600 150 0; do
     record=$(jq -nc --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --slurpfile contract "$RUNNER_TEMP/contract.json" \
+        --slurpfile decided "$RUNNER_TEMP/decided.json" \
         --argjson publish "$(context .publish)" --arg what "$1" --argjson limit "$limit" '
       def cut: if type == "string" and length > $limit then .[0:$limit] + "…" else . end;
       def keep: {n, area, severity, kind, within_plan, file, line, title, policy,
                  evidence: (.evidence | cut), suggestion: (.suggestion | cut)};
       {review: ($review[0] | {status, head, summary, findings: [.findings[]? | keep][0:60]}),
        fix: ($fix[0] | {status, before, after, checks, new_concerns: [.new_concerns[]? | keep]}),
-       manual_changes: $contract[0].governance.manual_changes, publish: $publish, what: $what}')
+       manual_changes: $contract[0].governance.manual_changes, publish: $publish, what: $what,
+       decided: [$decided[0][] | .evidence |= cut]}')
     [ "${#record}" -gt 30000 ] || break
   done
   printf '%s\n' "$record" > "$RUNNER_TEMP/review-record.json"
@@ -1120,6 +1125,27 @@ _ticket_report() {
       + [para([em("\(claude_cost($access[0]; ($o.total_cost_usd // 0) + ($r.cost // 0) + ($x.cost // 0))) · \(($o.duration_ms // 0) + ($r.duration_ms // 0) + ($x.duration_ms // 0) | duration) of Claude time. "),
                link("Run summary"; $run)])])' \
     | tracker_comment > /dev/null
+}
+
+# _testing_stale <head> <what changed it>: the ticket's Testing Instructions
+# were written by the build for its own commit; after code changes on the
+# pull request (people's commits, a merge of the target, a CI fix, an
+# /apply), a note at their top says so, replacing an earlier one. An edit
+# within the Delivery sections, by the automation account, so the plan's
+# approval still stands. Never fails the run: a ticket without the section
+# is left as it is.
+TESTING_STALE='⚠️ The code changed after these steps were written'
+_testing_stale() {
+  local updated
+  updated=$(tracker_issue description | jq -c -L "$HUB_DIR/lib" --arg head "${1:0:7}" --arg what "$2" --arg note "$TESTING_STALE" 'include "adf";
+    .fields.description
+    | section_blocks("Testing Instructions") as $blocks
+    | if ($blocks | length) == 0 then error("no Testing Instructions") else . end
+    | replace_section("Testing Instructions";
+        [para([strong($note), text(" — by \($what), at \($head). Check that each step still applies.")])]
+        + [$blocks[] | select(plain_text | startswith($note) | not)])' 2> /dev/null) || return 0
+  tracker_set_description <<< "$updated" > /dev/null \
+    || echo "::warning::Couldn't mark the ticket's Testing Instructions as written for older code."
 }
 
 # _ticket_delivery <number> <url> <branch>: the work order's Delivery

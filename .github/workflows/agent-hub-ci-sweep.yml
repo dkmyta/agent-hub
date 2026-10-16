@@ -10,11 +10,20 @@ name: "Agent hub: CI sweep"
 # hub's scripts come from the default branch. See
 # .github/agent-hub/docs/workflows/build.md ("CI gate").
 #
-# GitHub runs schedules on the default branch only, can start them late, and
-# turns them off in a repository with no activity for 60 days (re-enable it
-# under Actions). It can also be run by hand.
+# Woken as soon as CI finishes (since 2.28.0): any workflow run of a pull
+# request from one of the hub's branches (agent-hub/*) in this repository
+# completing — the repository's CI — starts a sweep; every other completion
+# skips the job (no runner). The schedule stays as the backstop, for CI
+# outside GitHub Actions and anything missed: GitHub runs schedules on the
+# default branch only, can start them hours late, and turns them off in a
+# repository with no activity for 60 days (re-enable it under Actions). It
+# can also be run by hand.
 
 on:
+  workflow_run:
+    # Every workflow, by name ("*" matches any name).
+    workflows: ["*"]
+    types: [completed]
   schedule:
     - cron: "*/10 * * * *"
   workflow_dispatch:
@@ -36,7 +45,14 @@ jobs:
   sweep:
     # The kill switch, and only where the build is turned on
     # (AGENT_HUB_BUILD_ENABLED, or its earlier name AGENT_HUB_BUILD_PREVIEW).
-    if: vars.AGENT_HUB_ENABLED != 'false' && (vars.AGENT_HUB_BUILD_ENABLED == 'true' || vars.AGENT_HUB_BUILD_PREVIEW == 'true')
+    # A completed workflow wakes it only for a pull request from one of the
+    # hub's branches in this repository — never the sweep's own runs, or
+    # anything else, so it can't wake itself.
+    if: >-
+      vars.AGENT_HUB_ENABLED != 'false' && (vars.AGENT_HUB_BUILD_ENABLED == 'true' || vars.AGENT_HUB_BUILD_PREVIEW == 'true')
+      && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'pull_request'
+      && startsWith(github.event.workflow_run.head_branch, 'agent-hub/')
+      && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ${{ fromJSON(vars.AGENT_HUB_RUNS_ON || '["self-hosted", "claude"]') }}
     timeout-minutes: 5
     steps:

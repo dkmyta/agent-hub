@@ -102,6 +102,7 @@ def status_lines($s; $r; $x; $p; $publish; $what):
           + " — \(.severity) \(.kind | gsub("-"; " ")), \(.area | gsub("-"; " "))"
           + (if $publish then ": \($f.title | line)" + (if ($f.file // "") != "" then " (\($f.file | code)\(if $f.line then ":\($f.line)" else "" end))" else "" end)
              else " (details on the ticket)" end)
+          + (if .like then " — like \(.like.id), \(.like.status) by an approver: /skip it too if it's the same" else "" end)
       elif .source == "fix-check" then
         ([$x.new_concerns[] | select(.n == $i.concern)] | first) as $f
         | "- **\(.id)** " + (if (.id | startswith("D")) then "decision" else "review item" end) + ", raised by the fix check"
@@ -161,6 +162,19 @@ def reconcile_items($prev; $fresh):
     + $now
     + [$prev[] | select(.id | startswith("C"))]
   | sort_by((.id[0:1] | {D: 0, R: 1, C: 2}[.]), num);
+
+# like_decided(the review's findings; decided): items an approver already
+# decided on an earlier review (review.sh, DECIDED) don't come back as new
+# work silently: an open item from this review on the same file, of the same
+# kind, says it looks like that one ({like: {id, status}}), so a person
+# re-decides only what's really new. A hint, never a decision: it stays open.
+def like_decided($findings; $decided):
+  map(. as $i
+    | if ($i.source // "") == "review" and $i.status == "open" then
+        ([$findings[] | select(.n == $i.finding)][0]) as $f
+        | ([$decided[] | select(($f.file // "") != "" and .file == $f.file and .kind == $f.kind)] | last) as $d
+        | if $d then . + {like: {id: $d.id, status: $d.status}} else . end
+      else . end);
 
 # reconcile_cause(build context): why a reconcile run re-checked the pull
 # request — people's commits, a merge of the moved target, or both — in hub

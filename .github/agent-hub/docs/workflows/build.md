@@ -588,18 +588,25 @@ pull requests.
 Since 2.13.0 (`stages/build/handoff.sh`, `lib/ci.sh`,
 `stages/build/sweep.sh`; CI fixes since 2.14.0):
 
-- **Woken by the CI sweep** (`agent-hub-ci-sweep.yml`, every 10 minutes, no
-  agent; decided 2026-10-08 after a spike, instead of `workflow_run` events,
-  which fire only for named Actions workflows, while `check_suite` and
-  `check_run` never fire for Actions' own checks, and waiting inside the
-  build would hold a single self-hosted runner that the repository's CI
-  then can't use). It requests the build (`wake: ci`) for each of the hub's
+- **Woken by the CI sweep** (`agent-hub-ci-sweep.yml`, no agent) **as soon
+  as CI finishes** (since 2.28.0): any workflow run of a pull request from
+  one of the hub's branches in this repository completing starts a sweep
+  (`workflow_run` on every workflow, `"*"` matching any name; every other
+  completion skips the job, using no runner). `check_suite` and `check_run`
+  never fire for Actions' own checks, and waiting inside the build would
+  hold a single self-hosted runner the repository's CI then can't use. The
+  schedule (every 10 minutes) stays as the backstop — for CI outside GitHub
+  Actions, which posts statuses or checks but no workflow run, and anything
+  missed. (Decided 2026-10-08 as the schedule alone, because `workflow_run`
+  was thought to need each workflow's name; its filter takes wildcards.)
+  It requests the build (`wake: ci`) for each of the hub's
   draft pull requests whose required checks have finished on the head the
   hub last recorded — or waited past `AGENT_HUB_BUILD_CI_WAIT_MINUTES`
   (120) — and whose result the build hasn't handled yet. It leaves alone a
   paused or superseded pull request, and one with commits the hub hasn't
-  recorded (a person pushed: a run they start re-checks it). Events can make
-  it faster after v1. **In practice the schedule is slower than it says:**
+  recorded (a person pushed: a run they start re-checks it). **In practice
+  the schedule is slower than it says**, which matters only for CI outside
+  GitHub Actions:
   GitHub starts schedules this frequent late, or skips them, under load (in
   the 2.21 manual test, runs came hours apart), and a run that waits for an
   offline self-hosted runner is cancelled by the next. To hand a pull request
@@ -877,6 +884,16 @@ and the next revision reviews the whole pull request.
   did what, when, on which head, is kept on the ticket (`agent-hub-items`).
   The CI gate's last result is cleared, so the CI sweep runs it again — a
   pull request whose only blocker was a decision item is then handed off.
+- **A decision outlives the next review** (since 2.28.0). A re-review (after
+  people's commits, or a merge with semantic drift) numbers its findings
+  afresh, so it used to raise what an approver had already skipped. Now the
+  review is given what approvers skipped or accepted on earlier reviews —
+  each item's id, file and finding, from the review the hub kept, checked
+  against the pull request's record — and told not to raise them again
+  unless the code they concern changed. A new item on the same file, of the
+  same kind, still says it looks like the decided one ("like R5, skipped by
+  an approver") — a hint, never closed for the person. The list is carried
+  from each kept review to the next (up to 40 items).
 - **`/apply R2 D1`, `/apply all`, `/apply comments`:** a fix of exactly the
   requested items, **through the fix pass's own path** — R item / review
   thread → a bounded finding → the fix pass (`apply/prompt.md`) → the fix
@@ -923,7 +940,7 @@ and the next revision reviews the whole pull request.
 | Plan unclear at validation | Back to Implementation Plan with questions in the plan |
 | Approval stale (plan changed after approval) | Back to Implementation Plan for re-approval |
 | Change requests | `/apply` on the ticket → a fix on the same branch (never a force-push); people's own commits are reviewed by the next run |
-| People pushed commits | The branch is the source of truth; review coverage marked stale; revisions build on top |
+| People pushed commits | The branch is the source of truth; review coverage marked stale; revisions build on top. Since 2.28.0, once the hub has re-checked them — or pushed a CI fix or an `/apply` — the ticket's Testing Instructions start with a note that the code changed after they were written (not for a merge of the target the earlier review still covers) |
 | Plan revised or re-planned after a pull request exists | Build **superseded**: the pull request is flagged; continuing needs a person (close it and delete its branch, then approve the plan again for a new build) |
 | Work order revised after a pull request exists | Plan marked out of date (as today); build superseded |
 | `agent-hub-paused` label | The hub doesn't touch the pull request until it's removed |

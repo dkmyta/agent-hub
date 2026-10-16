@@ -1423,6 +1423,13 @@ reconcile_run() { run_scenario ready "MOCK_GH_PRS_FIXTURE=$BATS_TEST_TMPDIR/prs.
 pr_body() { jq -r '.[0].body' "$RUNNER_TEMP/mock-github/prs.json"; }
 pr_state() { pr_body | awk '/^<!-- agent-hub:state$/ { getline; print }'; }
 
+# testing_note: the note the hub put at the top of the ticket's Testing
+# Instructions, from its last description write (empty if none).
+testing_note() {
+  jq -rs -L "$HUB_LIB" 'include "adf"; [.[] | select(.method == "PUT" and .body.fields.description != null)] | last
+    | (.body.fields.description // {content: []}) | (section_blocks("Testing Instructions")[0] // {}) | plain_text' "$CALLS"
+}
+
 @test "reconcile: a person's commits are verified and reviewed with the whole change; the description's status and record updated, a comment on each" {
   built_pr
   person_pushes agent-hub/PROJ-99 'printf "\n// Reviewed by Dana.\n" >> src/greet.js'
@@ -1455,6 +1462,9 @@ pr_state() { pr_body | awk '/^<!-- agent-hub:state$/ { getline; print }'; }
   run jq -r 'select(.method == "POST" and .path == "/comment") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
   assert_output --partial "⏳ Re-checking pull request #101"
   assert_output --partial "🔁 Pull request re-checked"
+  # The ticket's testing steps were written for the build's commit.
+  run testing_note
+  assert_output "⚠️ The code changed after these steps were written — by people's commits, at ${head:0:7}. Check that each step still applies."
 }
 
 @test "reconcile: nobody pushed since the hub — nothing to do, no Claude, no comment" {
@@ -1602,6 +1612,9 @@ branch_head() { git --git-dir="$REMOTE" rev-parse refs/heads/agent-hub/PROJ-99; 
   assert_output --partial "⏳ Re-checking pull request #101 — main moved by 1 commit"
   assert_output --partial "so it's being verified again."
   assert_output --partial "🔁 Pull request synced"
+  # The earlier review still covers it, so the testing steps still apply.
+  run testing_note
+  assert_output ""
 }
 
 @test "sync: a drift-sensitive change on main, with a person's commit — merged, verified and reviewed again; the heads say who made each" {
@@ -1754,6 +1767,8 @@ ci_fix_run() { # [VAR=value...]: a run that finds the required check "test" fail
   run jira_comments
   assert_output --partial "⏳ Fixing CI on pull request #101"
   assert_output --partial "🔧 CI fix pushed"
+  run testing_note
+  assert_output --partial "⚠️ The code changed after these steps were written — by a CI fix, at $(branch_head | cut -c1-7)."
 }
 
 @test "CI fix: once CI passes on the fix, the pull request is handed off" {
@@ -2095,6 +2110,33 @@ resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment
   assert_line "--- Outcome: handed off"
 }
 
+# 2.28.0: a decision outlives the next review. The re-review is told what
+# approvers already skipped or accepted, and a new item that looks like one
+# says so — a hint, never closed for the person.
+@test "re-review: an item an approver skipped — the review is told, and a look-alike finding says so; the decision carried in the record" {
+  findings_pr
+  local id
+  id=$(jq -r '[.items[] | select(.kind == "style")][0].id' <<< "$(pr_state)")
+  [ -n "$id" ] && [ "$id" != null ] || fail "no style item to skip"
+  command_run "$(command_comments "/skip $id")"
+  keep_properties
+  carry_prs
+  person_pushes agent-hub/PROJ-99 'printf "\n// Reviewed by Dana.\n" >> src/greet.js'
+  reconcile_run "MOCK_PROPERTIES_FROM=$BATS_TEST_TMPDIR/properties" CLAUDE_PASS_FIXTURE=claude/review-findings.json
+  run trace
+  assert_line "Review: success"
+  run cat "$RUNNER_TEMP/claude-pass-prompt.txt"
+  assert_output --partial "<decided>"
+  assert_output --partial "- $id, skipped by an approver: Test name style differs from the file's (style, test/greet.test.js"
+  run jq -c '[.items[] | select(.like) | .like]' <<< "$(pr_state)"
+  assert_output "[{\"id\":\"$id\",\"status\":\"skipped\"}]"
+  run pr_body
+  assert_output --partial "like $id, skipped by an approver"
+  # Kept in the new record, for the review after this one.
+  run jq -c '[.decided[] | {id, status, file}]' "$RUNNER_TEMP/mock-property-agent-hub-review.json"
+  assert_output "[{\"id\":\"$id\",\"status\":\"skipped\",\"file\":\"test/greet.test.js\"}]"
+}
+
 @test "/skip: a command comment the hub can't edit — answered in a comment of its own, and not read again" {
   run_scenario decision-item
   keep_properties
@@ -2321,6 +2363,8 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
   assert_output $'501\n505'
   run cat "$RUNNER_TEMP/mock-github/resolved-threads.jsonl"
   assert_output '"T1"'
+  run testing_note
+  assert_output --partial "— by an /apply, at $(branch_head | cut -c1-7)."
 }
 
 # A person's own build token (the v1 default): the hub posts as the token's
