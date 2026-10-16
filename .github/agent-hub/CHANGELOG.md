@@ -5,6 +5,31 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.24.2 — 2026-10-15
+
+The test suite sweep, step two: the build every pull-request test starts
+from runs once per test file. Build scenarios run 16% faster, with every
+test kept.
+
+- **`built_pr` starts from a seed.** About 46 build scenarios began by
+  running the same build, only to have a pull request to test against. It
+  now runs once per test file (`seed_built_pr`, in `setup_file`, from the
+  code as it is, so a mutation run rebuilds it), and each test starts from
+  its own copy of exactly two things: the remote, and GitHub's mock state.
+  Never the run's logs, calls, credentials, sessions or anything pending.
+  If the seed can't be built, every test using it fails saying why.
+  `AGENT_HUB_TEST_NO_SEED=1` runs the build in each test instead, for
+  comparing. The build path itself is still tested in full where it's under
+  test.
+- **A new test checks the copies are independent:** a push and a
+  pull-request edit in one reach neither the seed nor the next copy, and
+  each copy uses its own remote and folders.
+- **Measured** (build scenarios, 6 parallel jobs, two rounds each, same
+  machine): 731 s before, 612 s after, with every test passing. All 20
+  mutants are still detected.
+
+**Updating:** Nothing.
+
 ## 2.24.1 — 2026-10-15
 
 The test suite sweep, step one: a repeatable mutation check, and the three

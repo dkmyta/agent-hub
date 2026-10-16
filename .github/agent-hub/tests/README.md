@@ -183,6 +183,14 @@ running it as a variant (above) instead. Otherwise:
 3. `npm run update-snapshots --prefix .github/agent-hub/tests`, then check `expected/trace.txt`
    is what the workflow should do.
 
+**A scenario that needs a build's pull request first** starts from
+`built_pr`. That build is the same for every test, so it runs once per test
+file (`seed_built_pr`, in `setup_file`, from the code as it is), and each
+test gets its own copy of the remote and GitHub's mock state. Use it only
+when the build is a precondition; when the build itself is under test, run
+it (`run_scenario ready …`). If a test using it fails in a confusing way,
+`AGENT_HUB_TEST_NO_SEED=1` runs the build in each test instead, to compare.
+
 ## The mutation check
 
 Manual, upstream only: `tests/mutation/run.sh` breaks one security or gating
