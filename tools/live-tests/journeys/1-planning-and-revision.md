@@ -13,6 +13,7 @@ and revisions. It ends **before** the build, at a plan ready to approve;
 
 ## Before you start
 
+- **The setup checker passes in the test repository** (`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`): nothing blocked; anything unverified checked by hand. Keep its output with the evidence.
 - The test repository has the hub installed by `update.sh`, and
   `update.sh --check` passes (record its "Installed from" line).
 - The tracker routes test tickets to the test repository

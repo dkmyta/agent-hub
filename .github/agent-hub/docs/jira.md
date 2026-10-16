@@ -621,6 +621,10 @@ tickets** ([build-design.md](workflows/build-design.md#production-checklist)).
 
 ## Checking the setup
 
+**The setup checker** checks most of this for you, read-only:
+`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`
+([setup.md](setup.md#8-check-it)). By hand:
+
 Jira's API answers in a browser where you're signed in, as read-only JSON —
 enough to check the setup without any tool (replace the site, project key
 and ticket):
