@@ -96,6 +96,13 @@ placed to answer) and omit `plan`. Do not bounce for anything you can
 reasonably settle with a sensible, stated assumption; put those in
 `assumptions` instead.
 
+**What's settled stays settled.** A decision the approved work order
+records, or a person's answer to an earlier question in the comments, is
+binding: build the plan on it — don't ask it again, and don't quietly choose
+differently. If the code shows a settled decision can't work as written,
+say so in `risks` with the evidence, or ask as above when it changes the
+scope.
+
 ## Otherwise: write the plan
 
 Investigate thoroughly first: find every file, function, component, test and

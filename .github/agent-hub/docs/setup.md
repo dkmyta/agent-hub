@@ -1,9 +1,23 @@
 # Setting up the agent hub in a repository
 
 How to add the agent hub to a GitHub repository and connect it to a
-tracker — Jira, or GitHub Projects ([choosing one](trackers.md)). Nothing in
+tracker — Jira ([trackers](trackers.md)). Nothing in
 the hub needs editing: each repository supplies its own **runner**,
 **secrets**, optional **variables**, and the **tracker's rules**.
+
+**At a glance**, in order — after each step, run the
+[setup checker](#8-check-it) and expect these lines **verified**:
+
+| Step | The checker verifies |
+|---|---|
+| [1. Add the files](#1-add-the-files) | the hub's files are unchanged since installation |
+| [2. Set up a runner](#2-set-up-a-runner) | a runner with the labels is online; Claude Code matches the pin (on the runner's machine) |
+| [3. Add secrets](#3-add-secrets) | the `agent-hub` environment, limited to the default branch, holds the required secrets; none at the repository level |
+| [4. Set variables](#4-set-variables-only-what-differs-from-the-defaults), and the repository settings there | the variable names; required checks bound to their apps; read-only workflow permissions |
+| [5. Set up your tracker](#5-set-up-your-tracker) | the service account's credentials, the status names and the approvers group (the rules aren't checked: compare them with [jira.md](jira.md)) |
+| [6. Plan for credential expiry](#6-plan-for-credential-expiry) | — (dates in a calendar) |
+| [7. Extend the stages](#7-optionally-extend-the-stages-for-your-codebase) (optional) | — |
+| [8. Check it](#8-check-it) | everything above, then a test ticket end to end |
 
 ## 1. Add the files
 
@@ -63,8 +77,7 @@ deployment.) It protects GitHub's secrets, not what's on a self-hosted
 runner: a Claude login there is reachable by everyone with write access
 ([runners.md](runners.md#self-hosted-runner-with-a-claude-subscription)).
 
-The tracker's secrets are for Jira (GitHub Projects will use the workflow's
-own GitHub token):
+The tracker's secrets are for Jira:
 
 | Secret | Required | Value |
 |---|---|---|
@@ -245,13 +258,10 @@ The hub doesn't check these settings itself: the manual test does
 
 ## 5. Set up your tracker
 
-Pick one per repository — see [trackers.md](trackers.md). The stages work the
-same way with either.
-
-**GitHub Projects:** follow **[github-projects.md](github-projects.md)** and
-its checklist (the board, views, labels, intake form and access) — the
-foundations only: its agent stages aren't connected yet, so for the full
-pipeline today, use Jira.
+Jira is the supported tracker. (GitHub Projects is a possible alternative,
+not yet decided: [github-projects.md](github-projects.md) covers its
+foundations only, and its agent stages aren't connected —
+[trackers.md](trackers.md).)
 
 **Jira:** follow **[jira.md](jira.md)** — the single reference for the Jira side — and
 tick off its [installation checklist](jira.md#checklist-for-a-new-installation):
@@ -358,10 +368,10 @@ is missing.
    puts them on a command line, and changes nothing. `--no-jira` skips Jira.
    The automation rules aren't checked: compare them with
    [jira.md](jira.md).
-1. **Actions → Agent hub: Work order → Run workflow** with the key of a test
+2. **Actions → Agent hub: Work order → Run workflow** with the key of a test
    ticket in the Work Order status. The ticket should get a work order.
-2. Create a ticket through the tracker and confirm its rule triggers a run.
-3. Optionally, **Actions → Agent hub: Evals → Run workflow** to check the agent's
+3. Create a ticket through the tracker and confirm its rule triggers a run.
+4. Optionally, **Actions → Agent hub: Evals → Run workflow** to check the agent's
    decisions in this repository (uses Claude; type `use-claude` to confirm).
    Recommended: add required reviewers to the `agent-hub-evals` environment so
    every eval run needs approval ([evals.md](evals.md#how-to-run-them)).

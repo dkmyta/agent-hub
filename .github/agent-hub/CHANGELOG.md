@@ -5,6 +5,34 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.26.0 — 2026-10-16
+
+v1: the Jira setup tidied, so the docs match a working installation.
+
+- **Rule conditions, cheapest first** (`jira.md`): Build Command is now
+  comment pattern → status → work type → approvers group; Revision Requested
+  comment pattern → work type → user condition. Jira stops at the first
+  condition that fails, so the order changes nothing a rule does.
+- **Revision Requested's user condition is part of the rule** (it was a
+  "before production" note): the approvers group, or a wider group of the
+  people who work the tickets.
+- **If the automation quota runs out** (`jira.md`): what to do by hand for
+  each rule, and what keeps working. The build workflow's `wake` input says
+  `command` acts on `/skip` and `/apply` comments when started by hand.
+- **Setup at a glance** (`setup.md`): the steps in order, and which setup
+  checker lines to expect verified after each. Section 8's numbering fixed.
+- **Jira is the supported tracker.** GitHub Projects is described as a
+  possible alternative, not yet decided (its foundations and intake form
+  stay).
+- **The plan keeps settled decisions** (implementation-plan prompt): a
+  decision in the approved work order, or a person's answer in the
+  comments, binds the plan — not asked again or quietly changed; a conflict
+  with the code goes under Risks, or is asked when it changes the scope.
+
+**Updating:** Optional, in Jira (no change in behaviour): reorder the
+conditions of **Build Command** and **Revision Requested** as `jira.md`
+shows. If Revision Requested has no user condition yet, add it.
+
 ## 2.25.0 — 2026-10-16
 
 v1, setup simplification (part one): a read-only setup checker.

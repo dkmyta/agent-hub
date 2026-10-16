@@ -8,7 +8,7 @@ per repository.
 
 | | Jira | GitHub Projects |
 |---|---|---|
-| **Status** | ✅ Fully supported | 🟡 Foundations ready (board, statuses, views, labels, intake form); **the agent stages aren't connected yet** |
+| **Status** | ✅ Fully supported | 🟡 A possible alternative, not yet decided: foundations only (board, statuses, views, labels, intake form); **the agent stages aren't connected** |
 | Setup guide | [jira.md](jira.md) | [github-projects.md](github-projects.md) |
 | Where tickets live | Jira work items (Task) | GitHub issues in a repository, shown on a Project board |
 | What starts a stage | Jira automation rules sending a web request | GitHub Actions reacting to issue events (planned) |
@@ -18,10 +18,10 @@ per repository.
 | Audience | Good for non-technical requesters and clients | Everyone needs a GitHub account and works in GitHub |
 | Intake | A description template; a Jira rule checks it has details | An issue form (`.github/ISSUE_TEMPLATE/agent-hub-request.yml`) with the same fields; only issues made with it (labelled `agent-hub`) enter the pipeline |
 
-**Choose Jira** if requesters, delivery leads or clients already work in Jira,
-or need its permissions and reporting. **Choose GitHub Projects** if the team
-works in GitHub and you want no separate automation platform or quota — once
-its stages are connected; until then its setup covers the foundations only.
+**Use Jira**: it's the supported tracker. GitHub Projects would suit a team
+that works in GitHub and wants no separate automation platform or quota, but
+whether its stages get connected isn't decided; its setup covers the
+foundations only.
 
 Everything shared — what each stage does, its edge cases, revisions — is in
 [architecture.md](architecture.md) and the [workflow pages](workflows/); the
