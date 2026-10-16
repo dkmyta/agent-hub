@@ -26,3 +26,4 @@ foundations only.
 Everything shared — what each stage does, its edge cases, revisions — is in
 [architecture.md](architecture.md) and the [workflow pages](workflows/); the
 two setup guides cover only the tracker side.
+
