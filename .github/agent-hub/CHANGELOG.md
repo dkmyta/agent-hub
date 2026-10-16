@@ -32,6 +32,10 @@ GitHub token is your own.
 - **Upgrading the pinned Claude Code**, step by step (runners.md): the
   runner first, the sandbox check, optionally the evals, then the pin, then
   the setup checker.
+- **The installer copies through a file, not a pipe** (`update.sh`): the
+  piped `tar` failed now and then on GitHub's macOS runners ("tar: Write
+  error"); a failure now says which side. The test suite also fixes the run
+  attempt (a CI re-run's `GITHUB_RUN_ATTEMPT` leaked into its snapshots).
 - **Docs:** "machine user" wording replaced by "the build token's account";
   architecture.md says the tracker interface's data is Jira-shaped.
 

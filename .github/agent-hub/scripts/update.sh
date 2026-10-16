@@ -130,7 +130,10 @@ fi
 # Replace the hub's files wholesale, so files the new version dropped go too.
 hub_files . | while read -r path; do rm -f "$path"; done
 rm -rf "$HUB"
-(cd "$source" && tar cf - -T "$files") | tar xf -
+# Through a file, not a pipe: on GitHub's macOS runners the piped copy
+# failed now and then with "tar: Write error" (2.27.0).
+(cd "$source" && tar cf "$work/hub.tar" -T "$files") || fail "couldn't read the hub copy's files (tar cf)."
+tar xf "$work/hub.tar" || fail "couldn't write the hub's files here (tar xf)."
 checksums < "$files" > "$RECORD"
 
 # Where it came from: the hub copy's commit and tag, when the copy is a git
