@@ -8,6 +8,7 @@
 setup_file() {
   load helpers
   extract_stage
+  seed_built_pr
 }
 
 setup() {
@@ -1355,11 +1356,75 @@ pass_row() { # <pass name>: that row's cells, one per line
 # again (reconcile.sh; docs/workflows/build-design.md, "Contracts").
 # built_pr: a first build, its pull request open; prs.json keeps GitHub's
 # state for the next run, which starts from a fresh checkout of main.
+#
+# The build is the same in every test that starts from it, so it runs once
+# per test file, from the code as it is now (seed_built_pr, in setup_file),
+# and each test starts from its own copy of what it left: the remote, and
+# GitHub's mock state. Only those — never its logs, calls, credentials,
+# sessions or anything pending. The run itself is tested where it's under
+# test ("ready: the plan built…"). AGENT_HUB_TEST_NO_SEED=1 runs it in
+# every test instead, to compare when something fails.
 built_pr() {
-  run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  if [ -n "${AGENT_HUB_TEST_NO_SEED:-}" ]; then
+    run_scenario ready CLAUDE_EDITS=edits/greet.sh
+  else
+    [ -z "${BUILT_PR_SEED_ERROR:-}" ] || fail "The built pull request every test here starts from couldn't be built once for the file: $BUILT_PR_SEED_ERROR"
+    local dir
+    dir=$(mktemp -d "$BATS_TEST_TMPDIR/seeded.XXXXXX")
+    cp -R "$BUILT_PR_SEED/remote.git" "$dir/remote.git"
+    export REMOTE="$dir/remote.git"
+    use_run_env "$(mktemp -d "$BATS_TEST_TMPDIR/run.XXXXXX")"
+    cp -R "$BUILT_PR_SEED/mock-github" "$RUNNER_TEMP/mock-github"
+  fi
   cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
   fresh_checkout
 }
+
+# seed_built_pr (setup_file): the build built_pr starts from, run once in a
+# subshell (so none of its settings reach the tests); BUILT_PR_SEED holds
+# its remote and GitHub's mock state, or BUILT_PR_SEED_ERROR says why not.
+seed_built_pr() {
+  local seed="$BATS_FILE_TMPDIR/built-pr-seed"
+  mkdir -p "$seed/run"
+  if (
+    export BATS_TEST_TMPDIR="$seed/run"
+    fresh_repo && run_scenario ready CLAUDE_EDITS=edits/greet.sh > /dev/null \
+      && grep -qx -- '--- Outcome: written' "$RUNNER_TEMP/trace.txt" \
+      && cp -R "$REMOTE" "$seed/remote.git" && cp -R "$RUNNER_TEMP/mock-github" "$seed/mock-github"
+  ) > "$seed/log.txt" 2>&1; then
+    rm -rf "$seed/run"
+    export BUILT_PR_SEED=$seed
+  else
+    export BUILT_PR_SEED_ERROR="its build didn't finish as written (log: $seed/log.txt)"
+  fi
+}
+# The seed's copies are independent: what one test does to its pull
+# request never reaches the seed, or the next copy; each copy's checkout and
+# runs use its own remote and folders.
+@test "built_pr: each test's copy is its own — a push and a pull request edit in one reach neither the seed nor the next copy" {
+  [ -z "${AGENT_HUB_TEST_NO_SEED:-}" ] || skip "no seed with AGENT_HUB_TEST_NO_SEED"
+  local seed_head first_remote first_temp
+  seed_head=$(git --git-dir="$BUILT_PR_SEED/remote.git" rev-parse refs/heads/agent-hub/PROJ-99)
+  built_pr
+  first_remote=$REMOTE first_temp=$RUNNER_TEMP
+  [[ "$REMOTE" == "$BATS_TEST_TMPDIR"/* ]] || fail "the remote isn't the test's own: $REMOTE"
+  assert_equal "$(git -C "$STEP_CWD" remote get-url origin)" "file://$REMOTE"
+  assert_equal "$(branch_head)" "$seed_head"
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  jq '.[0].labels += [{name: "agent-hub-paused"}]' "$RUNNER_TEMP/mock-github/prs.json" > "$BATS_TEST_TMPDIR/p.json" \
+    && mv "$BATS_TEST_TMPDIR/p.json" "$RUNNER_TEMP/mock-github/prs.json"
+  # Nothing of it in the seed.
+  assert_equal "$(git --git-dir="$BUILT_PR_SEED/remote.git" rev-parse refs/heads/agent-hub/PROJ-99)" "$seed_head"
+  run jq -r '[.[0].labels[].name] | index("agent-hub-paused")' "$BUILT_PR_SEED/mock-github/prs.json"
+  assert_output null
+  # Nor in the next copy, which has its own folders.
+  built_pr
+  [ "$REMOTE" != "$first_remote" ] && [ "$RUNNER_TEMP" != "$first_temp" ] || fail "the second copy reused the first's folders"
+  assert_equal "$(branch_head)" "$seed_head"
+  run jq -r '[.[0].labels[].name] | index("agent-hub-paused")' "$BATS_TEST_TMPDIR/prs.json"
+  assert_output null
+}
+
 # reconcile_run [VAR=value...]: the second run, on the existing pull request.
 reconcile_run() { run_scenario ready "MOCK_GH_PRS_FIXTURE=$BATS_TEST_TMPDIR/prs.json" "$@"; }
 pr_body() { jq -r '.[0].body' "$RUNNER_TEMP/mock-github/prs.json"; }
