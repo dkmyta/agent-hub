@@ -159,6 +159,34 @@ document a line at a time reaches a parser's deeper rules; random text
 mostly stops at its first check. Check that a fuzz test fails when the
 guard it covers is broken.
 
+### Keeping the suite lean
+
+The suite exists to show the hub works, safely and stably, not to grow with
+every change. Most of its time is in workflow runs, so a test's cost is
+mostly how many it makes.
+
+- **Extend before adding.** A new case of an existing rule goes into the
+  test that owns that rule. A separate test is for a distinct race, artifact
+  or failure path, not for another input.
+- **One home per input rule.** A table of inputs belongs in a unit test of
+  the rule's function, not replayed as a whole run per input. Scenarios are
+  for each distinct boundary: before or after Claude, before publication, a
+  failed lookup, a write that can fail part way.
+- **Start from a shared setup when one fits.** `built_pr` is built once per
+  test file (see [Adding a scenario](#adding-a-scenario)). Add another shared
+  setup only when many tests start from it: measured, two more that served
+  16 tests saved under 2% and weren't kept.
+- **Don't test wording for its own sake.** Test text other parts depend on:
+  a tracker rule's comment, a marker, something parsed, a privacy guarantee,
+  a status that must be true, the steps a person is told to take.
+- **A security or gating guard gets a mutant** in
+  [mutation/mutants.json](mutation/mutants.json), and the mutation check runs
+  before and after any change that moves, merges or removes tests.
+- **Remove what's no longer needed:** a test whose rule is gone, or one that
+  repeats another's run with a subset of its checks.
+- **Measure before adding test machinery.** A helper, cache or harness
+  change has to save significant time to be worth its complexity.
+
 ## Snapshots
 
 When a change is intended, update the snapshots and **review the diff** — it

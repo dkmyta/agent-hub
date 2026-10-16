@@ -5,6 +5,33 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.24.3 — 2026-10-16
+
+The test suite sweep, finished: two duplicate runs gone, and a policy that
+keeps the suite lean.
+
+- **Duplicates:** "fix matrix: a clean fix is kept" repeated "fix: kept"'s
+  run with a subset of its checks, so it's gone. "fix: no fix-eligible
+  findings, no fix pass" repeated the review test's run, so its checks moved
+  into that test. Other tests that share a run but test different things
+  stay apart, so a failure says what broke.
+- **Keeping the suite lean** (tests README, and CONTRIBUTING's checklist):
+  - extend a rule's test before adding one;
+  - one home per input rule, with scenarios for each distinct boundary;
+  - shared setups only when many tests use them;
+  - no tests of wording for its own sake;
+  - a mutant for every security or gating guard;
+  - remove what's no longer needed;
+  - measure before adding test machinery.
+- **Not done, by decision:** moving the input-case lists (dependency checks,
+  approval history, `/skip` refusals, caps settings, the fix matrix) down to
+  unit tests. Measured, they total about 220 seconds of serial test time, so
+  moving them would save about 25 seconds of a 10-minute parallel run. That
+  isn't worth rewriting tests of security rules. Nor are more shared setups,
+  which saved under 2%.
+
+**Updating:** Nothing.
+
 ## 2.24.2 — 2026-10-15
 
 The test suite sweep, step two: the build every pull-request test starts
