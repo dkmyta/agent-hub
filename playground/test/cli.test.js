@@ -30,3 +30,13 @@ test("the CLI title-cases text", () => {
   assert.equal(execFileSync("node", [cli, "title-case", "hELLO", "wORLD"], { encoding: "utf8" }), "Hello World\n");
   assert.equal(execFileSync("node", [cli, "title-case", "a  b"], { encoding: "utf8" }), "A  B\n");
 });
+
+test("the CLI reverses word order", () => {
+  assert.equal(execFileSync("node", [cli, "reverse-words", "one", "two", "three"], { encoding: "utf8" }), "three two one\n");
+});
+
+test("the CLI usage lists reverse-words", () => {
+  const run = spawnSync("node", [cli, "shout"], { encoding: "utf8" });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /reverse-words/);
+});
