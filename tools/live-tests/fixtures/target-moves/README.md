@@ -1,9 +1,10 @@
 # Changes to the target branch
 
-Each is pushed straight to the **test repository's** main branch (never the
-hub's), after the build's pull request exists, to test how the build
-follows a target that moved. One per journey step; reset between them if
-needed.
+Each goes on the target branch (main) after the build's pull request
+exists, to test how the build follows a target that moved: pushed straight
+to a test repository's main, or — in the hub's own repository, whose main is
+protected — as a small pull request a person merges (reverted together
+after the journey). One per journey step.
 
 | Fixture | Change | Expected from the next build run |
 |---|---|---|

@@ -12,14 +12,14 @@ build, its review, the CI gate, the hand-off, the merge.
 
 ## Before you start
 
-- **The setup checker passes in the test repository** (`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`): nothing blocked; anything unverified checked by hand. Keep its output with the evidence.
+- **The setup checker passes in the repository** (`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`): nothing blocked; anything unverified checked by hand. Keep its output with the evidence.
 - [Journey 1](1-planning-and-revision.md) finished on this ticket, or any
   ticket in Implementation Plan with a plan for
   [reverse-words](../fixtures/tickets/reverse-words.md).
-- The test repository: `AGENT_HUB_BUILD_PREVIEW=true`; the build token is a
-  machine user's, not yours (with your own, `/apply comments` in journey 3
-  can't be tested); main protected with required checks (the playground's
-  tests and **Agent hub: Test**).
+- The repository: `AGENT_HUB_BUILD_ENABLED=true`; the build token your own
+  fine-grained one (Contents and Pull requests read/write, no Workflows —
+  setup.md, "The build token and branch protection"); main protected with
+  required checks (the playground's tests and **Agent hub: Test**).
 - The runner's sandbox check passed on this Claude Code version
   (**Agent hub: Sandbox check**, or `scripts/check-sandbox.sh`).
 
@@ -27,7 +27,7 @@ build, its review, the CI gate, the hand-off, the merge.
 
 **1. Build.** `approve-plan`.
 
-- `run` "Build: <KEY>" in the test repository, success.
+- `run` "Build: <KEY>", success.
 - `pull request` draft on `agent-hub/<KEY>`; its record lists one head (the
   build's, verified on exactly that commit), a finished review of that
   head, and the items found.
@@ -42,10 +42,14 @@ build, its review, the CI gate, the hand-off, the merge.
   verified on its own commit) or listed as an item for a person (R, D or C).
 - No refused file changed (`.github/`, `.claude/`, `CODEOWNERS`).
 
-**3. CI gate.** Wait for the pull request's checks to finish, then run the
-CI sweep by hand (`gh workflow run agent-hub-ci-sweep.yml -R <test repo>`:
-its schedule is often hours late).
+**3. CI gate.** Wait for the pull request's checks to finish. Since 2.28.0
+their completion wakes the CI sweep — don't run it by hand first.
 
+- `run` "Agent hub: CI sweep" with the event `workflow_run`, its job run
+  (not skipped), within a minute or two of the last check finishing; it
+  requests the build. (Only if none comes within five minutes: record
+  that, then run the sweep by hand, `gh workflow run agent-hub-ci-sweep.yml
+  -R <repo>` — the schedule is often hours late.)
 - `run` "Build: <KEY> (CI gate)".
 - If any item for a person is open: not handed off, and the pull request
   says why. Close it with `comment` `/skip <ids>` and run the sweep again.

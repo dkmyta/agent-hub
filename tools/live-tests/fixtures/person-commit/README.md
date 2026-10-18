@@ -16,7 +16,7 @@ What the review should find, and what each is for:
 The review's exact wording and ids vary; record what it found. A review that
 misses the bug is a finding about the review, not a failed journey step.
 
-To plant it, from a clone of the test repository:
+To plant it, from a clone of the repository:
 
 ```sh
 git switch agent-hub/<KEY> && git pull

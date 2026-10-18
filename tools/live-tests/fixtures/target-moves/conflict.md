@@ -8,5 +8,5 @@ request conflicts.
 git switch main && git pull
 perl -0pi -e 's/^- `src\/text\.js` — text helpers:.*?(?=^- `src\/cli\.js`)/- `src\/text.js` — the text helpers (live test: changed on the target branch)\n/ms' playground/README.md
 git diff    # one list item replaced, nothing else
-git commit -am "Live test: reword the helper list" && git push
+git switch -c live-test/conflict && git commit -am "Live test: reword the helper list" && git push -u origin HEAD   # then open a pull request, or push to main directly in a test repository
 ```
