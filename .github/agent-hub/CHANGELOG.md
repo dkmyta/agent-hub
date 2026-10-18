@@ -5,6 +5,62 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.28.1 — 2026-10-18
+
+Fixes from the full review before the branch point (two reviews, combined;
+each finding checked against the code; each code fix with a test).
+
+- **A fix never touches a file a person already changed where the hub can't
+  push, or must decide:** the fix pass, a CI fix and an `/apply` are now
+  checked on their own commit too, not just on the whole pull request — a
+  fix that changes a hub-managed path (`.github/`, `.claude/`, CODEOWNERS),
+  or any file the reviewed commit already had flagged for a person (outside
+  the plan, over the line limit, …), is dropped, even when a person changed
+  that file first or the fix's own change to it is small. (Before, only
+  *newly* flagged paths were caught.)
+- **The ticket's title is part of the approval:** a title changed after the
+  plan's approval, by anyone, needs approving again — every agent is given
+  it, and the hub never edits it.
+- **The CI sweep's wake isn't lost:** its concurrency is now the job's, not
+  the workflow's — a skipped run (any other workflow completing) joined the
+  group and cancelled the real wake waiting there — and it no longer wakes
+  on its own completions. A pull request a person made a draft again after
+  its hand-off isn't made ready again by the sweep.
+- **The build switch holds for every wake:** with the build off, a command
+  on the ticket, a closed pull request or the CI gate does nothing at all —
+  no command claimed or answered, nothing on the pull request or the ticket
+  — and says so in the run's summary only. Commands stay open; once it's on
+  again, run the build for the ticket (wake `command`).
+- **A command edited during its run keeps its edit:** the answer is marked
+  against the comment as it is just before, not as the run first read it;
+  one edited or deleted since gets the answer in a comment of its own.
+- **A push expects the branch exactly where the run found it:** the remote
+  checks it, so a branch wound back during the run is no longer
+  fast-forwarded (which put back what someone removed).
+- **Earlier decisions carried only from a record the hub can vouch for:**
+  if the ticket's record of the last review can't be read, the re-review
+  stops before replacing it (re-run); if it isn't the one the pull
+  request's record names, nothing of it is carried and the re-check's
+  report says to decide again. The 40 newest are kept, by when they were
+  decided.
+- **A failed read just before the hand-off** says so, rather than that the
+  checks changed.
+- **`update.sh`** reads and unpacks the new version in a temporary folder
+  before changing anything, and puts the earlier files back from git if
+  writing them fails part-way (ignored files, e.g. test dependencies,
+  aren't put back).
+- **`check-setup.sh`:** the environment counts as limited to the default
+  branch only with a *branch* policy for it (a tag of the same name is
+  blocked); required checks are verified only when both branch protection
+  and rulesets were read (and legacy contexts count); the Jira credential
+  file is removed however it ends, Ctrl-C included.
+- **Docs:** the approval check (build.md, jira.md, people.md), the push
+  (architecture.md, build-design.md) and the design's v1 status for CI and
+  post-merge checks brought in line with the code.
+
+**Updating:** Nothing. (Turning the build off now also stops its commands,
+closed-pull-request and CI-gate runs from doing anything.)
+
 ## 2.28.0 — 2026-10-16
 
 v1, for the people working the tickets: a guide, faster hand-offs, testing

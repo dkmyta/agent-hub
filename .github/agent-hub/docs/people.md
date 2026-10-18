@@ -111,6 +111,10 @@ again. Combine them: `/apply R2 comments`.
 - **The Testing Instructions look out of date** — since 2.28.0, a note says
   so when code changed after they were written (by people's commits, a
   merge, a CI fix or an `/apply`): check each step against the current code.
+- **I edited the ticket after the plan was approved** — a change to its
+  title, the work order or the plan file means the approval no longer
+  covers it: the build stops, and says why, until it's approved again.
+  Comments and the hub's own Delivery sections don't count.
 - **I want the hub to leave the pull request alone** — add the
   `agent-hub-paused` label; remove it to let it carry on.
 - **The pull request was closed without merging** — the ticket gets a

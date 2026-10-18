@@ -21,16 +21,18 @@ name: "Agent hub: CI sweep"
 
 on:
   workflow_run:
-    # Every workflow, by name ("*" matches any name).
-    workflows: ["*"]
+    # Every workflow, by name ("*" matches any name) — except this one: its
+    # own completions would start runs of it, up to GitHub's three levels.
+    workflows: ["*", "!Agent hub: CI sweep"]
     types: [completed]
   schedule:
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
-concurrency:
-  group: agent-hub-ci-sweep
-  cancel-in-progress: false
+# (No workflow-level concurrency: every completed workflow starts a run of
+# this one, most of them skipped, and a run joining the group would cancel
+# the real wake waiting in it. The job's own, below, holds only runs that do
+# a sweep.)
 
 # Reads the pull requests and their checks; `actions: write` only to request
 # the build (a workflow_dispatch).
@@ -53,6 +55,12 @@ jobs:
       && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'pull_request'
       && startsWith(github.event.workflow_run.head_branch, 'agent-hub/')
       && github.event.workflow_run.head_repository.full_name == github.repository))
+    # One sweep at a time, and one waiting: a newer wake replaces a waiting
+    # one, which does the same pass. Only a job that runs joins the group —
+    # a skipped one never does, so it can't cancel a wake.
+    concurrency:
+      group: agent-hub-ci-sweep
+      cancel-in-progress: false
     runs-on: ${{ fromJSON(vars.AGENT_HUB_RUNS_ON || '["self-hosted", "claude"]') }}
     timeout-minutes: 5
     steps:

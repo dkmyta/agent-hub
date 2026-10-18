@@ -22,6 +22,8 @@ EOF
   cat > "$BIN/curl" <<'EOF'
 #!/usr/bin/env bash
 echo "curl $*" >> "$CALLS_LOG"
+# Held, to be stopped mid-way: says so, then takes a while.
+if [ -n "${JIRA_HOLD:-}" ]; then touch "$JIRA_HOLD"; sleep 2; fi
 url=${*: -1}; key=$(printf '%s' "${url#*/rest/api/3/}" | tr -c 'A-Za-z0-9\n' '_')
 if [ -f "$JIRA_FIX/$key.json" ]; then cat "$JIRA_FIX/$key.json"; printf '\n%s' "$(cat "$JIRA_FIX/$key.status" 2> /dev/null || echo 200)"
 else printf '{}\n%s' "$(cat "$JIRA_FIX/$key.status" 2> /dev/null || echo 404)"; fi
@@ -44,7 +46,7 @@ good_setup() {
   gh_answer "$r/actions/permissions/fork-pr-contributor-approval" '{"approval_policy": "all_external_contributors"}'
   gh_answer "$r/actions/variables?per_page=100" '{"variables": [{"name": "AGENT_HUB_BUILD_ENABLED", "value": "true"}, {"name": "AGENT_HUB_CLAUDE_CODE_VERSION", "value": "2.1.285"}, {"name": "AGENT_HUB_APPROVERS_GROUP", "value": "agent-hub-approvers"}]}'
   gh_answer "$r/environments/agent-hub" '{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}'
-  gh_answer "$r/environments/agent-hub/deployment-branch-policies" '{"branch_policies": [{"name": "main"}]}'
+  gh_answer "$r/environments/agent-hub/deployment-branch-policies" '{"branch_policies": [{"name": "main", "type": "branch"}]}'
   gh_answer "$r/environments/agent-hub/secrets?per_page=100" '{"secrets": [{"name": "AGENT_HUB_JIRA_DOMAIN"}, {"name": "AGENT_HUB_JIRA_EMAIL"}, {"name": "AGENT_HUB_JIRA_API_TOKEN"}, {"name": "AGENT_HUB_GITHUB_TOKEN"}]}'
   gh_answer "$r/actions/secrets?per_page=100" '{"secrets": []}'
   gh_answer "$r/branches/main/protection/required_status_checks" '{"checks": [{"context": "Agent hub: Test", "app_id": 15368}]}'
@@ -61,7 +63,7 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
 @test "check-setup: a setup as the docs say — verified throughout, nothing written, the Jira token never on a command line" {
   check
   assert_success
-  assert_line "verified    agent-hub environment — limited to main"
+  assert_line "verified    agent-hub environment — limited to the branch main"
   assert_line "verified    secrets — 4 required, in the environment"
   assert_line "verified    required checks — Agent hub: Test"
   assert_line "verified    runner — online: mac"
@@ -90,9 +92,18 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
   check
   assert_line --partial "blocked     agent-hub environment — any branch's run can read its secrets"
   gh_answer repos/o/r/environments/agent-hub '{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}'
-  gh_answer repos/o/r/environments/agent-hub/deployment-branch-policies '{"branch_policies": [{"name": "main"}, {"name": "dev"}]}'
+  gh_answer repos/o/r/environments/agent-hub/deployment-branch-policies '{"branch_policies": [{"name": "main", "type": "branch"}, {"name": "dev", "type": "branch"}]}'
   check
-  assert_line --partial "blocked     agent-hub environment — readable from main, dev: limit it to main only"
+  assert_line --partial "blocked     agent-hub environment — readable from main (branch), dev (branch): limit it to the branch main only"
+  # A tag named like the default branch isn't the branch (2.28.1).
+  gh_answer repos/o/r/environments/agent-hub/deployment-branch-policies '{"branch_policies": [{"name": "main", "type": "tag"}]}'
+  check
+  assert_failure
+  assert_line --partial "blocked     agent-hub environment — readable from main (tag): limit it to the branch main only"
+  refute_line --partial "verified    agent-hub environment"
+  gh_answer repos/o/r/environments/agent-hub/deployment-branch-policies '{"branch_policies": [{"name": "main"}]}'
+  check
+  assert_line --partial "unverified  agent-hub environment — limited to main, but GitHub didn't say whether that's the branch or a tag"
   gh_answer repos/o/r/environments/agent-hub '{"deployment_branch_policy": {"protected_branches": true, "custom_branch_policies": false}}'
   check
   assert_line --partial "unverified  agent-hub environment — every protected branch can read its secrets"
@@ -134,6 +145,27 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
   gh_answer repos/o/r/actions/permissions/workflow '{"default_workflow_permissions": "write", "can_approve_pull_request_reviews": false}'
   check
   assert_line --partial "blocked     workflow permissions — set them read-only"
+}
+
+# 2.28.1 (Codex M3): either source unread leaves the list incomplete, so
+# nothing about it is verified — in both directions.
+@test "check-setup: required checks — branch protection or rulesets unreadable: unverified, never verified from part of the list" {
+  gh_fails repos/o/r/rules/branches/main 403
+  check
+  assert_line --partial "unverified  required checks — main's rulesets (HTTP 403) couldn't be read (needs admin access), so the list may be incomplete; known so far: Agent hub: Test"
+  assert_line --partial "unverified  required checks' sources — not all of main's required checks could be read"
+  refute_line --partial "verified    required checks"
+  good_setup
+  gh_fails repos/o/r/branches/main/protection/required_status_checks 403
+  gh_answer repos/o/r/rules/branches/main '[{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "ci", "integration_id": 15368}, {"context": "lint"}]}}]'
+  check
+  assert_failure
+  assert_line --partial "unverified  required checks — main's branch protection (HTTP 403) couldn't be read (needs admin access), so the list may be incomplete; known so far: ci, lint"
+  # One already known to have no source is wrong, whatever else is unread.
+  assert_line --partial "blocked     required checks' sources — lint: any source can satisfy them"
+  gh_fails repos/o/r/rules/branches/main 500
+  check
+  assert_line --partial "unverified  required checks — main's branch protection (HTTP 403) and rulesets (HTTP 500) couldn't be read"
 }
 
 @test "check-setup: the runner — none with the labels, offline, not listable, or GitHub-hosted; Claude Code on this machine against the pin" {
@@ -189,6 +221,51 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
   assert_line --partial "unverified  approvers group — couldn't be read (HTTP 403; the service account needs Browse users and groups)"
   check --no-jira
   refute_output --partial "Jira"
+}
+
+# 2.28.1: the file curl reads the Jira credentials from is removed however the
+# script ends (not after a kill -9, which nothing can catch).
+@test "check-setup: the Jira credential file is removed when it finishes, fails, or is interrupted or terminated" {
+  export TMPDIR="$BATS_TEST_TMPDIR/tmp"
+  mkdir -p "$TMPDIR"
+  left() { grep -rl secret-token-123 "$TMPDIR" 2> /dev/null || true; }
+  check
+  assert_equal "$(left)" ""
+  jira_answer myself '{}' 401
+  check
+  assert_failure
+  assert_equal "$(left)" ""
+  jira_answer myself '{"displayName": "Agent Hub Bot"}' 200
+  local case sig pid rc
+  for case in TERM:143 INT:130 HUP:129; do
+    sig=${case%:*}
+    rm -f "$BATS_TEST_TMPDIR/held"
+    # A background job starts with INT ignored (and bash can't trap a signal
+    # ignored at its start): perl puts it back as a terminal's Ctrl-C finds it.
+    JIRA_HOLD="$BATS_TEST_TMPDIR/held" perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' \
+      "$CHECK" --repo o/r --jira-project PROJ < /dev/null > /dev/null 2>&1 &
+    pid=$!
+    # Up to 30 seconds (the whole suite in parallel can slow it well past
+    # 5), stopping early if the checker ended before reaching Jira; on any
+    # failure here the checker is stopped, so nothing is left running.
+    for _ in $(seq 300); do
+      [ -e "$BATS_TEST_TMPDIR/held" ] && break
+      kill -0 "$pid" 2> /dev/null || break
+      sleep 0.1
+    done
+    if ! [ -e "$BATS_TEST_TMPDIR/held" ]; then
+      kill -0 "$pid" 2> /dev/null && { kill -KILL "$pid"; wait "$pid" 2> /dev/null; fail "the checker didn't reach Jira within 30 seconds"; }
+      wait "$pid"; fail "the checker ended (status $?) before reaching Jira"
+    fi
+    # The file is there while it's checking.
+    [ -n "$(left)" ] || { kill -KILL "$pid"; wait "$pid" 2> /dev/null; fail "no credential file while checking Jira"; }
+    kill -s "$sig" "$pid"
+    rc=0
+    wait "$pid" || rc=$?
+    # Ended by the signal, as the script handles it — not finishing on its own.
+    assert_equal "$sig $rc" "$sig ${case#*:}"
+    assert_equal "$(left)" ""
+  done
 }
 
 @test "check-setup: hub files — an installed hub unchanged, then edited" {

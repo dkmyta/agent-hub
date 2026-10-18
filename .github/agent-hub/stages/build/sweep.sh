@@ -57,6 +57,13 @@ build_ci_sweep() {
     if ! jq -e --arg head "$head" '(.heads[-1].head // "") == $head' <<< "$state" > /dev/null; then
       echo "$key: ${head:0:7} isn't the last commit the hub recorded (a person pushed); skipped."; continue
     fi
+    # Handed off at this head, and finished: a draft again is a person's
+    # doing (an /apply or a push would have changed the record or the
+    # head), so it's left as they put it. A hand-off that stopped part-way
+    # is still woken below, to finish it.
+    if jq -e --arg head "$head" '.handoff.head == $head and .handoff.state == "complete"' <<< "$state" > /dev/null; then
+      echo "$key: handed off at ${head:0:7} and made a draft again since — a person's call; skipped."; continue
+    fi
     required=$(ci_required "$base") && ci=$(ci_status "$head" "$required") \
       || { echo "::warning::$key: couldn't read the checks; left for the next sweep."; continue; }
     result=$(jq -r '.state' <<< "$ci")

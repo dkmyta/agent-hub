@@ -93,7 +93,7 @@ and retries as the tracker's calls ([Known gaps](#known-gaps-every-stage)).
 | `gh_pr_find`, `gh_pr_open_draft`, `gh_pr_update_body`, `gh_label` | The stage's pull request |
 | `gh_pr_body_versions` | Every version of the description, oldest first, with who wrote it (GitHub's edit history records the whole description after each edit; read in full, a page at a time) |
 | `gh_branch_status`, `gh_branch_head`, `gh_descends` | The branch: absent, orphan, open, foreign, merged, closed or deleted; a rewritten history is detected |
-| `gh_push <branch> <target>` | Scans every commit the push would send for secrets (those not on the remote branch, or on a first push not on the target), then pushes — never forced; a finding or a scan that can't run blocks it |
+| `gh_push <branch> <target> [--new \| --expect <head>]` | Scans every commit the push would send for secrets (those not on the remote branch, or on a first push not on the target), then pushes — never forced; a finding or a scan that can't run blocks it. `--new`: the branch must not exist; `--expect`: it must still be exactly at `<head>` (the remote checks it), and HEAD must build on it |
 | `gh_state_read`, `gh_state_write` | The state block (below), from the description as it is now |
 | `gh_publish_ticket_text` | Whether ticket text may go into a public repository (only by setting) |
 

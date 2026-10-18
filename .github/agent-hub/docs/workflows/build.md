@@ -9,7 +9,11 @@ handed to people to review and merge.
 **Complete, off until a repository turns it on** (since 2.27.0; before, in
 preview): it runs only where the repository variable
 `AGENT_HUB_BUILD_ENABLED` (or its earlier name, `AGENT_HUB_BUILD_PREVIEW`)
-is `true`. Turn it on once the
+is `true`. Off, an approval is told so on the ticket, and every run the hub
+starts itself — the CI gate, a closed pull request, a `/skip` or `/apply`
+on the ticket — does nothing at all (2.28.1), saying so only in the run's
+summary: commands stay open, unclaimed. Turning it on again doesn't replay
+them: run the build for the ticket (wake `command`). Turn it on once the
 [production checklist](build-design.md#production-checklist) holds. Each part's release
 is in the [CHANGELOG](../../CHANGELOG.md); the decisions and the history
 behind them are in the [design record](build-design.md).
@@ -89,11 +93,13 @@ ends as *no change needed* — a normal outcome.
    approved plan is the newest plan file uploaded before the transition to
    Implementation Plan Approved, which a person (not the automation account)
    made. That attachment must still exist and still be the newest plan file,
-   no plan attachment may have been added or deleted after the approval, and
-   the work order (the description) mustn't have been edited since — except by
-   the automation account, whose only edit after an approval is the build's
-   own Pull Request section (2.16.1: before, every run after a build took it
-   for a change to the work order). The
+   no plan attachment may have been added or deleted after the approval, the
+   ticket's title mustn't have changed (2.28.1: every agent is given it), and
+   what was approved in the description mustn't have changed — by anyone,
+   the automation included (2.22.1). The one edit that leaves the approval
+   standing is the build's own Delivery sections (Testing Instructions, Pull
+   Request), by the automation account, with everything before them exactly
+   as it was. The
    history and the attachments are read together and read again after the
    plan downloads, before the push and before any send-back: the approval and
    the set of plan files must be exactly as first read. Otherwise the approval
@@ -575,7 +581,7 @@ rename):
 The merge is made with the build token (`Merge <target> into <branch>`), and the
 base the gates and the review compare with becomes the target's head, so
 they see the pull request's own changes only. Updates are merges — **never
-a rebase or a force-push**; the push is rejected if anyone pushed meanwhile.
+a rebase or a force-push**; the push is rejected if anyone pushed to the branch, or moved it back, meanwhile (2.28.1: the remote checks it is still at the head the run started from).
 A merge that brings in changes to `.github/workflows/` can't be pushed with
 the build token (no Workflows permission, by design): the run says so and a
 person merges it. Not built: repository guidance adding drift-sensitive
@@ -838,7 +844,7 @@ and the next revision reviews the whole pull request.
 
 | Situation | What happens |
 |---|---|
-| The hub's pull request is open (2.11.0, `stages/build/reconcile.sh`) | **Reconciled:** with the `agent-hub-paused` label, nothing; a record (state block) someone else edited, or a branch that no longer builds on the hub's last push, stops for a person; built from an earlier plan than the one approved now, superseded — a comment on the pull request and the ticket, `needs-human`, a person decides; nobody pushed since the hub and the target hasn't moved, nothing to do; a target that moved is merged in (2.12.0: mechanical drift keeps the review and uses no Claude, semantic drift is reviewed again, a conflict goes to a person — [Sync](#sync-with-the-target-branch)); otherwise people's commits are verified, the whole change reviewed again and fixed once where allowed, the fix pushed without force (rejected if anyone pushed meanwhile), and the description's status section and record rewritten — the rest of it kept — with a comment on the pull request and the full report on the ticket. No build pass: admitted on the review, fix and fix check ($9 of budgets by default, $12 with the per-pass overshoot allowance). A run a person starts for a ticket already in Ready for Review or Approved reconciles its pull request the same way — a person's commits after the hand-off are checked again (2.19.0); a new build starts only from Implementation Plan Approved |
+| The hub's pull request is open (2.11.0, `stages/build/reconcile.sh`) | **Reconciled:** with the `agent-hub-paused` label, nothing; a record (state block) someone else edited, or a branch that no longer builds on the hub's last push, stops for a person; built from an earlier plan than the one approved now, superseded — a comment on the pull request and the ticket, `needs-human`, a person decides; nobody pushed since the hub and the target hasn't moved, nothing to do; a target that moved is merged in (2.12.0: mechanical drift keeps the review and uses no Claude, semantic drift is reviewed again, a conflict goes to a person — [Sync](#sync-with-the-target-branch)); otherwise people's commits are verified, the whole change reviewed again and fixed once where allowed, the fix pushed without force (rejected if anyone pushed to the branch, or moved it back, meanwhile), and the description's status section and record rewritten — the rest of it kept — with a comment on the pull request and the full report on the ticket. No build pass: admitted on the review, fix and fix check ($9 of budgets by default, $12 with the per-pass overshoot allowance). A run a person starts for a ticket already in Ready for Review or Approved reconciles its pull request the same way — a person's commits after the hand-off are checked again (2.19.0); a new build starts only from Implementation Plan Approved |
 | `agent-hub/<KEY>` exists with no hub pull request (e.g. a failed earlier build) | Stop; a person decides |
 | Non-descendant history or a force-push | Earlier generation and review provenance invalid; stop; a person |
 | Branch deleted | Stop; a person |

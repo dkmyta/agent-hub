@@ -126,7 +126,7 @@ is ever *published* from anything but the exact commit the hub verified.
 | Review | The verified commit, and the hub's diff and check results for it | Its findings apply to that commit only; Apply uses them only for the pushed commit or a kept fix's parent | *Built* (2.9.0) |
 | Fix | The reviewed commit and that review's fix-eligible findings | Its candidate is kept only once verified (below); pushed only as the exact commit verified | *Built* (2.10.0) |
 | Fix check | The hub's diff of exactly the fix | — (no output of its own is published) | *Built* (2.10.0) |
-| Apply (push) | The verified commit | That commit is `HEAD` and the one the checks passed on; the plan and approval re-checked; the push is never forced, and a new branch must not exist; an existing one must still be at the head the run started from (a push that isn't a fast-forward is rejected) | *Built* (existing branches 2.11.0) |
+| Apply (push) | The verified commit | That commit is `HEAD` and the one the checks passed on; the plan and approval re-checked; the push is never forced, and a new branch must not exist; an existing one must still be at the head the run started from — the remote checks it, as the push's expected old value (2.28.1; before, only a push that wasn't a fast-forward was rejected, so a branch wound back was fast-forwarded) | *Built* (existing branches 2.11.0) |
 | Sync | The target branch's current head and the pull request's head the run recorded | The remote branch still at the recorded head (a push that isn't a fast-forward is rejected); merges only, never a force-push. **A sync is a code change:** it resets verification freshness, and review freshness unless the drift is mechanical (below) | *Built* (2.12.0) |
 | CI fix | The CI failure for the current evaluation commit (which must be the current head) | As Fix, on the current head; the head unchanged since the failure was read | *Built* (2.14.0; the head only) |
 | Hand-off | The current pull request head | The head is the last head the hub verified; required checks green for exactly that evaluation commit; the provenance rule holds; no open decision items; the plan and approval still stand | *Built* (2.13.0; the head only, see [CI gate](#ci-gate)) |
@@ -294,7 +294,10 @@ harness serve every stage; code stages add only the full history and the
 build token for the fetch and apply steps, which run no repository code) · the review as a fresh read-only
 session in the same job · plan approval authorises the governance changes the
 plan describes · CI green against GitHub's evaluation commit with GitHub's own
-`isRequired` · post-merge CI waited for when it runs · the per-ticket group
+`isRequired` (the design; v1 reads the target's required checks — branch
+protection and rulesets — on the pull request's head: `lib/ci.sh`) ·
+post-merge CI waited for when it runs (the design; v1 moves a merged hand-off
+to Done without it: [After v1](#after-v1)) · the per-ticket group
 never cancelled mid-push, with `queue: max` · the secret scan: pinned,
 checksum-verified gitleaks, failing closed (2.4.0) · the hub run from a copy
 and git from metadata copied before the agent ([architecture.md](../architecture.md#after-an-agent-that-can-edit-the-checkout)) ·

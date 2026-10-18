@@ -64,9 +64,6 @@ _reconcile_start() {
     stage_fail "The hub's record in pull request #$number can't be trusted ($(head -n 1 "$RUNNER_TEMP/state-error")), so nothing was changed."
   fi
   printf '%s\n' "$state" > "$RECONCILE_STATE"
-  # What approvers decided on earlier reviews, for the review step (which
-  # can't read the ticket) — review.sh, _decided_findings.
-  _decided_findings
   # Built from another plan: a person decides.
   if [ "$(jq -r '.plan.sha256' <<< "$state")" != "$(context .plan.sha256)" ]; then
     _sweep_leaves "pull request #$number was built from an earlier plan"
@@ -105,8 +102,13 @@ _reconcile_start() {
     _reconcile_ci "$number" "$head" "$base"
     return 0
   fi
-  # People's commits, a moved target, or both: check the pull request's head
-  # out; _reconcile_sync merges the target in, once the committer is known.
+  # People's commits, a moved target, or both: a re-review, unless the merge
+  # turns out mechanical. What approvers decided on earlier reviews first,
+  # for the review step (which can't read the ticket) — review.sh,
+  # _decided_findings; it stops the run if the record can't be read.
+  _decided_findings
+  # Check the pull request's head out; _reconcile_sync merges the target in,
+  # once the committer is known.
   people=$(git rev-list --count "$last..$head")
   git checkout -q --detach "$head" || stage_fail "Couldn't check out pull request #$number's head, so nothing was changed."
   jq --argjson number "$number" --arg head "$head" --arg last "$last" --arg base "$base" --arg target_head "$target_head" --argjson people "$people" \
@@ -406,7 +408,8 @@ _reconcile_report() {
   # shellcheck disable=SC1112 # curly apostrophes intended
   jq -n -L "$HUB_DIR/lib" -L "$STAGE_DIR" --arg number "$1" --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$1" --arg run "$RUN_URL" \
       --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --slurpfile state "$RUNNER_TEMP/state.json" \
-      --slurpfile access "$RUNNER_TEMP/agent-access.json" --slurpfile ctx "$BUILD_CONTEXT" 'include "adf"; include "wording";
+      --slurpfile access "$RUNNER_TEMP/agent-access.json" --slurpfile ctx "$BUILD_CONTEXT" \
+      --argjson not_carried "$([ -e "$RUNNER_TEMP/decided-not-carried" ] && echo true || echo false)" 'include "adf"; include "wording";
     $review[0] as $r | $fix[0] as $x
     | ([$state[0].items[] | select(.source == "review" and .status != "closed")]) as $ritems
     | if $r.status == "carried" then
@@ -425,6 +428,7 @@ _reconcile_report() {
                + [text(". \($f.evidence | sentence)")]
                + (if ($f.suggestion // "") != "" then [text(" Suggested: \($f.suggestion | sentence)")] else [] end)])]
          end)
+      + (if $not_carried then [para("What approvers skipped or accepted on earlier reviews wasn’t carried into this one: the ticket’s record of the last review isn’t the one the pull request’s record names. Decide its items again.")] else [] end)
       + (if $x.status == "kept" then [para("The fix-eligible findings were fixed once and checked; the fix passed the gates and the checks, so it was pushed.")]
          elif $x.status == "dropped" or $x.status == "failed" then [para("A fix pass ran, but its changes weren’t kept: \($x.reason).")]
          else [] end)
@@ -435,11 +439,12 @@ _reconcile_report() {
 }
 
 # _reconcile_push <branch> <target> <number>: the commits this run made,
-# secret-scanned and pushed to <branch>, never forced (rejected if anyone
-# pushed meanwhile).
+# secret-scanned and pushed to <branch>, never forced — and only while the
+# branch is still at the head this run started from (rejected if anyone
+# pushed to it, or wound it back, meanwhile).
 _reconcile_push() {
   local findings rc=0
-  findings=$(gh_push "$1" "$2" 2> "$RUNNER_TEMP/push-error") || rc=$?
+  findings=$(gh_push "$1" "$2" --expect "$(context .start_head)" 2> "$RUNNER_TEMP/push-error") || rc=$?
   case "$rc" in
     0) ;;
     1) stage_fail "The secret scan found what look like secrets in the commits to push, so nothing was pushed." "Found: $(paste -sd ',' - <<< "$findings" | sed 's/,/, /g')." ;;
@@ -449,7 +454,7 @@ _reconcile_push() {
          stage_fail "GitHub rejected the push to $1: the merge of $2 brings in changes to its workflows, which the build token can't push (it has no Workflows permission, by design). Nothing was pushed."
        fi
        stage_retry "re-run the build: it starts from the new commits."
-       stage_fail "GitHub rejected the push to $1 — someone pushed to it during this run — so nothing was pushed." ;;
+       stage_fail "GitHub rejected the push to $1 — someone pushed to it, or moved it back, during this run — so nothing was pushed." ;;
   esac
 }
 

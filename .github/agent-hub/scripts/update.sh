@@ -127,14 +127,17 @@ if [ "$install_form" = true ]; then
   echo "$FORM" >> "$files"
 fi
 
-# Replace the hub's files wholesale, so files the new version dropped go too.
-hub_files . | while read -r path; do rm -f "$path"; done
-rm -rf "$HUB"
-# Through a file, not a pipe: on GitHub's macOS runners the piped copy
-# failed now and then with "tar: Write error" (2.27.0).
-(cd "$source" && tar cf "$work/hub.tar" -T "$files") || fail "couldn't read the hub copy's files (tar cf)."
-tar xf "$work/hub.tar" || fail "couldn't write the hub's files here (tar xf)."
-checksums < "$files" > "$RECORD"
+# First, with nothing here changed: the new files read, unpacked in a
+# temporary folder — every one of them there — and their checksums made. A
+# failure in any of it leaves this repository exactly as it was. (Through a
+# file, not a pipe: on GitHub's macOS runners the piped copy failed now and
+# then with "tar: Write error", 2.27.0.)
+(cd "$source" && tar cf "$work/hub.tar" -T "$files") || fail "couldn't read the hub copy's files (tar cf); nothing here was changed."
+mkdir "$work/stage" && tar xf "$work/hub.tar" -C "$work/stage" || fail "couldn't unpack the hub's files (tar xf, in a temporary folder); nothing here was changed."
+while read -r path; do
+  [ -f "$work/stage/$path" ] || fail "the unpacked hub has no $path; nothing here was changed."
+done < "$files"
+(cd "$work/stage" && checksums < "$files") > "$work/record" || fail "couldn't make the new files' checksums; nothing here was changed."
 
 # Where it came from: the hub copy's commit and tag, when the copy is a git
 # clone of its own (not a folder inside another repository). "unknown"
@@ -147,8 +150,32 @@ if [ "$(git -C "$source" rev-parse --show-toplevel 2> /dev/null)" = "$source" ];
     commit="$commit (with uncommitted changes)"
   fi
 fi
-# No date: an update to the same commit changes nothing (git has the date).
-printf 'version: %s\ncommit: %s\ntag: %s\n' "$to" "$commit" "$tag" > "$FROM"
+
+# Then the hub's files replaced wholesale, so files the new version dropped
+# go too. The hub's files here are all committed (checked above), so a
+# failure part-way puts them back from git: the new ones removed, the
+# committed ones (and the install records) restored as they were. Ignored
+# files under the hub — its test dependencies — aren't in git, so aren't
+# put back. If even that fails, it says how to do it by hand.
+git ls-files -z -- "$HUB" ":(glob).github/workflows/agent-hub-*.yml" "$FORM" > "$work/tracked"
+replace() {
+  hub_files . | while read -r path; do rm -f "$path" || exit 1; done || return 1
+  rm -rf "$HUB" || return 1
+  tar xf "$work/hub.tar" || return 1
+  cp "$work/record" "$RECORD" || return 1
+  # No date: an update to the same commit changes nothing (git has the date).
+  printf 'version: %s\ncommit: %s\ntag: %s\n' "$to" "$commit" "$tag" > "$FROM" || return 1
+}
+restore() {
+  hub_files . | while read -r path; do rm -f "$path" || exit 1; done || return 1
+  rm -rf "$HUB" || return 1
+  if [ "$install_form" = true ]; then rm -f "$FORM" || return 1; fi
+  [ ! -s "$work/tracked" ] || xargs -0 git checkout -q HEAD -- < "$work/tracked" || return 1
+}
+if ! replace; then
+  restore || fail "couldn't write the hub's files here, nor put the earlier ones back. Restore them from git: git checkout HEAD -- $HUB .github/workflows, then remove any new agent-hub files git status shows."
+  fail "couldn't write the hub's files here (tar xf); the earlier ones were put back from git, as they were."
+fi
 
 # A repository without extensions gets a note on where they go — read by
 # people only (the stages load shared/ and stage folders, never this file).
