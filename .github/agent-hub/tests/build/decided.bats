@@ -46,7 +46,7 @@ with_record() {
     at: ("2026-10-17T00:\((90 - .) / 60 | floor | tostring | if length == 1 then "0" + . else . end):\((90 - .) % 60 | tostring | if length == 1 then "0" + . else . end)Z")}]')
   with_record "$(jq -nc --argjson f "$findings" '{review: {findings: $f}}')" "$items"
   _decided_findings
-  run jq -c '[.[].id] | {count: length, first: .[0], last: .[-1], has_r1: index("R1") != null, has_r45: index("R45") != null}' "$DECIDED"
+  run jq -c '[.[].id] | {count: length, first: .[0], last: .[-1], has_r1: (index("R1") != null), has_r45: (index("R45") != null)}' "$DECIDED"
   # The 40 newest: R40 (decided 6th) to R1 (decided last); R45–R41 dropped.
   assert_output '{"count":40,"first":"R40","last":"R1","has_r1":true,"has_r45":false}'
 }
