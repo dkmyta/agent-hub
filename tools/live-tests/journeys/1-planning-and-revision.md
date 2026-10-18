@@ -13,10 +13,10 @@ and revisions. It ends **before** the build, at a plan ready to approve;
 
 ## Before you start
 
-- **The setup checker passes in the test repository** (`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`): nothing blocked; anything unverified checked by hand. Keep its output with the evidence.
-- The test repository has the hub installed by `update.sh`, and
-  `update.sh --check` passes (record its "Installed from" line).
-- The tracker routes test tickets to the test repository
+- **The setup checker passes in the repository** (`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`): nothing blocked; anything unverified checked by hand. Keep its output with the evidence.
+- In a separate test repository ([Where it runs](../README.md#where-it-runs)):
+  the hub installed by `update.sh`, `update.sh --check` passing (record its
+  "Installed from" line), and the tracker routing test tickets to it
   ([trackers/](../trackers/), Routing).
 - The runner is online and its Claude Code version is the pinned one
   (`AGENT_HUB_CLAUDE_CODE_VERSION`).
@@ -25,10 +25,11 @@ and revisions. It ends **before** the build, at a plan ready to approve;
 
 ## Steps
 
-**1. Routing.** `create-ticket` [vague](../fixtures/tickets/vague.md).
+**1. The ticket reaches the repository.** `create-ticket` [vague](../fixtures/tickets/vague.md).
 
-- `run`: a work-order run for the ticket **in the test repository**; **none**
-  in the hub's repository. If one appears there, stop: routing is wrong.
+- `run`: a work-order run for the ticket in the repository the tickets go
+  to. (In a separate test repository: there, and **none** in the hub's —
+  if one appears there, stop: routing is wrong.)
 - The ticket keeps the live-test marker after the run.
 
 **2. Needs details.** (The same run.)

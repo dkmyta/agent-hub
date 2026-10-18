@@ -6,6 +6,9 @@ what a live test needs.
 
 ## Routing test tickets
 
+Only for a separate test repository ([Where it runs](../README.md#where-it-runs));
+in the hub's own repository every AGENTHUB ticket already goes there.
+
 Every rule's **Send web request** names one repository in its URL
 (`…/repos/<owner>/<repo>/actions/workflows/<workflow>/dispatches`), so all of
 the project's tickets go to that repository. To send test tickets to the
@@ -25,7 +28,7 @@ Command, and three in Revision Requested) becomes an **If / else** block:
 - **The test repository's hub settings:** the same Jira site and service
   account (the secrets `AGENT_HUB_JIRA_DOMAIN`, `AGENT_HUB_JIRA_EMAIL`,
   `AGENT_HUB_JIRA_API_TOKEN`), the same `AGENT_HUB_APPROVERS_GROUP`, and
-  `AGENT_HUB_BUILD_PREVIEW=true`; its own build token and runner settings
+  `AGENT_HUB_BUILD_ENABLED=true`; its own build token and runner settings
   ([setup.md](../../../.github/agent-hub/docs/setup.md)).
 - **Set the label when creating the ticket**, before its description is
   saved: Work Order Requested runs as soon as a ticket has details.
@@ -53,9 +56,9 @@ The Else branch is checked by the next real ticket's audit log.
 | `edit-request` | Edit the description and save |
 | `comment <text>` | Add a comment as yourself (a member of the approvers group, unless the step says otherwise) |
 | `approve-work-order` | Move the card to **Work Order Approved** (starts Implementation Plan Requested) |
-| `approve-plan` | Move the card to **Implementation Plan Approved** (starts Build Requested). The build accepts the approval only if the description wasn't edited since, apart from the hub's Pull Request section |
+| `approve-plan` | Move the card to **Implementation Plan Approved** (starts Build Requested). The build accepts the approval only if, since, no plan file was added or removed, the title wasn't changed, and nothing in the description before its Delivery sections was edited |
 | `send-back <status>` | Move the card to that status |
-| `start <stage>` | `gh workflow run agent-hub-<stage>.yml -R <test repo> -f ticket_key=<KEY>` (with `-f wake=command` to have the build read new commands) |
+| `start <stage>` | `gh workflow run agent-hub-<stage>.yml -R <repo> -f ticket_key=<KEY>` (with `-f wake=command` to have the build read new commands) |
 
 ## Observations
 

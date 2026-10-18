@@ -10,9 +10,9 @@ should be able to check each one from its run, commit or ticket.
 |---|---|
 | Journey | |
 | Tracker | |
-| Hub version | (the test repository's `.github/agent-hub/VERSION`) |
-| Installed from | (`update.sh --check`'s "Installed from" line) |
-| Test repository | |
+| Hub version | (the repository's `.github/agent-hub/VERSION`) |
+| Installed from | (`update.sh --check`'s "Installed from" line; "the hub's own repository" there) |
+| Repository | |
 | Runner, Claude Code version | |
 | Ticket | |
 | Pull request | |
@@ -30,10 +30,15 @@ yet observable), **blocked** (a prerequisite failed) or **inconclusive**
 
 ## Cost
 
-| Stage run (run id) | Claude (API-equivalent, from the run summary) | Tracker automation runs |
-|---|---|---|
-| | | |
-| **Total** | | |
+One row per run, by category: Claude (API-equivalent, from the run
+summary, per pass), GitHub Actions minutes (the run's billable job time,
+CI on its pull requests included), retries (a run repeated, or re-run,
+and why) and tracker automation runs.
+
+| Stage run (run id) | Claude | Actions minutes | Retries | Tracker automation runs |
+|---|---|---|---|---|
+| | | | | |
+| **Total** | | | | |
 
 ## Deviations
 

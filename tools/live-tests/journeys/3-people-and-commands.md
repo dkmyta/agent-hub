@@ -17,12 +17,12 @@ hand-off (step 4) and before the merge (step 5)**, then finish journey 2.
 
 ## Before you start
 
-- **The setup checker passes in the test repository** (`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`): nothing blocked; anything unverified checked by hand. Keep its output with the evidence.
+- **The setup checker passes in the repository** (`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`): nothing blocked; anything unverified checked by hand. Keep its output with the evidence.
 - Journey 2 reached step 4 on this ticket: the pull request handed off,
   the ticket in Ready for Review.
 - You're in the approvers group. The build token can be your own (since
   2.27.0, `/apply comments` takes the token owner's review comments too).
-- A clone of the test repository, with your own git identity.
+- A clone of the repository, with your own git identity.
 
 ## Steps
 
@@ -69,14 +69,26 @@ Then `comment` `/apply comments`.
 - No Claude; the items closed as skipped (a decision as accepted), on the
   pull request and in the `hub records` with who and when.
 
-**6. The target moves, no overlap.** Push [no-overlap](../fixtures/target-moves/no-overlap.md)
-to the test repository's main, then `start build`.
+**5b. The build turned off (2.28.1).** Set the repository variable
+`AGENT_HUB_BUILD_ENABLED` to `false`, `comment` `/skip <an open id>` (or, if
+none is left, `/apply all`), then `start build` with `-f wake=command`, and
+again with `-f wake=ci`.
+
+- Both runs end "off", their summaries saying the build stage is off: the
+  command not claimed or answered (still open), nothing on the pull request
+  or the ticket.
+- Set it back to `true`, `start build` with `-f wake=command`: the command
+  handled and answered then.
+
+**6. The target moves, no overlap.** Put [no-overlap](../fixtures/target-moves/no-overlap.md)
+on main (in a protected main, as a pull request a person merges), then
+`start build`.
 
 - A merge of main recorded as `kind: sync` (mechanical), verified on its
   commit, **without** a full review.
 
-**7. The target moves, overlapping.** Push [overlap](../fixtures/target-moves/overlap.md),
-then `start build`.
+**7. The target moves, overlapping.** Put [overlap](../fixtures/target-moves/overlap.md)
+on main the same way, then `start build`.
 
 - A sync with semantic drift: the whole change reviewed again on the merged
   commit.
@@ -85,8 +97,8 @@ then `start build`.
   approver". The ticket's Testing Instructions start with a note that the
   code changed after they were written.
 
-**8. A conflict.** Push [conflict](../fixtures/target-moves/conflict.md),
-then `start build`.
+**8. A conflict.** Put [conflict](../fixtures/target-moves/conflict.md)
+on main the same way, then `start build`.
 
 - The run stops before any Claude, nothing pushed: `comment "⚠️ Merge
   conflict"` on the ticket and a comment on the pull request, both listing
@@ -96,7 +108,8 @@ then `start build`.
   commits.
 
 **9. Hand-off again.** Continue from [journey 2](2-document-to-delivery.md),
-step 3 (CI gate), then merge.
+step 3 (CI gate), then merge. Afterwards, in the hub's own repository, revert
+the three target changes on main in one pull request.
 
 ## Not covered live yet
 

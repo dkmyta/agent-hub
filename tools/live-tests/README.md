@@ -18,7 +18,7 @@ This folder is for the hub's own repository. It sits outside
 
 ## When to run one
 
-- Before the build's preview gate comes off, and before a release that
+- Before turning the build on for a repository, and before a release that
   changes how the hub talks to a tracker, GitHub or the runner.
 - After setting up a new tracker, to show it matches the ones already
   verified: run the same journeys against it.
@@ -40,22 +40,25 @@ This folder is for the hub's own repository. It sits outside
 
 ## Where it runs
 
-In a **separate test repository** with the hub installed by `update.sh`
-(for example `dkmyta/agent-hub-live-test`, with the playground copied in),
-never the hub's own repository:
+**In v1, in the hub's own repository** (`dkmyta/agent-hub`, with its
+playground), on tickets in the tracker project that already sends its
+tickets here (AGENTHUB). Nothing needs routing: every ticket goes to this
+repository.
 
-- Its main branch can take throwaway changes, which the journeys need (a
-  moving target, a conflict), without changing the hub's history.
-- It exercises the installed copy: `update.sh`, the install record and the
-  consumer contract checks.
-- Its own runs, pull requests and checks keep test evidence apart from real
-  work.
+- **Main is protected**, so the journeys' throwaway changes to it (journey
+  3's moving target and conflict) go in as small pull requests a person
+  merges. They touch only the playground and the README, so their CI is
+  quick. A last pull request reverts them.
+- **Test runs share the repository with real work:** each run's name has
+  its ticket's key, which keeps the evidence apart.
 
-It shares the tracker project with real work, so **the tracker must send
-each ticket to exactly one repository**: test tickets carry the
-`agent-hub-live-test` marker and go only to the test repository; every other
-ticket only to the hub's. How that's set up for a tracker is in its file under
-`trackers/`, and the first journey checks it before anything else.
+**After v1, or to test an installed copy:** a separate test repository with
+the hub installed by `update.sh` (for example `dkmyta/agent-hub-live-test`),
+which also exercises the install record and the consumer contract checks. It
+shares the tracker project with real work, so the tracker must then send
+each ticket to exactly one repository: test tickets carry the
+`agent-hub-live-test` marker and go only to the test repository. How that's
+set up for a tracker is in its file under `trackers/` (Routing).
 
 ## Vocabulary
 
