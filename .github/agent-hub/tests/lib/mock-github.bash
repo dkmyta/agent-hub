@@ -12,6 +12,7 @@
 #   MOCK_GH_FAIL         "METHOD path" of a call that should fail; for
 #                        GraphQL, "POST /graphql <name>" fails only the
 #                        query or mutation that names <name>
+#   MOCK_GH_FAIL_FROM    fail it from this occurrence on (default: the first)
 #   MOCK_GH_HISTORY      a recorded edit-history response to serve for the
 #                        GraphQL query instead of the mock's own (from
 #                        shared/fixtures/github-edit-history)
@@ -71,9 +72,15 @@ gh_request() {
   path=${url#"$GH_API"}
   jq -nc --arg method "$method" --arg path "$path" --arg body "$body" --arg ci "${GH_READ_CI:-}" \
     '{method: $method, path: $path, body: (if $body == "" then null else ($body | fromjson) end)} + (if $ci == "1" then {ci: true} else {} end)' >> "$GH_CALLS"
-  if [ "$method $path" = "${MOCK_GH_FAIL:-}" ] \
-     || { [ "$method $path" = "${MOCK_GH_FAIL% *}" ] && [ "${MOCK_GH_FAIL##* }" != "$path" ] \
-          && jq -e --arg name "${MOCK_GH_FAIL##* }" '.query | contains($name)' <<< "$body" > /dev/null 2>&1; }; then
+  # The failing call, and (MOCK_GH_FAIL_FROM) how many of exactly those
+  # there have been — for a named GraphQL operation, only that operation.
+  local fail_name=""
+  if [ "$method $path" = "${MOCK_GH_FAIL% *}" ] && [ "${MOCK_GH_FAIL##* }" != "$path" ]; then fail_name=${MOCK_GH_FAIL##* }; fi
+  if { [ "$method $path" = "${MOCK_GH_FAIL:-}" ] \
+       || { [ -n "$fail_name" ] && jq -e --arg name "$fail_name" '.query | contains($name)' <<< "$body" > /dev/null 2>&1; }; } \
+     && [ "$(jq -c --arg m "$method" --arg p "$path" --arg name "$fail_name" \
+           'select(.method == $m and .path == $p and ($name == "" or ((.body.query // "") | contains($name))))' "$GH_CALLS" | wc -l)" \
+          -ge "${MOCK_GH_FAIL_FROM:-1}" ]; then
     echo '{"message": "Mock GitHub failure"}'
     return 22
   fi

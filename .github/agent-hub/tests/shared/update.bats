@@ -126,6 +126,49 @@ install() { "$UPDATE" "$HUB_COPY" "$@" && git add -A && git commit -qm "install 
   assert [ ! -e $H/lib/mine.sh ]
 }
 
+# 2.28.1 (Codex M4): nothing here is removed before the new files are read
+# and unpacked; a failure while replacing them puts the committed ones back.
+@test "a failed update leaves the installed hub as it was: reading or unpacking the new one, or writing it here part-way" {
+  install
+  # A newer hub: one file changed, one added.
+  local newer="$BATS_TEST_TMPDIR/newer" real_tar phase
+  rsync -a "$HUB_COPY/" "$newer/"
+  echo "# newer" >> "$newer/$H/lib/stage.sh"
+  echo "new" > "$newer/$H/lib/new.sh"
+  real_tar=$(command -v tar)
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  # tar failing in one phase: creating the archive (cf), unpacking it into the
+  # temporary folder (xf -C), or unpacking it here (xf) — that one after
+  # writing the files, as a full disk would part-way.
+  cat > "$BATS_TEST_TMPDIR/bin/tar" <<SH
+#!/usr/bin/env bash
+case "\$TAR_FAILS:\$1:\$#" in
+  cf:cf:*) exit 1 ;;
+  stage:xf:4) exit 1 ;;
+  here:xf:2) "$real_tar" "\$@"; exit 1 ;;
+esac
+exec "$real_tar" "\$@"
+SH
+  chmod +x "$BATS_TEST_TMPDIR/bin/tar"
+  for phase in "cf|couldn't read the hub copy's files (tar cf); nothing here was changed." \
+      "stage|couldn't unpack the hub's files (tar xf, in a temporary folder); nothing here was changed." \
+      "here|the earlier ones were put back from git, as they were."; do
+    TAR_FAILS=${phase%%|*} PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$UPDATE" "$newer"
+    assert_failure
+    assert_output --partial "${phase#*|}"
+    # Exactly as committed: nothing removed, changed or added.
+    run git status --porcelain --untracked-files=all
+    assert_output ""
+    assert [ ! -e $H/lib/new.sh ]
+    assert_equal "$(cat $H/lib/stage.sh)" "$(cat "$HUB_DIR/lib/stage.sh")"
+    own_files_untouched
+  done
+  # And without the failures, the update goes through.
+  run "$UPDATE" "$newer"
+  assert_success
+  assert [ -f $H/lib/new.sh ]
+}
+
 @test "an update with no changes since the install goes ahead" {
   install
   run "$UPDATE" "$HUB_COPY"

@@ -215,6 +215,49 @@ git_remote() {
   assert_output "$(git rev-parse HEAD)"
 }
 
+# A later push (--expect) needs the branch still at the head the run started
+# from, checked by the remote as the push's expected old value — so a branch
+# wound back after gh_push's own last read (here, during the secret scan)
+# isn't fast-forwarded, putting back what was removed. And the commit must
+# build on that head: never a forced push.
+@test "a later push (--expect) needs the branch exactly at the run's starting head, and HEAD built on it" {
+  git_remote
+  git checkout -q -b agent-hub/PROJ-1
+  echo two > file.txt && git commit -qam two
+  local base start
+  base=$(git rev-parse HEAD~1)
+  git push -q origin HEAD:refs/heads/agent-hub/PROJ-1
+  start=$(git rev-parse HEAD)
+  echo three > file.txt && git commit -qam three
+  # Wound back between the last read and the push: rejected, left as it is.
+  run with_github "secret_scan() { git push -q --force origin $base:refs/heads/agent-hub/PROJ-1; }; gh_push agent-hub/PROJ-1 main --expect $start"
+  assert_failure 3
+  run with_github 'gh_branch_head agent-hub/PROJ-1'
+  assert_output "$base"
+  # Pushed to by someone else since: rejected too.
+  git push -q --force origin "$start:refs/heads/agent-hub/PROJ-1"
+  local theirs
+  theirs=$(git commit-tree -p "$start" -m theirs "$(git rev-parse "$start^{tree}")")
+  run with_github "secret_scan() { git push -q origin $theirs:refs/heads/agent-hub/PROJ-1; }; gh_push agent-hub/PROJ-1 main --expect $start"
+  assert_failure 3
+  run with_github 'gh_branch_head agent-hub/PROJ-1'
+  assert_output "$theirs"
+  # Still at the starting head: pushed.
+  git push -q --force origin "$start:refs/heads/agent-hub/PROJ-1"
+  run with_github "secret_scan() { :; }; gh_push agent-hub/PROJ-1 main --expect $start && gh_branch_head agent-hub/PROJ-1"
+  assert_success
+  assert_output "$(git rev-parse HEAD)"
+  # A commit that doesn't build on the starting head is refused before the
+  # remote: a lease would otherwise let it replace the branch.
+  git reset -q --hard "$base" && echo other > file.txt && git commit -qam other
+  git push -q --force origin "$start:refs/heads/agent-hub/PROJ-1"
+  run with_github "secret_scan() { :; }; gh_push agent-hub/PROJ-1 main --expect $start"
+  assert_failure 3
+  assert_output --partial "doesn't build on $start"
+  run with_github 'gh_branch_head agent-hub/PROJ-1'
+  assert_output "$start"
+}
+
 @test "rewritten history is detected: a newer head must build on an older one" {
   git_remote
   local first second
@@ -283,4 +326,15 @@ git_remote() {
   MOCK_GH_HISTORY="$BATS_TEST_TMPDIR/crlf.json" \
     run with_github 'source "$HUB_DIR/lib/state.sh"; v=$(gh_pr_body_versions 45); jq -r "[.[].body | contains(\"\r\")] | any" <<< "$v"; state_trusted "$v" dkmyta && echo trusted'
   assert_output $'false\ntrusted'
+}
+
+# The test double itself (Codex's check of 2.28.1): a failure set for the Nth
+# call of a named GraphQL operation counts only that operation's calls.
+@test "mock GitHub: MOCK_GH_FAIL_FROM counts only the named GraphQL operation's calls" {
+  MOCK_GH_FAIL="POST /graphql markPullRequestReadyForReview" MOCK_GH_FAIL_FROM=2 run with_github '
+    q() { gh_request -X POST "$GH_API/graphql" -d "{\"query\": \"$1\"}" 2> /dev/null | grep -c "Mock GitHub failure" || true; }
+    q "query Other { viewer { login } }"
+    q "mutation markPullRequestReadyForReview { x }"
+    q "mutation markPullRequestReadyForReview { x }"'
+  assert_output $'0\n0\n1'
 }

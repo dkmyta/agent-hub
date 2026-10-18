@@ -73,6 +73,21 @@ step_fetch() {
        stage_outcome "no change needed"
        exit 0 ;;
   esac
+  # The build turned off (settings.sh): a wake that isn't a person's
+  # approval — the CI gate, a closed pull request, a command on the ticket —
+  # touches nothing at all: no command claimed or answered, nothing on the
+  # pull request or the ticket. It's said only here, in the run: a notice on
+  # the ticket would be a change, and could repeat. Turning the build on
+  # again doesn't replay anything: run the build for the ticket (wake
+  # command, for its commands). A person's approval is told on the ticket
+  # (below), since they're waiting for a build.
+  if [ "$BUILD_ENABLED" != true ] && [ -n "${AGENT_HUB_WAKE:-}" ]; then
+    echo "::notice::The build stage is off (the repository variable AGENT_HUB_BUILD_ENABLED isn't true), so this run (wake: $AGENT_HUB_WAKE) changed nothing."
+    echo "[$TICKET_KEY]($TICKET_URL): the build stage is off, so nothing was done for this run (wake: $AGENT_HUB_WAKE) — no command claimed or answered, nothing changed on the pull request or the ticket. Once it's on again, run the build for the ticket (wake: command, to act on its commands)." >> "$GITHUB_STEP_SUMMARY"
+    echo "proceed=false" >> "$GITHUB_OUTPUT"
+    stage_outcome off
+    exit 0
+  fi
   # A hub pull request was closed (agent-hub-pr-closed.yml): Done, or a
   # comment — nothing is built (closed.sh).
   if [ "${AGENT_HUB_WAKE:-}" = closed ]; then build_closed; exit 0; fi
@@ -294,6 +309,9 @@ _approval_problem() {
   # and only the Pull Request heading follows it; anything else (the phrase
   # in prose or an example, a repeated, missing or moved heading) can't show
   # the approved part is unchanged, so the approval needs giving again.
+  # The ticket's title too: every agent is given it (stage_ticket_markdown),
+  # and the hub never edits it, so any change to it after the approval is
+  # someone's, and needs approving.
   if jq -e --arg name "$PLAN_FILE_NAME" --arg automation "$AUTOMATION_ACCOUNT" '
        def approved_part: (. // "") as $t
          | [$t | match("(?:^|\n)h4\\. Testing Instructions[ \\t]*(?:\n|$)"; "g")] as $m
@@ -303,6 +321,7 @@ _approval_problem() {
        def delivery_only: (.fromString | approved_part) as $f | (.toString | approved_part) as $t | $f != null and $f == $t;
        any(.history.changes[];
          (.kind == "attachment" and .file == $name)
+         or .kind == "summary"
          or (.kind == "description" and (.author != $automation or (delivery_only | not))))' <<< "$snapshot" > /dev/null; then
     echo "stale"
   fi

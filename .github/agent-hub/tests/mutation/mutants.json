@@ -292,6 +292,32 @@
   ]
  },
  {
+  "id": "fix-own-commit-flagged-file",
+  "invariant": "A fix that changes a file the reviewed commit already had flagged for a person is discarded, however small the change and whoever changed the file first",
+  "edits": [
+   {
+    "file": "stages/build/fix.sh",
+    "find": "  [ \"$own_flagged\" = 0 ] || {",
+    "replace": "  true || {",
+    "count": 1
+   }
+  ],
+  "tests": [
+   {
+    "file": "build/scenarios.bats",
+    "name": "reconcile: a fix that changes a hub-managed file a person already changed (.claude/CLAUDE.md) — discarded, the person's version pushed as it was"
+   },
+   {
+    "file": "build/scenarios.bats",
+    "name": "fix matrix: a fix that changes the out-of-scope file the reviewed commit already had — discarded, though no new item"
+   },
+   {
+    "file": "build/scenarios.bats",
+    "name": "fix matrix: a one-line fix to a file the reviewed commit already had over the line limit — discarded"
+   }
+  ]
+ },
+ {
   "id": "apply-and-ci-fix-concerns-dropped",
   "invariant": "New concerns the fix check raises on an /apply or a CI fix become items for a person",
   "edits": [

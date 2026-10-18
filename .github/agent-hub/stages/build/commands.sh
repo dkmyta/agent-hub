@@ -192,16 +192,29 @@ _command_reply() {
     jq -nc --arg id "$1" --arg what "$2" '{id: $id, what: $what}' >> "$RUNNER_TEMP/command-replies.jsonl"
     return 0
   fi
-  if ! _resolve_matching "$RUNNER_TEMP/comments-seen.json" "$2" '.id == $args[0]' "$1" > /dev/null; then
-    # The tracker refused the edit (its account can't edit people's
-    # comments): the answer goes in a comment of its own, never lost.
-    echo "::warning::Couldn't mark comment $1 as handled, so the answer is a new comment (the tracker account needs to edit people's comments: docs/jira.md, \"Permissions for the automation account\"). It was claimed before it was acted on, so it won't run again."
-    # shellcheck disable=SC1112 # curly apostrophe intended
-    jq -n -L "$HUB_DIR/lib" --arg id "$1" --arg what "$2" --slurpfile seen "$RUNNER_TEMP/comments-seen.json" 'include "adf";
-      ([$seen[0].comments[]? | select(.id == $id)] | first // {}) as $c
-      | doc([para([strong("✅ Answered"), text(" — \(($c.body // {content: []}) | first_text | .[0:80]) (\($c.author.displayName // "a comment")): \($what). The hub couldn’t mark that comment as handled.")])])' \
-      | tracker_comment > /dev/null || echo "::warning::Couldn't post the answer to comment $1 either."
+  # Marked against the comments as they are now, read just before — never
+  # the copy read when the run began (comments-seen.json, which an /apply's
+  # whole fix can be old): only a command still exactly as it was read
+  # (same id, same last edit) is rewritten. One edited, deleted or
+  # unreadable since is left as its author has it.
+  local now="$RUNNER_TEMP/comments-now.json" count why=""
+  if ! tracker_comments > "$now" 2> /dev/null; then
+    why="its comments couldn't be read again"
+  elif ! count=$(_resolve_matching "$now" "$2" '.id == $args[0]' "$1"); then
+    why="the tracker refused the edit (its account needs to edit people's comments: docs/jira.md, \"Permissions for the automation account\")"
+  elif [ "$count" = 0 ]; then
+    why="it was edited or deleted after the hub read it, so it's left as it is"
   fi
+  [ -n "$why" ] || return 0
+  # The answer then goes in a comment of its own, never lost — quoting the
+  # command as the hub read it. It was claimed before it was acted on, so it
+  # won't run again either way.
+  echo "::warning::Couldn't mark comment $1 as handled — $why — so the answer is a new comment. It was claimed before it was acted on, so it won't run again."
+  # shellcheck disable=SC1112 # curly apostrophe intended
+  jq -n -L "$HUB_DIR/lib" --arg id "$1" --arg what "$2" --slurpfile seen "$RUNNER_TEMP/comments-seen.json" 'include "adf";
+    ([$seen[0].comments[]? | select(.id == $id)] | first // {}) as $c
+    | doc([para([strong("✅ Answered"), text(" — \(($c.body // {content: []}) | first_text | .[0:80]) (\($c.author.displayName // "a comment")): \($what). The hub couldn’t mark that comment as handled.")])])' \
+    | tracker_comment > /dev/null || echo "::warning::Couldn't post the answer to comment $1 either."
 }
 
 # _review_record <state file>: the review's record from the ticket

@@ -125,6 +125,16 @@ version, and the hub copy's commit and tag when the copy is a git clone
 uncommitted changes). `update.sh --check` prints them. Commit both with the
 rest.
 
+**If it fails part-way** (since 2.28.1): it reads and unpacks the new
+version in a temporary folder first, so a failure there changes nothing in
+your repository. A failure while replacing the files here puts the earlier
+ones back from git — they're committed, which it checks before it starts —
+and removes the new ones. Ignored files under the hub (its installed test
+dependencies) aren't in git, so they aren't put back: `npm ci` again. If
+even putting them back fails, it says so: `git checkout HEAD --
+.github/agent-hub .github/workflows`, then remove any new `agent-hub-*`
+files `git status` shows.
+
 ## Releasing a version (hub maintainers)
 
 In the hub repository, as part of the pull request with the changes:

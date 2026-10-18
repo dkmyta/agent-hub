@@ -420,10 +420,10 @@ The build checks the approval itself: it builds only from the newest plan
 file, and only if a person (not the automation account) made the move here —
 with `AGENT_HUB_APPROVERS_GROUP` set, one of its members (since 2.18.0; the
 plan stage checks who approved the work order the same way) —
-the plan file predates it, and since then no plan file was added or removed
-and the work order (the description) wasn't edited by anyone but the
-automation account (whose only edit after an approval is the build's own Pull
-Request section) — checked again before it
+the plan file predates it, and since then no plan file was added or removed,
+the ticket's title wasn't changed, and what was approved in the description
+(everything before its Delivery sections, which only the build writes) wasn't
+edited by anyone — checked again before it
 pushes or sends the ticket back. To retry a build, move
 the ticket back to Implementation Plan and approve it again.
 

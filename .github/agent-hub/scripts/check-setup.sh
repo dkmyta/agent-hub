@@ -83,11 +83,16 @@ if get "repos/$repo/environments/agent-hub"; then
   elif [ "$(jq -r '.deployment_branch_policy.protected_branches' <<< "$body")" = true ]; then
     result unverified "agent-hub environment" "every protected branch can read its secrets; the docs limit it to $default (docs/setup.md#3-add-secrets)"
   elif get "repos/$repo/environments/agent-hub/deployment-branch-policies"; then
-    policies=$(jq -r '[.branch_policies[].name] | join(", ")' <<< "$body")
-    if [ "$policies" = "$default" ]; then
-      result verified "agent-hub environment" "limited to $default"
+    # Exactly one policy, for the default branch as a branch: a tag of the
+    # same name is another thing (a run on that tag would get the secrets,
+    # and the default branch's wouldn't).
+    policies=$(jq -r '[.branch_policies[] | "\(.name) (\(.type // "type not given"))"] | join(", ")' <<< "$body")
+    if jq -e --arg d "$default" '[.branch_policies[] | {name, type}] == [{name: $d, type: "branch"}]' <<< "$body" > /dev/null; then
+      result verified "agent-hub environment" "limited to the branch $default"
+    elif jq -e --arg d "$default" '[.branch_policies[] | {name, type}] == [{name: $d, type: null}]' <<< "$body" > /dev/null; then
+      result unverified "agent-hub environment" "limited to $default, but GitHub didn't say whether that's the branch or a tag: check it's the branch (docs/setup.md#3-add-secrets)"
     else
-      result blocked "agent-hub environment" "readable from ${policies:-no branch}: limit it to $default only (docs/setup.md#3-add-secrets)"
+      result blocked "agent-hub environment" "readable from ${policies:-nothing}: limit it to the branch $default only (docs/setup.md#3-add-secrets)"
     fi
   else
     result unverified "agent-hub environment" "its branches couldn't be read (HTTP $code)"
@@ -145,17 +150,25 @@ runs_on=$(var AGENT_HUB_RUNS_ON)
 jq -e 'type == "array"' <<< "${runs_on:-x}" > /dev/null 2>&1 || runs_on='["self-hosted", "claude"]'
 
 ## Required checks on the default branch: the CI gate hands off only when they pass.
-checks='[]' read_any=false
+# Both sources, as the build reads them (lib/ci.sh): branch protection and
+# rulesets. Either one unread leaves the list incomplete — a check required
+# there is unknown — so nothing about it is verified then; a check already
+# known to have no source is still wrong.
+checks='[]' unread=""
 if get "repos/$repo/branches/$default/protection/required_status_checks"; then
-  checks=$(jq -c '[.checks[]? | {context, app_id}]' <<< "$body") read_any=true
-elif [ "$code" = 404 ]; then read_any=true
+  checks=$(jq -c '[.checks[]? | {context, app_id}] + [.contexts[]? as $c | select(any(.checks[]?; .context == $c) | not) | {context: $c, app_id: null}]' <<< "$body")
+elif [ "$code" != 404 ]; then unread="branch protection (HTTP $code)"
 fi
 if get "repos/$repo/rules/branches/$default"; then
   checks=$(jq -c --argjson c "$checks" '$c + [.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[] | {context, app_id: .integration_id}]' <<< "$body")
-  read_any=true
+else
+  unread="${unread:+$unread and }rulesets (HTTP $code)"
 fi
-if [ "$read_any" = false ]; then
-  result unverified "required checks" "$default's protection couldn't be read (HTTP $code; needs admin access)"
+if [ -n "$unread" ]; then
+  result unverified "required checks" "$default's $unread couldn't be read (needs admin access), so the list may be incomplete$(jq -r 'if length > 0 then "; known so far: " + ([.[].context] | unique | join(", ")) else "" end' <<< "$checks")"
+  unbound=$(jq -r '[.[] | select(.app_id == null) | .context] | unique | join(", ")' <<< "$checks")
+  if [ -n "$unbound" ]; then result blocked "required checks' sources" "$unbound: any source can satisfy them — pick each with its source, e.g. GitHub Actions (docs/setup.md)"
+  else result unverified "required checks' sources" "not all of $default's required checks could be read"; fi
 elif [ "$(jq 'length' <<< "$checks")" = 0 ]; then
   result blocked "required checks" "$default requires none, so the build never hands a pull request off: require your CI's checks (docs/setup.md)"
 else
@@ -231,7 +244,16 @@ if [ "$jira" = true ]; then
   if [ -z "$D" ] || [ -z "$E" ] || [ -z "$T" ]; then
     result unverified "Jira" "no credentials given (AGENT_HUB_JIRA_DOMAIN, _EMAIL, _API_TOKEN): check by hand (docs/jira.md#checking-the-setup)"
   else
-    cfg=$(umask 077 && mktemp)
+    # The credentials go to curl in a file only you can read, removed however
+    # the script ends — finished, failed, interrupted (Ctrl-C) or
+    # terminated: the cleanup is set before the file exists. (Nothing can
+    # remove it after a kill -9 or a power cut: it's in your temp folder.)
+    cfg=""
+    trap 'rm -f "$cfg"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+    cfg=$(umask 077 && mktemp "${TMPDIR:-/tmp}/agent-hub-jira.XXXXXX")
     printf 'user = "%s:%s"\n' "$E" "$T" > "$cfg"
     unset T
     # jira_get <path>: a Jira read (GET only); sets $body and $code.

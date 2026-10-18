@@ -232,24 +232,35 @@ gh_pr_body_versions() {
 }
 
 # Git, for the branch the stage owns. Pushes authenticate through the askpass
-# helper; a push never forces, so a branch someone else moved on is rejected.
+# helper; a push never forces (gh_push: what it expects of the branch).
 gh_git() { GIT_ASKPASS="$GH_ASKPASS" GIT_TERMINAL_PROMPT=0 git "$@"; }
 
 # gh_branch_head <branch>: the branch's head commit on the remote, or nothing.
 gh_branch_head() { gh_git ls-remote --heads "$GH_REMOTE" "refs/heads/$1" | cut -f1; }
 
-# gh_push <branch> <target branch> [--new]: push HEAD to <branch>, after
-# scanning every commit the push would send — those not already on the
-# remote <branch> (or, on a first push, on <target branch>) — for secrets.
-# Any finding, or a scan that can't run, blocks the push (lib/secret-scan.sh):
-# 1 secrets found (rules and files printed), 2 couldn't scan, 3 rejected by
-# the remote. Never forced: if the branch moved on since this run fetched it,
-# the push is rejected and nothing changes. With --new, the branch must not
-# exist at all — one created meanwhile, even at the same commit, rejects the
-# push (git checks it on the remote, atomically).
+# gh_push <branch> <target branch> [--new | --expect <head>]: push HEAD to
+# <branch>, after scanning every commit the push would send — those not
+# already on the remote <branch> (or, on a first push, on <target branch>) —
+# for secrets. Any finding, or a scan that can't run, blocks the push
+# (lib/secret-scan.sh): 1 secrets found (rules and files printed), 2
+# couldn't scan, 3 rejected (by the remote, or before it — below). Never
+# forced. With --new, the branch must not exist at all — one created
+# meanwhile, even at the same commit, rejects the push. With --expect, the
+# branch must still be exactly at <head> — the head this run started from —
+# and HEAD must build on it: one moved since in any way, pushed to or wound
+# back, rejects the push. (A plain push would take a branch wound back to an
+# ancestor as a fast-forward, putting back what someone removed.) Both are
+# checked by the remote, atomically, as the push's expected old value.
 gh_push() {
   local exclude=() head lease=()
-  [ "${3:-}" != --new ] || lease=("--force-with-lease=refs/heads/$1:")
+  case "${3:-}" in
+    --new) lease=("--force-with-lease=refs/heads/$1:") ;;
+    --expect)
+      [[ "${4:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "gh_push: --expect needs a full commit id" >&2; return 3; }
+      git merge-base --is-ancestor "$4" HEAD 2> /dev/null \
+        || { echo "the commit to push doesn't build on $4, the head this run started from" >&2; return 3; }
+      lease=("--force-with-lease=refs/heads/$1:$4") ;;
+  esac
   for head in "$(gh_branch_head "$1")" "$(gh_branch_head "$2")"; do
     [ -n "$head" ] && exclude+=("$head")
   done

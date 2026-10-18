@@ -240,7 +240,7 @@ _ci_person() {
 # when re-read just before the writes, it's marked ready for review and the
 # ticket moves to Ready for Review, for a person's code review.
 _handoff() {
-  local number=$1 head=$2 problems pr
+  local number=$1 head=$2 problems pr again
   problems=$(handoff_problems "$head" < "$RECONCILE_STATE")
   if [ -n "$problems" ]; then
     _ci_person green "the required checks passed on $(_short "$head"), but $(paste -sd ';' - <<< "$problems" | sed 's/;/; /g')" \
@@ -267,7 +267,9 @@ _handoff() {
     _ci_person green "pull request #$number now targets $(jq -r '.base.ref' <<< "$pr"), not $(context .target), which the hub checked it against" \
       "set it back to $(context .target), or review it without the hub's hand-off" force
   fi
-  [ "$(ci_status "$head" "$(ci_required "$(context .target)")" | jq -r '.state')" = green ] \
+  again=$(ci_required "$(context .target)") && again=$(ci_status "$head" "$again") \
+    || stage_fail "Couldn't read the required checks for $(context .target) from GitHub again just before the hand-off, so it wasn't handed off. The next check tries again."
+  [ "$(jq -r '.state' <<< "$again")" = green ] \
     || stage_fail "The required checks for $(context .target), read again just before the hand-off, aren't all passed on $(_short "$head") (they changed while the hub was checking), so it wasn't handed off. The next check picks them up."
 
   # The record first, as pending: a hand-off that stops part-way is finished

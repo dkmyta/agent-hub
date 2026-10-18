@@ -304,7 +304,9 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
 # but the job runs only for a pull request from one of the hub's branches in
 # this repository — so it never wakes itself — and the schedule stays as the
 # backstop. Read-only apart from requesting a run; nothing from the event in
-# a shell command.
+# a shell command. Its concurrency is the job's, never the workflow's: a
+# skipped run joining a workflow-level group would cancel the wake waiting
+# there (2.28.1); and it never wakes on its own completions.
 @test "the CI sweep: woken by completed CI on the hub's own pull requests only, with the schedule kept; reads only, then requests a run" {
   run node --input-type=module -e '
     import { readFileSync } from "node:fs";
@@ -318,9 +320,11 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
         .every((part) => job.if.includes(part)),
       Object.entries(wf.permissions).filter(([, v]) => v === "write").map(([k]) => k).join(","),
       job.steps.every((step) => !/\$\{\{/.test(step.run ?? "")),
+      wf.concurrency === undefined, JSON.stringify(job.concurrency),
+      wf.on.workflow_run.workflows.includes("!" + wf.name),
     ].join(" "));' "$REPO_DIR/.github/workflows/agent-hub-ci-sweep.yml"
   assert_success
-  assert_output '{"workflows":["*"],"types":["completed"]} true true true actions true'
+  assert_output '{"workflows":["*","!Agent hub: CI sweep"],"types":["completed"]} true true true actions true true {"group":"agent-hub-ci-sweep","cancel-in-progress":false} true'
 }
 
 # v1: a repository the hub is installed in (update.sh's record) runs only its

@@ -30,25 +30,50 @@ _review_incomplete() {
 # skipped, or accepted (a decision) — with the finding each was about, for a
 # re-review not to raise them again (2.28.0) and for the hint on a new item
 # that looks like one (wording.jq, like_decided). Made by a reconcile run's
-# start (reconcile.sh), which can read the ticket. Into decided.json: [] on a
-# first build, or when the ticket's record of the last review isn't the one
-# the pull request's record names (_review_record). Carried from record to
-# record (build_review_record), so a decision outlives the next review.
+# start (reconcile.sh), which can read the ticket, when it goes on to a
+# re-review. Carried from record to record (build_review_record), so a
+# decision outlives the next review — and only from a record the hub can
+# vouch for (2.28.1):
+#   - none named (a first build, or no review yet): [].
+#   - one named that can't be read: the run stops before anything changes,
+#     so the re-review never replaces the record and loses its decisions.
+#     A re-run tries again.
+#   - one named that isn't it (changed on the ticket, or from before
+#     2.21.0): nothing of it is carried — never decisions the hub can't
+#     vouch for — and the re-check's report says the earlier decisions
+#     weren't carried, so people know to decide them again.
+# The 40 newest are kept: the record's own, in the order they were made,
+# then this run's, by when they were decided.
 DECIDED="$RUNNER_TEMP/decided.json"
 _decided_findings() {
-  local record
-  record=$(_review_record "$RECONCILE_STATE" 2> /dev/null) || record='{}'
+  local want record
+  rm -f "$RUNNER_TEMP/decided-not-carried"
+  want=$(jq -r '.review.record // ""' "$RECONCILE_STATE")
+  if [ -z "$want" ]; then echo '[]' > "$DECIDED"; return 0; fi
+  record=$(tracker_property agent-hub-review) \
+    || stage_fail "Couldn't read $TICKET_KEY's record of the last review from $TRACKER_NAME — it holds what approvers decided on it, which the new review would lose — so nothing was changed. Re-run the build."
+  if [ "$(review_record_hash <<< "$record")" != "$want" ]; then
+    echo "::warning::$TICKET_KEY's record of the review isn't the one the pull request's record names (changed on the ticket, or from before 2.21.0), so what approvers decided on earlier reviews isn't carried into this one."
+    : > "$RUNNER_TEMP/decided-not-carried"
+    echo '[]' > "$DECIDED"
+    return 0
+  fi
   jq -n --argjson rec "$record" --slurpfile state "$RECONCILE_STATE" '
     def cut: if type == "string" and length > 300 then .[0:300] + "…" else . end;
     ($rec.decided // []) as $old
-    | [($state[0].items // [])[] | select(.status == "skipped" or .status == "accepted") | . as $i
+    | ([($state[0].items // [])[] | select(.status == "skipped" or .status == "accepted") | . as $i
         | (if .source == "review" then [($rec.review.findings // [])[] | select(.n == $i.finding)][0]
            elif .source == "fix-check" then [($rec.fix.new_concerns // [])[] | select(.n == $i.concern)][0]
            else null end) as $f
         | select($f != null)
-        | {id: $i.id, status: $i.status, kind: $f.kind, area: $f.area, file: ($f.file // ""), line: $f.line,
-           title: $f.title, evidence: ($f.evidence | cut)}] as $new
-    | [$old[], $new[]] | unique_by(.id) | .[-40:]' > "$DECIDED" 2> /dev/null || echo '[]' > "$DECIDED"
+        | {id: $i.id, status: $i.status, at: ($i.at // ""), kind: $f.kind, area: $f.area, file: ($f.file // ""), line: $f.line,
+           title: $f.title, evidence: ($f.evidence | cut)}] | sort_by(.at)) as $new
+    # Each once, the first time it was decided; in the order they were
+    # decided (those in the record, then this run by when: the times in
+    # the state, which the hub wrote); the newest 40.
+    | reduce ($old[], $new[]) as $d ([]; if any(.[]; .id == $d.id) then . else . + [$d] end)
+    | .[-40:]' > "$DECIDED" \
+    || stage_fail "Couldn't read what approvers decided from $TICKET_KEY's record of the last review, so nothing was changed. Re-run the build."
 }
 
 # review_policy < findings JSON: each finding with its policy outcome — a

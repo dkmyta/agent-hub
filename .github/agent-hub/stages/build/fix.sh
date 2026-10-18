@@ -199,7 +199,7 @@ _drop_candidate() { (build_git && git reset -q --hard "$1") || true; }
 # _verify_candidate: the candidate the Fix step committed, checked as Verify
 # checked the build's. Prints why not, and fails, if it can't be kept.
 _verify_candidate() {
-  local base before after refused added
+  local base before after refused added own_flagged
   build_git
   base=$(context .base) before=$(jq -r '.before' "$FIX_RESULT") after=$(jq -r '.after' "$FIX_RESULT")
   [ "$(git rev-parse HEAD)" = "$after" ] && [ "$(git rev-parse HEAD^)" = "$before" ] \
@@ -223,6 +223,17 @@ _verify_candidate() {
   added=$(jq -n --slurpfile before "$RUNNER_TEMP/fix-gates-before.json" --slurpfile after "$RUNNER_TEMP/fix-gates.json" \
     '[$after[0].decisions[] | {path, reason}] - [$before[0].decisions[] | {path, reason}] | length')
   [ "$added" = 0 ] || { echo "it would add $added decision item(s) for a person"; return 1; }
+  # And the fix's own commit: the comparison above sees only which paths
+  # are flagged, so a fix that changed a file already flagged — one a person
+  # changed in a path the hub never pushes, or a decision item the reviewed
+  # commit had (outside the plan, over the line limit, …) — would pass it,
+  # however small the change. A fix touches no such file at all, whoever
+  # changed it first. (A path the fix newly flags is caught above.)
+  build_gates "$before" "$RUNNER_TEMP/contract.json" "$after" > "$RUNNER_TEMP/fix-gates-own.json" 2> /dev/null || { echo "the fix's own changes couldn't be checked"; return 1; }
+  own_flagged=$(jq -n --slurpfile before "$RUNNER_TEMP/fix-gates-before.json" --slurpfile own "$RUNNER_TEMP/fix-gates-own.json" '
+    ([$before[0].refused[].path, $before[0].decisions[].path] | map(select(. != "")) | unique) as $flagged
+    | [$own[0].files[].path | select(IN($flagged[]))] | length')
+  [ "$own_flagged" = 0 ] || { echo "it changed $own_flagged file(s) already flagged for a person (the hub never pushes them, or a person decides)"; return 1; }
   _check_commit "$base" || { echo "the repository's checks couldn't run on it"; return 1; }
   if jq -e 'any(.checks[]; .result != "passed")' "$RUNNER_TEMP/check-commit.json" > /dev/null; then
     echo "the repository's checks failed on it: $(jq -r '[.checks[] | select(.result != "passed") | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/check-commit.json")"
