@@ -32,3 +32,4 @@ draft pull request on `agent-hub/<KEY>`. See
 the manual testing steps in the hub's CHANGELOG.
 
 Anything may change here; nothing depends on it.
+- `src/text.js` also has `initials` ("Ada Lovelace" → "AL")
