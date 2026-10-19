@@ -39,3 +39,11 @@ export function reverseWords(text) {
   const trimmed = text.trim();
   return trimmed === "" ? "" : trimmed.split(/\s+/).reverse().join(" ");
 }
+
+/** "Hello, World!" → "hello_world" */
+export function snakeCase(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
