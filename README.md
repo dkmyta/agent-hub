@@ -15,7 +15,10 @@ and build — has been tested end to end against Jira and GitHub (the
 journeys in [`tools/live-tests/`](tools/live-tests/)), and every change runs
 the whole test suite on Linux and macOS before it's merged. The repository
 is maintained for fixes; see the
-[CHANGELOG](.github/agent-hub/CHANGELOG.md). Before real tickets, follow the
+[CHANGELOG](.github/agent-hub/CHANGELOG.md). The state at the end of v1 —
+tagged `public-v1-foundation` (`v2.28.4`), with its tests, live acceptance,
+reviews and evals — is recorded in
+[tools/baseline/public-v1-foundation.md](tools/baseline/public-v1-foundation.md). Before real tickets, follow the
 build's [production checklist](.github/agent-hub/docs/workflows/build-design.md#production-checklist),
 including a runner of its own — a dedicated user or machine
 ([runners.md](.github/agent-hub/docs/runners.md#before-running-the-build-on-real-tickets)).
