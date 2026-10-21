@@ -1,6 +1,6 @@
 // Text helpers.
 
-/** "Hello, World!" → "hello-world" */
+/** "Hello, World!" → "hello-world" (lower case, dashes between words) */
 export function slugify(text) {
   return text
     .toLowerCase()
