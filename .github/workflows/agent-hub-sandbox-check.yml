@@ -39,6 +39,17 @@ jobs:
     runs-on: ${{ fromJSON(vars.AGENT_HUB_RUNS_ON || '["self-hosted", "claude"]') }}
     timeout-minutes: 20
     steps:
+      # A self-hosted runner keeps its work folder between jobs: what an
+      # earlier job left there — a sparse checkout's settings, an agent's
+      # files — mustn't reach this one, so it's emptied first, before the
+      # checkout (the same step as agent-hub-stage.yml's).
+      - name: Clear the work folder
+        if: runner.environment == 'self-hosted'
+        timeout-minutes: 2
+        run: |
+          [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE" ] || exit 0
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
