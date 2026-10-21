@@ -146,10 +146,16 @@ runner online — a run started while it's offline waits in the queue):
 5. If the `agent-hub-evals` environment has required reviewers, a reviewer
    approves the run on its page.
 
-**Recommended once per repository**: Settings → Environments → **agent-hub-evals**
-(created by the first run, or add it yourself) → **Required reviewers** → add
-yourself or whoever owns the Claude account. (Environment protection needs a
-public repository or a paid GitHub plan.)
+**Required once per repository**, as for the `agent-hub` environment: the evals
+workflow can be started from any branch, and that branch's own scripts would
+run with the environment's API key. Settings → Environments →
+**agent-hub-evals** (created by the first run, or add it yourself) →
+**Deployment branches and tags** → **Selected branches and tags** → add the
+default branch (as a branch, not a tag) — and, recommended, **Required
+reviewers** → yourself or whoever owns the Claude account. Either one is
+enough for the [setup checker](setup.md#8-check-it), which checks it whenever
+the environment exists. (Environment protection needs a public repository or
+a paid GitHub plan.)
 
 **Locally** (uses the Claude Code login on your machine; asks you to type
 `use-claude` first):

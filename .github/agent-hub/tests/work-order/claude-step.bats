@@ -618,3 +618,20 @@ $RUNNER_TEMP/plugins/repository"
   run grep -c "Shared runner user" "$RUNNER_TEMP/log.txt"
   assert_output 0
 }
+
+# 2.28.3 (review M2): the prompt goes to Claude Code on standard input — on
+# Linux one argument can't pass 128 KB, and a process's arguments are
+# readable by the runner's other users.
+@test "the prompt goes on standard input, never as an argument — a prompt over 128 KB reaches Claude whole" {
+  head -c 200000 /dev/zero | tr '\0' 'x' >> "$RUNNER_TEMP/ticket.md"
+  printf '\nEND-OF-TICKET-MARKER\n' >> "$RUNNER_TEMP/ticket.md"
+  claude_step ready.json
+  assert_success
+  [ "$(wc -c < "$RUNNER_TEMP/claude-prompt.txt")" -gt 200000 ] || fail "the prompt was cut"
+  grep -q END-OF-TICKET-MARKER "$RUNNER_TEMP/claude-prompt.txt" || fail "the prompt's end is missing"
+  run grep -c -e END-OF-TICKET-MARKER -e xxxxxxxxxx "$RUNNER_TEMP/claude-args.txt"
+  assert_output 0
+  # The file it was read from is gone.
+  run bash -c "ls '$RUNNER_TEMP' | grep -c claude-input"
+  assert_output 0
+}

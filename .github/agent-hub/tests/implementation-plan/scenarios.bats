@@ -429,12 +429,31 @@ uploaded_mid_run() {
   assert_output ""
 }
 
+# 2.28.3: the title is part of the work order's approval (as the build's).
+@test "approval: a title changed after the work order's approval sends it back, like an edited description" {
+  echo '{"startAt":0,"maxResults":100,"total":2,"isLast":true,"values":[{"author":{"accountId":"dana-lead"},"items":[{"field":"status","toString":"Work Order Approved"}]},{"author":{"accountId":"dana-lead"},"items":[{"field":"summary","fromString":"Old","toString":"New"}]}]}' \
+    > "$BATS_TEST_TMPDIR/retitled.json"
+  run_scenario ready "CHANGELOG_FIXTURE=$BATS_TEST_TMPDIR/retitled.json"
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  assert_line "--- Outcome: stale"
+  refute_line --partial "POST /attachments"
+}
+
 @test "approval: the work order's approver is a person, and in the approvers group when one is set" {
   echo '{"startAt":0,"maxResults":100,"total":1,"isLast":true,"values":[{"author":{"accountId":"agent-hub-bot"},"items":[{"field":"status","toString":"Work Order Approved"}]}]}' \
     > "$BATS_TEST_TMPDIR/by-automation.json"
   run_scenario ready "CHANGELOG_FIXTURE=$BATS_TEST_TMPDIR/by-automation.json"
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "was made by the automation account, not a person"
+  # The automation account can't be identified (2.28.3, review M1): no plan,
+  # rather than an approval no one could check — with no group set.
+  run_scenario ready "CHANGELOG_FIXTURE=$BATS_TEST_TMPDIR/by-automation.json" 'MOCK_FAIL=GET /myself'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  refute_line --partial "POST /attachments"
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output "Couldn't identify Jira's automation account to check who approved the work order, so nothing was changed."
   run_scenario ready 'VARS={"AGENT_HUB_APPROVERS_GROUP": "agent-hub-approvers"}' 'MOCK_GROUPS={"dana-lead": ["developers"]}'
   run cat "$RUNNER_TEMP/failure-reason"
   assert_output --partial "was made by someone who isn't in agent-hub-approvers"

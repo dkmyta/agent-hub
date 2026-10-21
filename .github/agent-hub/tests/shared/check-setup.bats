@@ -302,3 +302,19 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
   check
   assert_line "unverified  pull request labels — couldn't be read (HTTP 403)"
 }
+
+@test "check-setup: the evals' environment — not checked when absent; limited to the default branch or reviewed; open to any branch is blocked (2.28.3)" {
+  check
+  refute_output --partial "agent-hub-evals"
+  gh_answer repos/o/r/environments/agent-hub-evals '{"deployment_branch_policy": null, "protection_rules": []}'
+  check
+  assert_failure
+  assert_line --partial "blocked     agent-hub-evals environment — any branch's run can read its secrets (the evals' API key)"
+  gh_answer repos/o/r/environments/agent-hub-evals '{"deployment_branch_policy": null, "protection_rules": [{"type": "required_reviewers"}]}'
+  check
+  assert_line "verified    agent-hub-evals environment — every run waits for a reviewer's approval"
+  gh_answer repos/o/r/environments/agent-hub-evals '{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}, "protection_rules": []}'
+  gh_answer repos/o/r/environments/agent-hub-evals/deployment-branch-policies '{"branch_policies": [{"name": "main", "type": "branch"}]}'
+  check
+  assert_line "verified    agent-hub-evals environment — limited to the branch main"
+}

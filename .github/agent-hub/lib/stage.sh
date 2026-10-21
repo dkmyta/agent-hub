@@ -267,12 +267,17 @@ stage_check_caps() {
       || stage_fail "Couldn't reserve this run's Claude usage on $TICKET_KEY in $TRACKER_NAME, so Claude wasn't used."
     return 0
   fi
+  # The label first, then the record: the record says over the cap only
+  # once the label is on, so a label that's missing later was removed by a
+  # person — never one the hub failed to add, which would lift the cap by
+  # itself. (If the record's write fails after the label, the next run finds
+  # the counts still over and records it then.)
+  tracker_labels "+$OVER_CAP_LABEL" "+$NEEDS_HUMAN_LABEL" > /dev/null \
+    || stage_fail "$TICKET_KEY is over its Claude usage cap, but its labels couldn't be changed. Claude wasn't used."
   if [ "$over" = now ]; then
     tracker_set_ledger <<< "$(jq -c '.over_cap = true' <<< "$ledger")" \
       || stage_fail "$TICKET_KEY is over its Claude usage cap, but that couldn't be recorded in $TRACKER_NAME. Claude wasn't used."
   fi
-  tracker_labels "+$OVER_CAP_LABEL" "+$NEEDS_HUMAN_LABEL" > /dev/null \
-    || stage_fail "$TICKET_KEY is over its Claude usage cap, but its labels couldn't be changed. Claude wasn't used."
   # The ⛔ notice once per time over the cap: when it's reached ("now"), not
   # again on each run while the label stays ("still"). Removing the label
   # lifts the cap (above), so reaching it again posts a fresh one.

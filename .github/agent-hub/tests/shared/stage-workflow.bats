@@ -476,3 +476,41 @@ affected() { AGENT_HUB_AFFECTED_DRY=1 "$TESTS_DIR/lib/affected.sh" 2>&1 | tail -
   assert_line "No comparison base (nowhere) to find the changes against — running every suite."
   assert_line "running: shared work-order implementation-plan build"
 }
+
+# 2.28.3 (review C1): the CI sweep request's token never on a command line —
+# the step's own script, run against a curl stand-in with a canary token.
+@test "the build's CI sweep request passes its token in a private file, never in curl's arguments, and removes it" {
+  local bin="$BATS_TEST_TMPDIR/bin" script="$BATS_TEST_TMPDIR/request-ci.sh"
+  mkdir -p "$bin" "$BATS_TEST_TMPDIR/temp"
+  node --input-type=module -e '
+    import { readFileSync, writeFileSync } from "node:fs";
+    import { parse } from "yaml";
+    const wf = parse(readFileSync(process.argv[1], "utf8"));
+    writeFileSync(process.argv[2], wf.jobs["request-ci"].steps[0].run);' \
+    "$REPO_DIR/.github/workflows/agent-hub-build.yml" "$script"
+  # The stand-in records its arguments, the config it was given (and its
+  # mode) and the request body.
+  cat > "$bin/curl" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$BATS_TEST_TMPDIR/curl-args"
+while [ $# -gt 0 ]; do
+  if [ "$1" = --config ]; then cp "$2" "$BATS_TEST_TMPDIR/curl-config"; ls -l "$2" | cut -c1-10 > "$BATS_TEST_TMPDIR/curl-config-mode"; fi
+  shift
+done
+cat > "$BATS_TEST_TMPDIR/curl-body"
+STUB
+  chmod +x "$bin/curl"
+  run env PATH="$bin:$PATH" TOKEN=CANARY-ACTIONS-TOKEN REF=main RUNNER_TEMP="$BATS_TEST_TMPDIR/temp" \
+    GITHUB_API_URL=https://api.github.com GITHUB_REPOSITORY=o/r GITHUB_STEP_SUMMARY=/dev/null bash -e "$script"
+  assert_success
+  run grep -c CANARY "$BATS_TEST_TMPDIR/curl-args"
+  assert_output 0
+  run cat "$BATS_TEST_TMPDIR/curl-config"
+  assert_output 'header = "Authorization: Bearer CANARY-ACTIONS-TOKEN"'
+  run cat "$BATS_TEST_TMPDIR/curl-config-mode"
+  assert_output -- "-rw-------"
+  run jq -c . "$BATS_TEST_TMPDIR/curl-body"
+  assert_output '{"ref":"main"}'
+  run ls -A "$BATS_TEST_TMPDIR/temp"
+  assert_output ""
+}

@@ -353,7 +353,14 @@ clean folder (not the checkout, which something the agent left running could
 still change) — sparse like the checkout, so the hub's own test data, whose
 content the checkout never fetched, is left out — installs its dependencies
 the same way and runs the repository's checks there, each in the [hub's sandbox](#install) with no
-network but localhost and its own time limit:
+network but localhost and its own time limit. After the install, and before
+any check (since 2.28.3), the copy must still be exactly the commit: an
+install script runs the repository's code with write access to the copy, so
+every tracked file's content, type and mode is compared with the commit — and
+no new file may appear that isn't ignored — through the hub's own git
+metadata and the index kept when the copy was made, never the copy's `.git`
+(which the install could change too). A copy that differs stops the run;
+the same holds for the review's and the fix check's copies:
 
 - **Which checks:** the repository's `build/checks.json`
   ([extending.md](../extending.md#the-builds-checks)) if it has one;
@@ -406,7 +413,8 @@ transport. It sees the approved plan, the change set, the **whole** diff and
 the verification results, never the build's reasoning, and can read the
 repository and run tests, but not edit. Since 2.18.0 it works in **its own
 clean copy** of exactly the verified commit (dependencies installed from the
-lockfile, as the verify step's), never the checkout the build agent left —
+lockfile, as the verify step's, and compared with the commit after the
+install, as there), never the checkout the build agent left —
 whose ignored files (`node_modules`, say) could steer what its tests show —
 and its sandbox keeps it from writing to that copy. Its guidance
 (`CLAUDE.md`, the extensions) is the target branch's from when the run
@@ -708,7 +716,10 @@ one marked ready whose ticket didn't move (2.21.0). **New commits after a
 hand-off undo it** (2.21.0): when a run reviews people's commits (or a merge
 of the target) on a pull request already handed off, the hand-off no longer
 holds — the record drops it and the pull request goes back to draft, with a
-comment, until the gate hands it off again; the ticket stays where it is. A
+comment, until the gate hands it off again; the ticket stays where it is.
+Since 2.28.3 it goes back to draft **before** anything is pushed or
+recorded, and a run that can't make it a draft changes nothing (as an
+/apply already did). A
 record from before 2.13.0 doesn't list the reviewed commit, so it's never
 handed off — a person reviews it. Reviewers from a setting are after v1.
 
@@ -912,7 +923,10 @@ and the next revision reviews the whole pull request.
   (2.27.0): with a person's own build token the replies are that person's,
   whose review comments still count. The full fix — a separate identity,
   a GitHub App — is after v1 ([setup.md](../setup.md#the-build-token-and-branch-protection)). Each finding comes from the review the hub kept
-  (a decision as the gates flagged it); a manual change, the "review didn't
+  (a decision as the gates flagged it); an item on a file the gates flagged
+  for a person — the flag itself, or a finding in that file — is refused
+  before any Claude (2.28.3): the fix pass never touches such a file, so no
+  fix of it could be kept; a manual change, the "review didn't
   finish" decision or an item without a kept finding can't be applied. The
   kept review is used only while it's the one the pull request's record
   names (a hash, since 2.21.0): the ticket's copy can be edited by anyone

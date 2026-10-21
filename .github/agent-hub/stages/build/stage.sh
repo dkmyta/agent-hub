@@ -539,6 +539,9 @@ step_install() {
     _install_dependencies "$RUNNER_TEMP/verify/$folder" "$RUNNER_TEMP/verify-install.log" > /dev/null || rc=$?
     [ "$rc" = 0 ] || stage_fail "Installing the dependencies in a copy of the repository for its checks failed (exit $rc), so nothing was built."
   done < <(build_install_folders "$(context .base)")
+  _copy_untouched "$RUNNER_TEMP/verify" > "$RUNNER_TEMP/copy-changed" \
+    || stage_fail "Installing the dependencies changed the repository's own files in the copy its checks run in (an install script rewrote, removed or added files), so nothing was built." \
+      "Files: $(head -n 10 "$RUNNER_TEMP/copy-changed" | paste -sd ',' - | sed 's/,/, /g')."
   sandbox_install > /dev/null 2> "$RUNNER_TEMP/sandbox-install.log" \
     || stage_fail "The sandbox runtime the checks run in couldn't be installed ($(tail -n 1 "$RUNNER_TEMP/sandbox-install.log")), so nothing was built."
   # And it runs a command, as the checks will: the toolchain starting in the
@@ -586,8 +589,42 @@ _verify_copy() {
       git -C "$2" config core.sparseCheckout true
       cp "$BUILD_GIT/info/sparse-checkout" "$2/.git/info/sparse-checkout" || exit 1
     fi
-    git -C "$2" checkout -q --detach "$1"
+    git -C "$2" checkout -q --detach "$1" || exit 1
+    # Its index, written by the hub's own checkout just now — before any of
+    # the repository's code runs in it — kept outside the copy, where
+    # nothing run in the copy can write (_copy_untouched).
+    mkdir -p "$RUNNER_TEMP/copy-index" && cp "$2/.git/index" "$(_copy_index "$2")"
   ) 2> "$RUNNER_TEMP/verify-clone.log"
+}
+
+# _copy_index <folder>: where the index of a copy _verify_copy made is kept.
+_copy_index() { printf '%s/copy-index/%s' "$RUNNER_TEMP" "$(printf '%s' "$1" | cksum | cut -d ' ' -f 1)"; }
+
+# _copy_untouched <folder>: whether a copy _verify_copy made still has every
+# tracked file exactly as its commit does — content, type (a file, a link)
+# and mode, none deleted — and no new file that isn't ignored. Run after its
+# install: an install script (a lifecycle hook) runs the repository's code
+# with write access to the copy, so it could rewrite what the checks and the
+# review then see. Read through the hub's protected metadata (build_git)
+# and the index kept when the copy was made — never the copy's own .git,
+# which the install could change too. Ignored files (installed packages,
+# build output) may change. Prints the paths that differ.
+_copy_untouched() {
+  local index changed
+  index=$(_copy_index "$1")
+  [ -s "$index" ] || { echo "(the copy's index wasn't kept)"; return 1; }
+  cp "$index" "$index.check"
+  changed=$(
+    build_git
+    export GIT_WORK_TREE="$1" GIT_INDEX_FILE="$index.check"
+    # Mode and type compared whatever the repository's settings say
+    # (core.filemode false would hide an executable bit).
+    git -c core.filemode=true -c core.symlinks=true update-index -q --refresh > /dev/null 2>&1 || true
+    { git -c core.filemode=true -c core.symlinks=true diff-files --name-only -z \
+        && git ls-files -z --others --exclude-standard; } | tr '\0' '\n'
+  ) || { rm -f "$index.check"; echo "(the copy couldn't be compared with its commit)"; return 1; }
+  rm -f "$index.check"
+  [ -z "$changed" ] || { printf '%s\n' "$changed"; return 1; }
 }
 
 # build_clean_copy <commit> <folder>: a clean copy of exactly <commit> — not
@@ -605,6 +642,9 @@ build_clean_copy() {
     _install_dependencies "$2/$folder" "$RUNNER_TEMP/clean-copy-install.log" > /dev/null || rc=$?
     [ "$rc" = 0 ] || { echo "installing its dependencies failed (exit $rc)" >&2; return 1; }
   done < <(build_git && build_install_folders "$(context .base)")
+  # What the pass judges must be the commit itself (_copy_untouched).
+  _copy_untouched "$2" > /dev/null \
+    || { echo "installing its dependencies changed the repository's own files in it (an install script rewrote, removed or added files)" >&2; return 1; }
 }
 
 # _git_said: the end of git's errors from _verify_copy, for the ticket only
@@ -671,7 +711,7 @@ step_verify() {
 
   # (The install step rehearsed all of this on the base commit, before the
   # agent ran.)
-  _check_commit "$base" || stage_fail "$(cat "$RUNNER_TEMP/check-commit-error")"
+  _check_commit "$base" || stage_fail "$(cat "$RUNNER_TEMP/check-commit-error")" "$(cat "$RUNNER_TEMP/check-commit-detail" 2> /dev/null || true)"
   results=$(jq -c '.checks' "$RUNNER_TEMP/check-commit.json")
   [ "$results" != "[]" ] || echo "The repository declares no checks (no test, lint, typecheck or build script)."
   cp "$RUNNER_TEMP/check-commit.json" "$RUNNER_TEMP/verify.json"
@@ -687,7 +727,7 @@ step_verify() {
 # Fails, with the reason in check-commit-error, if it can't run them.
 _check_commit() {
   local clone="$RUNNER_TEMP/verify" folder rc results
-  rm -rf "$clone" "$RUNNER_TEMP/checks"
+  rm -rf "$clone" "$RUNNER_TEMP/checks" "$RUNNER_TEMP/check-commit-detail"
   _verify_copy "$(git rev-parse HEAD)" "$clone" \
     || { echo "Couldn't make a copy of the build's commit to check, so nothing was pushed. Git said: $(_git_said)" > "$RUNNER_TEMP/check-commit-error"; return 1; }
   while IFS= read -r folder; do
@@ -696,6 +736,12 @@ _check_commit() {
     _install_dependencies "$clone/$folder" "$RUNNER_TEMP/verify-install.log" > /dev/null || rc=$?
     [ "$rc" = 0 ] || { echo "Installing the dependencies for the checks failed (exit $rc), so nothing was pushed." > "$RUNNER_TEMP/check-commit-error"; return 1; }
   done < <(build_install_folders "$1")
+  # The checks judge exactly the commit, not what an install script made of it.
+  _copy_untouched "$clone" > "$RUNNER_TEMP/copy-changed" || {
+    echo "Installing the dependencies changed the repository's own files in the copy the checks run in (an install script rewrote, removed or added files), so nothing was pushed." > "$RUNNER_TEMP/check-commit-error"
+    # The paths go only on the ticket (check-commit-detail): the log can be public.
+    echo "Files: $(head -n 10 "$RUNNER_TEMP/copy-changed" | paste -sd ',' - | sed 's/,/, /g')." > "$RUNNER_TEMP/check-commit-detail"
+    return 1; }
   mkdir -p "$RUNNER_TEMP/checks"
   _checks "$1" > "$RUNNER_TEMP/checks.tsv" || { _checks_invalid "nothing was pushed" > "$RUNNER_TEMP/check-commit-error"; return 1; }
   results=$(_run_checks "$clone" "$RUNNER_TEMP/checks.tsv" "$RUNNER_TEMP/checks" 1 Check)
@@ -767,6 +813,8 @@ build_checks_list() {
 # check's command, result and the end of its output — on the ticket only
 # (it's private; the run log may not be).
 stage_failure_details() {
+  # Commands this run claimed but couldn't answer (commands.sh).
+  _commands_after_failure || echo "::warning::Couldn't answer the commands this run had claimed."
   local results logs title before="[]"
   _failed() { [ -s "$1" ] && jq -e 'any(.checks[]; .result != "passed")' "$1" > /dev/null; }
   # shellcheck disable=SC1112 # curly apostrophes intended
@@ -830,6 +878,23 @@ step_apply() {
       "Files: $(jq -r '[.refused[].path] | join(", ")' "$RUNNER_TEMP/gates.json")."
   fi
 
+  # The code review's result (review.sh). None — the step failed or hit its
+  # time limit — or one for another commit is a review that didn't finish.
+  # A kept fix sits on top of the commit the review saw.
+  reviewed=$(git rev-parse HEAD)
+  [ "$(jq -r '.status' "$FIX_RESULT")" != kept ] || reviewed=$(jq -r '.before' "$FIX_RESULT")
+  if [ ! -s "$CODE_REVIEW" ] || [ "$(jq -r '.head' "$CODE_REVIEW" 2> /dev/null)" != "$reviewed" ]; then
+    # shellcheck disable=SC1112 # curly apostrophe intended
+    jq -n --arg head "$(git rev-parse HEAD)" \
+      '{status: "incomplete", head: $head, reason: "it didn’t run to the end (an error, or its time limit)", findings: []}' > "$CODE_REVIEW"
+  fi
+
+  # The review's record for the ticket, before anything is published: one
+  # that can't be kept there (build_review_record) stops the run here, so no
+  # pull request names a record that doesn't exist.
+  record=$(build_review_record "the build's commit") \
+    || stage_fail "The review's findings couldn't be kept within $TRACKER_NAME's size limit for the hub's record on the ticket, even trimmed, so nothing was pushed. Retry; if it happens again, the review found more than the record holds — a person reviews the build instead."
+
   # The secret scan covers everything the push sends; then the push, never forced.
   # The branch was absent when the run started; one created meanwhile (even
   # at the same commit) isn't the hub's to push to.
@@ -842,24 +907,12 @@ step_apply() {
     *) stage_fail "GitHub rejected the push to $branch (it was created meanwhile, or a rule blocks it), so nothing was pushed." ;;
   esac
 
-  # The code review's result (review.sh). None — the step failed or hit its
-  # time limit — or one for another commit is a review that didn't finish.
-  # A kept fix sits on top of the commit the review saw.
-  reviewed=$(git rev-parse HEAD)
-  [ "$(jq -r '.status' "$FIX_RESULT")" != kept ] || reviewed=$(jq -r '.before' "$FIX_RESULT")
-  if [ ! -s "$CODE_REVIEW" ] || [ "$(jq -r '.head' "$CODE_REVIEW" 2> /dev/null)" != "$reviewed" ]; then
-    # shellcheck disable=SC1112 # curly apostrophe intended
-    jq -n --arg head "$(git rev-parse HEAD)" \
-      '{status: "incomplete", head: $head, reason: "it didn’t run to the end (an error, or its time limit)", findings: []}' > "$CODE_REVIEW"
-  fi
-
   # The draft pull request: the hub's template, then the state block. Its
   # heads say what each commit is and which check verified exactly it
   # (docs/workflows/build-design.md, "Review coverage and provenance"): the build's
   # commit (verified before the review, which saw only a verified commit)
   # and a kept fix on top (verified by Verify fix: it's the commit the
   # checks passed on, above).
-  record=$(build_review_record "the build's commit")
   jq -n --slurpfile context "$BUILD_CONTEXT" --slurpfile gates "$RUNNER_TEMP/gates.json" --slurpfile review "$CODE_REVIEW" \
       --slurpfile fix "$FIX_RESULT" --arg record "$record" \
       --slurpfile contract "$RUNNER_TEMP/contract.json" --arg ticket "$TICKET_KEY" \
@@ -908,28 +961,40 @@ step_apply() {
 # pass, as kept in a private issue property on the ticket (agent-hub-review,
 # build_save_review) — the findings' full text, which a public pull request
 # can't hold — for /skip and /apply to re-render the pull request's items and
-# act on them (commands.sh). Trimmed to fit Jira's 32 KB per property. Into
-# review-record.json; prints its hash, which the pull request's record keeps
-# (review.record): anyone who can edit the ticket can edit the property, so
-# /skip and /apply use it only while it still matches (review_record_hash).
+# act on them (commands.sh). Into review-record.json; prints its hash, which
+# the pull request's record keeps (review.record): anyone who can edit the
+# ticket can edit the property, so /skip and /apply use it only while it
+# still matches (review_record_hash).
+#
+# Jira keeps at most 32,768 bytes per property: every free text is trimmed,
+# more each pass, until the record — measured in bytes, as written — fits
+# REVIEW_RECORD_MAX_BYTES. The last pass keeps, for each item, what
+# identifies it and lets it be acted on (its number, kind, severity, file,
+# line and a short title). One that still can't fit fails, printing
+# nothing: the caller stops before publishing a hash it can't save.
+REVIEW_RECORD_MAX_BYTES=${REVIEW_RECORD_MAX_BYTES:-32000}
 build_review_record() {
-  local record limit
+  local record pass
   # What approvers decided on earlier reviews (review.sh, _decided_findings),
   # carried into this record.
   [ -s "$RUNNER_TEMP/decided.json" ] || echo '[]' > "$RUNNER_TEMP/decided.json"
-  for limit in 600 150 0; do
-    record=$(jq -nc --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --slurpfile contract "$RUNNER_TEMP/contract.json" \
+  for pass in "600 4000 300" "150 1000 200" "0 300 120"; do
+    record=$(read -r text summary title <<< "$pass"
+      jq -nc --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --slurpfile contract "$RUNNER_TEMP/contract.json" \
         --slurpfile decided "$RUNNER_TEMP/decided.json" \
-        --argjson publish "$(context .publish)" --arg what "$1" --argjson limit "$limit" '
-      def cut: if type == "string" and length > $limit then .[0:$limit] + "…" else . end;
-      def keep: {n, area, severity, kind, within_plan, file, line, title, policy,
-                 evidence: (.evidence | cut), suggestion: (.suggestion | cut)};
-      {review: ($review[0] | {status, head, summary, findings: [.findings[]? | keep][0:60]}),
-       fix: ($fix[0] | {status, before, after, checks, new_concerns: [.new_concerns[]? | keep]}),
-       manual_changes: $contract[0].governance.manual_changes, publish: $publish, what: $what,
-       decided: [$decided[0][] | .evidence |= cut]}')
-    [ "${#record}" -gt 30000 ] || break
+        --argjson publish "$(context .publish)" --arg what "$1" --argjson text "$text" --argjson summary "$summary" --argjson title "$title" '
+      def cut($n): if type == "string" and length > $n then .[0:$n] + "…" else . end;
+      def keep: {n, area, severity, kind, within_plan, file, line, policy,
+                 title: (.title | cut($title)), evidence: (.evidence | cut($text)), suggestion: (.suggestion | cut($text))};
+      # Every finding: the items on the pull request come from all of them.
+      {review: ($review[0] | {status, head, summary: (.summary | cut($summary)), findings: [.findings[]? | keep]}),
+       fix: ($fix[0] | {status, before, after, checks: [.checks[]? | .note |= cut($text)], new_concerns: [.new_concerns[]? | keep]}),
+       manual_changes: [$contract[0].governance.manual_changes[]? | .change |= cut($title)], publish: $publish, what: ($what | cut($title)),
+       decided: [$decided[0][] | .title |= cut($title) | .evidence |= cut($text)]}') || return 1
+    [ "$(printf '%s\n' "$record" | LC_ALL=C wc -c | tr -d ' ')" -gt "$REVIEW_RECORD_MAX_BYTES" ] || break
   done
+  [ "$(printf '%s\n' "$record" | LC_ALL=C wc -c | tr -d ' ')" -le "$REVIEW_RECORD_MAX_BYTES" ] \
+    || { echo "::error::The review's record is over $REVIEW_RECORD_MAX_BYTES bytes even trimmed, so it can't be kept on the ticket." >&2; return 1; }
   printf '%s\n' "$record" > "$RUNNER_TEMP/review-record.json"
   review_record_hash < "$RUNNER_TEMP/review-record.json"
 }

@@ -73,7 +73,8 @@ build_command() {
   printf '%s\n' "$state" > "$RUNNER_TEMP/command-state.json"
   before=$state
   : > "$RUNNER_TEMP/command-log.jsonl"
-  rm -f "$RUNNER_TEMP/apply-request.json"
+  rm -f "$RUNNER_TEMP/apply-request.json" "$RUNNER_TEMP/apply-pushing" "$RUNNER_TEMP/apply-pushed" \
+    "$RUNNER_TEMP/apply-answered" "$RUNNER_TEMP/command-state-writing"
   # Answers wait until the record is written (_command_flush): a command is
   # never marked done on the ticket while the pull request still says
   # otherwise.
@@ -109,6 +110,9 @@ build_command() {
   # comment on the pull request, and who did what on the ticket.
   jq -c 'del(.ci)' <<< "$state" > "$RUNNER_TEMP/state.json"
   record=$(_review_record "$RUNNER_TEMP/command-state.json")
+  # From here a failure can't tell whether the items were written
+  # (_commands_after_failure).
+  : > "$RUNNER_TEMP/command-state-writing"
   if jq -e '.review.status != null' <<< "$record" > /dev/null 2>&1; then
     jq -nr -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile state "$RUNNER_TEMP/state.json" --argjson rec "$record" \
       'include "wording"; status_lines($state[0]; $rec.review; $rec.fix; {governance: {manual_changes: ($rec.manual_changes // [])}}; $rec.publish; $rec.what)' \
@@ -271,6 +275,51 @@ _apply_capped() {
   # Answered only as the hub read it (_command_reply).
   cp "$RUNNER_TEMP/command-comments.json" "$RUNNER_TEMP/comments-seen.json"
   _command_reply "$(context .apply.comment)" "not done — nothing ran: $TICKET_KEY is over its Claude usage cap, so the run stopped before Claude. Remove the $OVER_CAP_LABEL label, then post the command again"
+  : > "$RUNNER_TEMP/apply-answered"
+}
+
+# _commands_after_failure: a run that failed (stage_report_failure, through
+# the build's stage_failure_details) after claiming commands answers each it
+# hadn't answered yet — it was claimed, so it won't run again — saying only
+# what the run can establish:
+#   - an /apply whose fix was pushed: applied, though the run failed after;
+#   - one stopped while pushing: the outcome is uncertain — check the pull
+#     request;
+#   - otherwise: not applied — post it again;
+#   - a /skip queued while the items were being recorded: uncertain if the
+#     record was being written, otherwise not done; a refusal as it was.
+_commands_after_failure() {
+  local reply id what
+  [ -s "$RUNNER_TEMP/command-comments.json" ] || return 0
+  # Answered only as the hub read them (_command_reply).
+  cp "$RUNNER_TEMP/command-comments.json" "$RUNNER_TEMP/comments-seen.json"
+  if [ -s "$RUNNER_TEMP/command-replies.jsonl" ]; then
+    while IFS= read -r reply; do
+      [ -n "$reply" ] || continue
+      id=$(jq -r '.id' <<< "$reply") what=$(jq -r '.what' <<< "$reply")
+      case "$what" in
+        "not done"* | "nothing"*) ;;
+        *) if [ -e "$RUNNER_TEMP/command-state-writing" ]; then
+             what="outcome uncertain — the run failed while recording it on the pull request (see the ❌ comment): check the pull request's Items before posting it again"
+           else
+             what="not done — the run failed before it was recorded (see the ❌ comment); post the command again"
+           fi ;;
+      esac
+      COMMAND_DEFER="" _command_reply "$id" "$what"
+    done < "$RUNNER_TEMP/command-replies.jsonl"
+    : > "$RUNNER_TEMP/command-replies.jsonl"
+  fi
+  [ -s "$RUNNER_TEMP/apply-request.json" ] && [ ! -e "$RUNNER_TEMP/apply-answered" ] || return 0
+  id=$(jq -r '.comment' "$RUNNER_TEMP/apply-request.json")
+  if [ -s "$RUNNER_TEMP/apply-pushed" ]; then
+    what="applied in $(head -c 7 "$RUNNER_TEMP/apply-pushed"), but the run failed after pushing it (see the ❌ comment), so the pull request's record and answers may not say so yet — check the pull request"
+  elif [ -e "$RUNNER_TEMP/apply-pushing" ]; then
+    what="outcome uncertain — the run stopped while pushing the fix (see the ❌ comment): check the pull request before posting the command again"
+  else
+    what="not applied — the run failed before any fix was pushed (see the ❌ comment); post the command again once that's resolved"
+  fi
+  COMMAND_DEFER="" _command_reply "$id" "$what"
+  : > "$RUNNER_TEMP/apply-answered"
 }
 
 # _command_end <outcome> <why>: the run ends here.
@@ -306,19 +355,24 @@ _apply_request() {
       | ($words | map(ascii_upcase)) as $w
       | ([$w[] | select(test("^[DRC][0-9]+$"))] + (if any($w[]; . == "ALL") then [$s.items[]? | select(.status == "open" and (.id | startswith("R"))) | .id] else [] end))
       | unique[]' "$RUNNER_TEMP/command-state.json"); do
+    # A fix never touches a file already flagged for a person (fix.sh,
+    # _verify_candidate): an item there — the flag itself, or a finding in
+    # that file — is refused before any Claude, since no fix of it could be
+    # kept.
     finding=$(jq -c --arg i "$item" --argjson rec "$record" '
+      # (A closed flag is history: the gates no longer flag that file.)
+      ([.items[]? | select(.status != "closed") | .path // "" | select(. != "")] | unique) as $flagged
+      | def on_flagged: if (.file // "") != "" and (.file | IN($flagged[])) then {refuse: "it'"'"'s in \(.file), a file flagged for a person — change it by hand, or /skip it"} else . end;
       ([.items[]? | select(.id == $i and .status == "open")] | first) as $it
       | if $it == null then {refuse: "not open"}
         elif ($i | startswith("C")) then {refuse: "a manual change, for a person"}
         elif $it.source == "review" then
           if $rec.review.head != .review.head then {refuse: "the hub has no record of its finding"}
-          else ([$rec.review.findings[]? | select(.n == $it.finding)] | first) // {refuse: "the hub has no record of its finding"} end
+          else (([$rec.review.findings[]? | select(.n == $it.finding)] | first) // {refuse: "the hub has no record of its finding"}) | on_flagged end
         elif $it.source == "fix-check" then
-          ([$rec.fix.new_concerns[]? | select(.n == $it.concern)] | first) // {refuse: "the hub has no record of its finding"}
+          (([$rec.fix.new_concerns[]? | select(.n == $it.concern)] | first) // {refuse: "the hub has no record of its finding"}) | on_flagged
         elif ($it.source // "gate") == "gate" and ($it.path // "") != "" then
-          {title: "\($it.path): \($it.reason)", file: $it.path, line: null, severity: "medium", kind: "scope", area: "scope",
-           evidence: "The hub'"'"'s gates flagged this change to \($it.path): \($it.reason).",
-           suggestion: "Bring this change within the approved plan: undo it, or change it as the plan allows."}
+          {refuse: "a person'"'"'s decision on \($it.path) (\($it.reason)) — the hub never changes a file flagged for a person: change it by hand, or /skip it"}
         else {refuse: "it can'"'"'t be applied — resolve it by hand, or /skip it"} end' "$RUNNER_TEMP/command-state.json")
     if jq -e '.refuse' <<< "$finding" > /dev/null; then
       refused+="${refused:+, }$item ($(jq -r '.refuse' <<< "$finding"))"; continue
@@ -352,6 +406,12 @@ _apply_request() {
       if gh_user_can_write "$who"; then writers=$(jq -c --arg w "$who" '. + [$w]' <<< "$writers"); fi
     done
     while IFS= read -r thread; do
+      # (On a file flagged for a person: as for an item, above.)
+      if jq -e --slurpfile st "$RUNNER_TEMP/command-state.json" '(.path // "") as $p | $p != ""
+           and any($st[0].items[]?; .status != "closed" and (.path // "") == $p)' <<< "$thread" > /dev/null; then
+        refused+="${refused:+, }a review thread on $(jq -r '.path' <<< "$thread") (a file flagged for a person — change it by hand)"
+        continue
+      fi
       n=$((n + 1))
       jq -c --argjson n "$n" '{n: $n, area: "review", severity: "medium", kind: "review-comment", within_plan: true,
         file: (.path // ""), line, policy: "fix",
@@ -381,11 +441,17 @@ applying() { jq -e '.apply != null' "$BUILD_CONTEXT" > /dev/null 2>&1; }
 
 # _apply_start <number> <head> <base>: in the fetch step (_reconcile_start),
 # the run becomes the fix of an accepted /apply — the pull request's head
-# checked out, and the build context saying what's requested.
+# checked out, and the build context saying what's requested. The target
+# is taken as where the pull request last met it (<base>), so the run never
+# merges a target that moved since: that merge is a run of its own, with
+# its review (_reconcile_sync).
 _apply_start() {
   git checkout -q --detach "$2" || stage_fail "Couldn't check out pull request #$1's head, so nothing was changed."
+  [ "$3" = "$(context .base)" ] \
+    || echo "::notice::$(context .target) moved since pull request #$1 last met it; an /apply doesn't merge it — a run a person starts does, with its review."
+
   jq --argjson number "$1" --arg head "$2" --arg base "$3" --slurpfile req "$RUNNER_TEMP/apply-request.json" \
-    '. + {mode: "reconcile", pr: $number, start_head: $head, previous_head: $head, base: $base, target_head: .base,
+    '. + {mode: "reconcile", pr: $number, start_head: $head, previous_head: $head, base: $base, target_head: $base,
           people_commits: 0, sync: null, apply: $req[0]}' \
     "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
   echo "Pull request #$1: applying $(jq '.sources | length' "$RUNNER_TEMP/apply-request.json") requested item(s) on ${2:0:7}."
@@ -421,7 +487,12 @@ apply_fix_apply() {
       gh_pr_draft "$(jq -r '.node_id' <<< "$pr")" \
         || stage_fail "Pull request #$number couldn't be turned back into a draft, so the fix wasn't pushed (it was handed off, and would look ready with an unreviewed commit). Re-run the /apply."
     fi
+    # What a failure from here on can say about the /apply
+    # (_commands_after_failure): pushing, then pushed.
+    : > "$RUNNER_TEMP/apply-pushing"
     _reconcile_push "$branch" "$target" "$number"
+    printf '%s\n' "$after" > "$RUNNER_TEMP/apply-pushed"
+    rm -f "$RUNNER_TEMP/apply-pushing"
     kept=true
   fi
   # Each source's result, with what the fix pass said about it: applied
@@ -506,6 +577,7 @@ apply_fix_apply() {
         else (if .what != "" then .what else (if .reason == "" then "not attempted" else .reason end) end) end)]
        | join("; "))
     + (if $req.refused != "" then "; not applied: \($req.refused)" else "" end)' "$RUNNER_TEMP/apply-results.json")$raised"
+  : > "$RUNNER_TEMP/apply-answered"
   tracker_set_property agent-hub-items < <(tracker_property agent-hub-items | jq -c --argjson req "$(context '.apply')" \
       --slurpfile results "$RUNNER_TEMP/apply-results.json" --arg after "$after" --argjson kept "$kept" \
       '.log = ((.log // []) + [{apply: $req.comment, by: $req.by, by_name: $req.by_name, head: $req.head,

@@ -476,7 +476,13 @@ The fix goes through the same checks as the review's fix pass, CI runs again
 on it, and a pull request already handed off goes back to draft until it's
 handed off again — the ticket stays in Ready for Review. `/apply` works only
 on the commit the hub last checked: after someone else's push, re-run the
-build first.
+build first. It refuses, before using Claude, an item on a file the hub
+flagged for a person (outside the plan, must-not-touch, over a limit): a
+person changes that file, or `/skip`s the item. It never merges a target
+branch that moved meanwhile — a person's run of the build does, with its
+review. If its run fails, the command is still answered: applied (when the
+fix was pushed before the failure), not applied, or — if the run stopped
+while pushing — that the outcome is uncertain, to check on the pull request.
 
 ## Permissions for the automation account
 

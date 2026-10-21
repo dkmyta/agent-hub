@@ -363,6 +363,39 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
   assert_equal "$(jq -c '.over_cap' <<< "$(ledger)")" true
 }
 
+# 2.28.3 (review M2): the label first, then the record — so a label the hub
+# failed to add never reads, on the next run, as a person lifting the cap.
+@test "caps: a failure or interruption between the label and the record never lifts the cap; a person removing the label still does" {
+  # The label write fails: nothing recorded as over the cap.
+  run_scenario ready 'MOCK_LEDGER={"runs":10,"cost_usd":5}' 'MOCK_FAIL=PUT '
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  assert_equal "$(jq -c '.over_cap // false' <<< "$(ledger 2> /dev/null || echo '{}')")" false
+  # The next run, with no label: still over by the counts — blocked, and no lift.
+  run_scenario ready 'MOCK_LEDGER={"runs":10,"cost_usd":5}' 'MOCK_LABELS=["needs-human"]'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  run jq -c '{over_cap, lifted_runs}' <<< "$(ledger)"
+  assert_output '{"over_cap":true,"lifted_runs":null}'
+  # The label added, then the record's write fails (as if the run stopped
+  # between them): the next run, label on, record not over — still blocked.
+  run_scenario ready 'MOCK_LEDGER={"runs":10,"cost_usd":5}' 'MOCK_FAIL=PUT /properties/agent-hub-ledger'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  assert_line --partial 'PUT  — {"update":{"labels":[{"add":"agent-hub-over-cap"},{"add":"needs-human"}]}}'
+  run_scenario ready 'MOCK_LEDGER={"runs":10,"cost_usd":5}' 'MOCK_LABELS=["agent-hub-over-cap","needs-human"]'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  run jq -c '{over_cap, lifted_runs}' <<< "$(ledger)"
+  assert_output '{"over_cap":true,"lifted_runs":null}'
+  # A person removes the label once the record says over the cap: lifted.
+  run_scenario ready 'MOCK_LEDGER={"runs":10,"cost_usd":5,"over_cap":true}' 'MOCK_LABELS=["needs-human"]'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: success"
+  run jq -c '{over_cap, lifted_runs}' <<< "$(ledger)"
+  assert_output '{"over_cap":false,"lifted_runs":10}'
+}
+
 @test "caps: the label can't be read, or the ledger can't be: Claude isn't used, and the cap is never lifted by mistake" {
   run_scenario ready 'MOCK_LEDGER={"runs":10,"cost_usd":5,"over_cap":true}' 'MOCK_FAIL=GET ?fields=labels'
   run cat "$RUNNER_TEMP/trace.txt"

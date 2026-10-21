@@ -247,7 +247,11 @@ _verify_candidate() {
     ([$before[0].refused[].path, $before[0].decisions[].path] | map(select(. != "")) | unique) as $flagged
     | [$own[0].files[].path | select(IN($flagged[]))] | length')
   [ "$own_flagged" = 0 ] || { echo "it changed $own_flagged file(s) already flagged for a person (the hub never pushes them, or a person decides)"; return 1; }
-  _check_commit "$base" || { echo "the repository's checks couldn't run on it"; return 1; }
+  if ! _check_commit "$base"; then
+    if [ -s "$RUNNER_TEMP/check-commit-detail" ]; then echo "installing its dependencies changed the repository's own files in the copy the checks run in"
+    else echo "the repository's checks couldn't run on it"; fi
+    return 1
+  fi
   if jq -e 'any(.checks[]; .result != "passed")' "$RUNNER_TEMP/check-commit.json" > /dev/null; then
     echo "the repository's checks failed on it: $(jq -r '[.checks[] | select(.result != "passed") | "\(.name) (\(.result))"] | join(", ")' "$RUNNER_TEMP/check-commit.json")"
     return 1
