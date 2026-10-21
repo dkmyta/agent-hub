@@ -99,7 +99,7 @@ build_gates() {
     elif [ ${#forbidden[@]} -gt 0 ] && matches_any "$path" "${forbidden[@]}"; then class=decision reason="in an area the plan says must not be touched"
     elif [[ "$(tr 'A-Z' 'a-z' <<< "$path")" =~ $BUILD_AGENT_INSTRUCTIONS ]]; then
       class=decision reason="instructions or configuration for AI agents (CLAUDE.md, AGENTS.md, .mcp.json)"
-    elif [[ "$path" =~ $BUILD_PACKAGE_MANAGER_CONFIG ]]; then
+    elif [[ "$(tr 'A-Z' 'a-z' <<< "$path")" =~ $BUILD_PACKAGE_MANAGER_CONFIG ]]; then
       class=decision reason="package-manager configuration (registries, install scripts, workspaces)"
     elif [ -n "$mode_changed" ]; then
       class=decision reason="its file mode changed (${mode_changed: -3} to ${mode: -3})"

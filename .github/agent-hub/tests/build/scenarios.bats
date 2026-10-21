@@ -1136,6 +1136,19 @@ pushed_head_subject() { local remote; remote=$(git -C "$STEP_CWD" remote get-url
   done
 }
 
+# 2.28.3 (review M3): a review whose record can't be kept on the ticket
+# stops the build before anything is pushed or published.
+@test "a review record that can't fit the ticket's limit even trimmed: nothing pushed, no pull request" {
+  run_scenario ready CLAUDE_EDITS=edits/greet.sh CLAUDE_PASS_FIXTURE=claude/review-findings.json REVIEW_RECORD_MAX_BYTES=200
+  run trace
+  assert_line "Apply: failure"
+  ! git --git-dir="$REMOTE" rev-parse -q --verify refs/heads/agent-hub/PROJ-99 > /dev/null || fail "the branch was pushed"
+  run jq -r 'select(.method == "POST" and (.path | endswith("/pulls"))) | .path' "$GH_CALLS"
+  assert_output ""
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "couldn't be kept within Jira's size limit"
+}
+
 @test "fix: an unusable fix check, a fix pass that changes nothing or one that can't start keeps nothing, and costs nothing of the build" {
   fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh CLAUDE_FIX_CHECK_FIXTURE=none
   run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
@@ -1637,7 +1650,7 @@ SH
   reconcile_run CLAUDE_PASS_FIXTURE=claude/review-findings.json CLAUDE_FIX_FIXTURE=claude/fix.json \
     CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json "CLAUDE_FIX_EDITS=$BATS_TEST_TMPDIR/race.sh"
   run cat "$RUNNER_TEMP/failure-reason"
-  assert_output --partial "someone pushed to it, or moved it back, during this run"
+  assert_output --partial "the branch is now at neither the commit this run started from nor the one it pushed (someone pushed to it during the run"
   assert_equal "$(git --git-dir="$REMOTE" log -1 --format=%s refs/heads/agent-hub/PROJ-99)" "Sam's change"
 }
 
@@ -1657,7 +1670,7 @@ SH
   reconcile_run CLAUDE_PASS_FIXTURE=claude/review-findings.json CLAUDE_FIX_FIXTURE=claude/fix.json \
     CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json "CLAUDE_FIX_EDITS=$BATS_TEST_TMPDIR/rewind.sh"
   run cat "$RUNNER_TEMP/failure-reason"
-  assert_output --partial "someone pushed to it, or moved it back, during this run"
+  assert_output --partial "the branch is now at neither the commit this run started from nor the one it pushed (someone pushed to it during the run"
   assert_equal "$(branch_head)" "$hub"
 }
 
@@ -2612,6 +2625,174 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
   assert_equal "$(jq -r '[.items[] | select(.id == "R1")][0].status' <<< "$(pr_state)")" open
 }
 
+# 2.28.3 (final review H1): an /apply or a CI fix works on the pull request
+# as it is — a target that moved since is never merged by it (which would be
+# pushed with the fix, recorded and reviewed as neither); a run a person
+# starts does that, with its review.
+@test "a moved target during an /apply or a CI fix: not merged — the fix sits on the pull request's head, and no merge is recorded or claimed reviewed" {
+  findings_pr
+  local before
+  before=$(branch_head)
+  # A drift-sensitive change: a merge of it would need a full review.
+  main_moves 'printf "{}\n" > tsconfig.json'
+  apply_run '/apply r1'
+  run trace
+  assert_line "--- Outcome: revised"
+  assert_equal "$(git --git-dir="$REMOTE" rev-parse "$(branch_head)^")" "$before"
+  assert_equal "$(git --git-dir="$REMOTE" rev-list --count "$before..$(branch_head)")" 1
+  run jq -c '[.heads[] | .kind]' <<< "$(pr_state)"
+  assert_output '["build","fix"]'
+  run cat "$RUNNER_TEMP/log.txt"
+  refute_output --partial "Merged main"
+  assert_output --partial "main moved since pull request #101 last met it; an /apply doesn't merge it"
+  # A CI fix, woken by the sweep, with main still ahead.
+  fresh_repo
+  built_pr
+  before=$(branch_head)
+  main_moves 'printf "{}\n" > tsconfig.json'
+  ci_fix_run 'MOCK_GH_LOG=not ok 1 - greet trims names' AGENT_HUB_WAKE=ci
+  run trace
+  assert_line "--- Outcome: revised"
+  assert_equal "$(git --git-dir="$REMOTE" rev-parse "$(branch_head)^")" "$before"
+  run jq -c '[.heads[] | .kind]' <<< "$(pr_state)"
+  assert_output '["build","ci-fix"]'
+  run cat "$RUNNER_TEMP/log.txt"
+  refute_output --partial "Merged main"
+  assert_output --partial "main moved since pull request #101 last met it; a CI fix doesn't merge it"
+}
+
+# 2.28.3: a run that fails after claiming an /apply answers it with what it
+# can establish — never "not done" once its fix was pushed.
+@test "/apply then a failure: answered not applied before the push, applied once pushed, not applied when the push is refused" {
+  findings_pr
+  # Before any fix: the approval couldn't be read.
+  apply_run '/apply r1' 'MOCK_FAIL=GET /changelog?startAt=0&maxResults=100'
+  run trace
+  assert_line "--- Outcome: failed"
+  run resolutions
+  assert_output --partial "/comment/700 ✅ Resolved — not applied — the run failed before any fix was pushed (see the ❌ comment); post the command again"
+  # Pushed, then the record couldn't be written: applied, with a pointer.
+  keep_properties
+  carry_prs
+  local before
+  before=$(branch_head)
+  apply_run '/apply r1' 'MOCK_GH_FAIL=PATCH /repos/example/repo/pulls/101'
+  run trace
+  assert_line "--- Outcome: failed"
+  [ "$(branch_head)" != "$before" ] || fail "the fix wasn't pushed"
+  run resolutions
+  assert_output --partial "/comment/701 ✅ Resolved — applied in $(branch_head | head -c 7), but the run failed after pushing it"
+  refute_output --partial "/comment/701 ✅ Resolved — not"
+  # The push refused (git's all or nothing): not applied.
+  fresh_repo
+  findings_pr
+  printf '#!/bin/sh\nexit 1\n' > "$REMOTE/hooks/pre-receive" && chmod +x "$REMOTE/hooks/pre-receive"
+  apply_run '/apply r1'
+  run trace
+  assert_line "--- Outcome: failed"
+  run resolutions
+  assert_output --partial "✅ Resolved — not applied — the run failed before any fix was pushed"
+  # The failure notice agrees: the branch read back where the run started.
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "the branch is still where this run started, so nothing was pushed"
+}
+
+# 2.28.3 re-check (M1): a push that reports a failure may still have landed
+# (the remote took it; the reply was lost). The branch is read back: at the
+# fix, it was pushed and the run goes on; anywhere but where the run started,
+# the outcome stays uncertain — never "not applied".
+@test "/apply whose push reports a failure: landed — the run goes on, applied; moved elsewhere — answered as uncertain" {
+  findings_pr
+  # The remote takes the push, then the connection drops before the reply.
+  printf '#!/bin/sh\nkill -9 $PPID\n' > "$REMOTE/hooks/post-receive" && chmod +x "$REMOTE/hooks/post-receive"
+  apply_run '/apply r1'
+  run trace
+  assert_line "--- Outcome: revised"
+  run resolutions
+  assert_output --partial "/comment/700 ✅ Resolved — applied in $(branch_head | head -c 7)"
+  run cat "$RUNNER_TEMP/log.txt"
+  assert_output --partial "reported a failure, but the branch is at the commit it pushed: it landed"
+  # The branch ends up somewhere else (moved again as the reply was lost):
+  # neither pushed as far as the run can tell, nor where it started.
+  fresh_repo
+  findings_pr
+  printf '#!/bin/sh\ngit update-ref refs/heads/agent-hub/PROJ-99 "$(git rev-parse refs/heads/main)"\nkill -9 $PPID\n' > "$REMOTE/hooks/post-receive"
+  chmod +x "$REMOTE/hooks/post-receive"
+  apply_run '/apply r1'
+  run trace
+  assert_line "--- Outcome: failed"
+  run resolutions
+  assert_output --partial "✅ Resolved — outcome uncertain — the run stopped while pushing the fix"
+  refute_output --partial "not applied"
+  # The run's own failure notice says the same — never "nothing was pushed".
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "so whether this run's commits landed is uncertain"
+  refute_output --partial "nothing was pushed"
+  run failure_notice
+  assert_output --partial "whether this run's commits landed is uncertain"
+}
+
+# 2.28.3 (live acceptance, D5): a fix never touches a file flagged for a
+# person, so /apply of an item there is refused before any Claude.
+@test "/apply of an item on a file flagged for a person: refused before Claude, saying to change it by hand or /skip it" {
+  run_scenario decision-item
+  keep_properties
+  cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
+  fresh_checkout
+  command_run "$(command_comments '/apply D1')"
+  run trace
+  assert_line "Agent: skipped"
+  assert_line "--- Outcome: no change needed"
+  [ ! -e "$RUNNER_TEMP/claude-fix-prompt.txt" ] || fail "the fix pass ran"
+  run resolutions
+  assert_output --partial "✅ Resolved — nothing to apply: D1 (a person's decision on README.md"
+  assert_output --partial "the hub never changes a file flagged for a person: change it by hand, or /skip it)"
+  assert_equal "$(jq -r '[.items[] | select(.id == "D1")][0].status' <<< "$(pr_state)")" open
+}
+
+# with_gate <path> <status>: the carried pull request's record gets a gate
+# item on <path> with that status, written as the hub writes its record (an
+# edit by the hub's own account).
+with_gate() {
+  local f="$BATS_TEST_TMPDIR/prs.json" body state
+  body=$(jq -r '.[0].body' "$f")
+  state=$(printf '%s\n' "$body" | awk '$0 == "<!-- agent-hub:state" { f = 1; next } f && $0 == "-->" { f = 0 } f')
+  state=$(jq -c --arg p "$1" --arg s "$2" '.items += [{id: "D9", path: $p, reason: "outside the plan'"'"'s scope", status: $s}]' <<< "$state")
+  body=$(printf '%s\n' "$body" | awk -v s="$state" '$0 == "<!-- agent-hub:state" { print; print s; skip = 1; next } skip && $0 == "-->" { skip = 0 } !skip')
+  jq --arg b "$body" '.[0].body = $b | .[0].versions += [{editor: .[0].versions[0].editor, body: $b}]' "$f" > "$f.new" && mv "$f.new" "$f"
+  fresh_checkout
+}
+
+# 2.28.3 re-check (M2): a closed flag is history — the gates no longer flag
+# the file — so it never blocks an /apply there.
+@test "/apply on a file whose only flag is closed: applied, items and review threads alike; an open flag there still refuses" {
+  findings_pr
+  with_gate src/greet.js closed
+  apply_run '/apply r1'
+  run trace
+  assert_line "--- Outcome: revised"
+  run resolutions
+  assert_output --partial "/comment/700 ✅ Resolved — applied in"
+  keep_properties
+  carry_prs
+  with_gate src/greet.js closed
+  local threads='[{"id": "T1", "isResolved": false, "path": "src/greet.js", "line": 2, "comments": {"nodes": [{"databaseId": 501, "body": "Trim the name.", "authorAssociation": "COLLABORATOR", "author": {"login": "sam"}}]}}]'
+  apply_run '/apply comments' "MOCK_GH_THREADS=$threads" 'MOCK_GH_PERMISSIONS={"sam": "write"}'
+  run trace
+  assert_line "--- Outcome: revised"
+  run cat "$RUNNER_TEMP/claude-fix-prompt.txt"
+  assert_output --partial "Trim the name."
+  # The same with the flag open: refused, before Claude.
+  fresh_repo
+  findings_pr
+  with_gate src/greet.js open
+  apply_run '/apply r1'
+  run trace
+  assert_line "Agent: skipped"
+  run resolutions
+  assert_output --partial "it's in src/greet.js, a file flagged for a person"
+}
+
 @test "/apply all: every open R item, never a decision" {
   findings_pr
   local open_r
@@ -2847,8 +3028,34 @@ SH
   assert_line "Agent: skipped"
 }
 
+# 2.28.3 (review H2): a re-check after the hand-off goes back to draft
+# before it pushes anything; if it can't, nothing is pushed or recorded.
+@test "after the hand-off: a re-check that can't turn the pull request back into a draft pushes nothing and changes nothing" {
+  built_pr
+  reconcile_run 'MOCK_GH_CHECKS={"test": "success"}' "$(handoff_transitions)"
+  carry_prs
+  person_pushes agent-hub/PROJ-99 'printf "\n// Dana.\n" >> src/greet.js'
+  local person
+  person=$(branch_head)
+  # The review finds something the fix pass fixes: a fix to push.
+  reconcile_run "MOCK_STATUS=Ready for Review" CLAUDE_PASS_FIXTURE=claude/review-findings.json \
+    CLAUDE_FIX_FIXTURE=claude/fix.json CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json CLAUDE_FIX_EDITS=edits/fix-trim.sh \
+    'MOCK_GH_FAIL=POST /graphql convertPullRequestToDraft'
+  run trace
+  assert_line "Verify fix: success"
+  assert_line "--- Outcome: failed"
+  # Still at the person's commit: the fix wasn't pushed. The record still
+  # says what it said (the hand-off included), and the pull request is as
+  # it was.
+  assert_equal "$(branch_head)" "$person"
+  assert_equal "$(jq -r '.handoff.state' <<< "$(pr_state)")" complete
+  assert_equal "$(jq -r '.[0].draft' "$RUNNER_TEMP/mock-github/prs.json")" false
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "couldn't be turned back into a draft, so nothing was changed"
+}
+
 # COR-2: a command is answered only once the record says the same.
-@test "/skip: when the record can't be written, the command isn't marked done" {
+@test "/skip: when the record can't be written, the command isn't marked done — it's answered as uncertain (2.28.3)" {
   run_scenario decision-item
   keep_properties
   cp "$RUNNER_TEMP/mock-github/prs.json" "$BATS_TEST_TMPDIR/prs.json"
@@ -2856,8 +3063,11 @@ SH
   command_run "$(command_comments '/skip D1')" 'MOCK_GH_FAIL=PATCH /repos/example/repo/pulls/101'
   run trace
   assert_line "--- Outcome: failed"
+  # The run can't tell whether the record was written, so it says so —
+  # never that the item was accepted.
   run resolutions
-  assert_output ""
+  assert_output --partial "/comment/700 ✅ Resolved — outcome uncertain — the run failed while recording it on the pull request"
+  refute_output --partial "D1 accepted"
   assert_equal "$(jq -r '.items[0].status' <<< "$(pr_state)")" open
 }
 
@@ -2967,6 +3177,9 @@ SH
   assert_line --partial "needs-human"
   run pr_comments
   assert_output --partial "the CI fix started for them didn't finish (its run stopped)"
+  # Only what works: a new commit (a re-run on this one tries no fix, below).
+  assert_output --partial "fix the failures on the branch and push"
+  refute_output --partial "re-run the build to try again"
   assert_equal "$(jq -r '.ci_fix.last.status' <<< "$(pr_state)")" stopped
   carry_prs
   reconcile_run 'MOCK_GH_CHECKS={"test": "failure"}'

@@ -36,7 +36,8 @@ step_fetch() {
     # changed, and who approved it.
     HISTORY=$(tracker_history_since "$WORK_ORDER_APPROVED_STATUS") \
       || stage_fail "Couldn't read $TICKET_KEY's history from $TRACKER_NAME to check the work order is the one approved, so nothing was changed. Move the ticket to $WORK_ORDER_APPROVED_STATUS again to retry."
-    EDITED=$(jq -r 'if (.entered | not) then "unknown" elif any(.changes[]; .field == "description") then "yes" else "no" end' <<< "$HISTORY")
+    # The title too: every agent is given it (as the build checks).
+    EDITED=$(jq -r 'if (.entered | not) then "unknown" elif any(.changes[]; .field == "description" or .kind == "summary") then "yes" else "no" end' <<< "$HISTORY")
     case "$EDITED" in
       yes) _approval_stale; exit 0 ;;
       unknown) stage_fail "$TICKET_KEY's history shows no move to $WORK_ORDER_APPROVED_STATUS, so there's no approval to plan from and nothing was changed. Move the ticket to $WORK_ORDER_APPROVED_STATUS to approve the work order." ;;
@@ -44,7 +45,11 @@ step_fetch() {
     # Who approved: a person, not the automation account — and, with an
     # approvers group set, one of its members (as the build checks).
     APPROVER=$(jq -r '.by // ""' <<< "$HISTORY")
-    [ "$APPROVER" != "$(tracker_account_id)" ] \
+    # The automation account must be known to be told apart: a lookup that
+    # fails stops here, rather than pass any approval (as the build does).
+    AUTOMATION_ACCOUNT=$(tracker_account_id) && [ -n "$AUTOMATION_ACCOUNT" ] && [ "$AUTOMATION_ACCOUNT" != null ] \
+      || stage_fail "Couldn't identify $TRACKER_NAME's automation account to check who approved the work order, so nothing was changed."
+    [ "$APPROVER" != "$AUTOMATION_ACCOUNT" ] \
       || stage_fail "The move to $WORK_ORDER_APPROVED_STATUS was made by the automation account, not a person, so it isn't an approval and nothing was changed. A person approves the work order by moving the ticket there."
     rc=0
     stage_is_approver "$APPROVER" || rc=$?
@@ -109,8 +114,8 @@ step_fetch() {
 _approval_stale() {
   # shellcheck disable=SC1112 # curly apostrophe intended
   stage_send_back_stale "$WORK_ORDER_STATUS" "Work order changed after approval" \
-    "the description changed after it was approved, so no plan was written from it. It’s back in $WORK_ORDER_STATUS: check the work order, then approve it again." \
-    "the work order was edited after its approval."
+    "the description or the title changed after it was approved, so no plan was written from it. It’s back in $WORK_ORDER_STATUS: check the work order, then approve it again." \
+    "the work order or its title was edited after its approval."
 }
 
 # _work_order_changed: whether the description now (ticket-before.json)

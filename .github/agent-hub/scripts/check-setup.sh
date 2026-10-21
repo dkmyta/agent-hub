@@ -103,6 +103,25 @@ else
   result unverified "agent-hub environment" "couldn't be read (HTTP $code; needs admin access)"
 fi
 
+## The evals' environment (optional: only where it exists): it holds its own
+## copy of the Claude API key, and the evals workflow can be run from any
+## branch — so only the default branch's runs, or ones a reviewer approves,
+## may read it.
+if get "repos/$repo/environments/agent-hub-evals"; then
+  reviewers=$(jq -r '[.protection_rules[]? | select(.type == "required_reviewers")] | length' <<< "$body")
+  if [ "$(jq -r '.deployment_branch_policy.custom_branch_policies // false' <<< "$body")" = true ] \
+     && get "repos/$repo/environments/agent-hub-evals/deployment-branch-policies" \
+     && jq -e --arg d "$default" '[.branch_policies[] | {name, type}] == [{name: $d, type: "branch"}]' <<< "$body" > /dev/null; then
+    result verified "agent-hub-evals environment" "limited to the branch $default"
+  elif [ "${reviewers:-0}" -gt 0 ]; then
+    result verified "agent-hub-evals environment" "every run waits for a reviewer's approval"
+  else
+    result blocked "agent-hub-evals environment" "any branch's run can read its secrets (the evals' API key): limit it to the branch $default, or add required reviewers (docs/evals.md)"
+  fi
+elif [ "$code" != 404 ]; then
+  result unverified "agent-hub-evals environment" "couldn't be read (HTTP $code; needs admin access)"
+fi
+
 ## Secrets: present in the environment, none at the repository level.
 required="AGENT_HUB_JIRA_DOMAIN AGENT_HUB_JIRA_EMAIL AGENT_HUB_JIRA_API_TOKEN"
 [ "$preview" != true ] || required="$required AGENT_HUB_GITHUB_TOKEN"

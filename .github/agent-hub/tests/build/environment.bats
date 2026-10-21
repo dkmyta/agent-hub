@@ -173,3 +173,87 @@ EOF
   assert_output $'core.repositoryformatversion=0\nremote.origin.url=https://github.com/example/repo'
   [ ! -e "$BATS_TEST_TMPDIR/git-copy/hooks" ] || fail "hooks kept"
 }
+
+# 2.28.3 (review H1): an install script runs the repository's code with
+# write access to the copy, so it could rewrite what the checks and the
+# review see. Each copy is compared with its commit after its install —
+# through the hub's own git metadata and the index kept when the copy was
+# made, never the copy's .git, which the install can change too.
+hook_copy() { # <install.cjs source>: a commit with that install hook; prints build_clean_copy's result
+  printf '%s\n' "$1" > install.cjs
+  commit hook
+  rm -rf "$RUNNER_TEMP/build-git" && cp -R .git "$RUNNER_TEMP/build-git"
+  # A repository whose settings ignore file modes (2.28.3 re-check, M3).
+  [ -z "${FILEMODE_OFF:-}" ] || git config -f "$RUNNER_TEMP/build-git/config" core.filemode false
+  jq -n --arg base "$(git rev-parse HEAD)" '{base: $base}' > "$RUNNER_TEMP/build-context.json"
+  rm -rf "$RUNNER_TEMP/copy"
+  in_stage 'build_clean_copy "$(git rev-parse HEAD)" "$RUNNER_TEMP/copy"' 2>&1 && echo "copy: kept" || echo "copy: refused"
+}
+
+@test "copies: an install script that changes, removes, retypes or adds the copy's files is caught — even with the copy's .git changed too; ignored output isn't (2.28.3)" {
+  command -v npm > /dev/null && command -v node > /dev/null || skip "needs npm and node"
+  mkdir -p src && printf 'export const x = "committed";\n' > src/x.js
+  printf 'node_modules/\nbuild-output/\n' > .gitignore
+  printf '{"name": "x", "version": "1.0.0", "scripts": {"postinstall": "node install.cjs"}}\n' > package.json
+  printf '{"name": "x", "version": "1.0.0", "lockfileVersion": 3, "requires": true, "packages": {"": {"name": "x", "version": "1.0.0"}}}\n' > package-lock.json
+  # Output the repository ignores (installed packages, a build): allowed.
+  run hook_copy 'const fs = require("fs"); fs.mkdirSync("build-output", {recursive: true}); fs.writeFileSync("build-output/a", "x");'
+  assert_line "copy: kept"
+  # A tracked file rewritten.
+  run hook_copy 'require("fs").writeFileSync("src/x.js", "export const x = \"benign\";\n");'
+  assert_line "copy: refused"
+  assert_output --partial "installing its dependencies changed the repository's own files in it"
+  # Rewritten, and the copy's own index updated to match: still caught.
+  run hook_copy 'require("fs").writeFileSync("src/x.js", "export const x = \"benign\";\n"); require("child_process").execSync("git add src/x.js");'
+  assert_line "copy: refused"
+  # Removed.
+  run hook_copy 'require("fs").unlinkSync("src/x.js");'
+  assert_line "copy: refused"
+  # A file turned into a link.
+  run hook_copy 'const fs = require("fs"); fs.unlinkSync("src/x.js"); fs.symlinkSync("/etc/hosts", "src/x.js");'
+  assert_line "copy: refused"
+  # A new file that isn't ignored.
+  run hook_copy 'require("fs").writeFileSync("src/extra.js", "export const y = 1;\n");'
+  assert_line "copy: refused"
+  # Made executable — even where the repository's settings ignore modes.
+  FILEMODE_OFF=1 run hook_copy 'require("fs").chmodSync("src/x.js", 0o755);'
+  assert_line "copy: refused"
+}
+
+# 2.28.3 (review M3): the review's record always fits Jira's limit for an
+# issue property (32,768 bytes), measured in bytes — or the run stops
+# before publishing its hash.
+record_inputs() { # <summary> <title> <evidence> [count]: a review with that many such findings (40)
+  jq -n --arg s "$1" --arg t "$2" --arg e "$3" --argjson count "${4:-40}" '{status: "reviewed", head: "abc", summary: $s,
+    findings: [range(1; $count + 1) | {n: ., area: "correctness", severity: "medium", kind: "bug", within_plan: true,
+      file: "src/f\(.).js", line: ., title: $t, evidence: $e, suggestion: $e, policy: "review"}]}' > "$RUNNER_TEMP/code-review.json"
+  jq -n --arg e "$3" '{status: "kept", before: "a", after: "b", checks: [{finding: 1, verdict: "resolved", note: $e}], new_concerns: []}' > "$RUNNER_TEMP/fix.json"
+  echo '{"governance": {"manual_changes": []}}' > "$RUNNER_TEMP/contract.json"
+  echo '{"publish": false}' > "$RUNNER_TEMP/build-context.json"
+}
+@test "the review's record fits Jira's 32,768 bytes, multibyte text included, keeping each item's identity — or fails, printing no hash" {
+  local big multi
+  big=$(head -c 33000 /dev/zero | tr '\0' 's')
+  multi=$(for _ in $(seq 1 3000); do printf 'é€'; done)
+  record_inputs "$big" "$multi" "$multi"
+  run in_stage 'source "$HUB_DIR/lib/secret-scan.sh"; build_review_record "the build'"'"'s commit"'
+  assert_success
+  [[ "$output" =~ ^[0-9a-f]{64}$ ]] || fail "no hash: $output"
+  [ "$(LC_ALL=C wc -c < "$RUNNER_TEMP/review-record.json")" -le 32000 ] || fail "over the limit"
+  # Every item still identifiable and actionable: number, kind, file, line, a title.
+  run jq -c '[.review.findings[] | select(.n and .kind and .file and .line and (.title | length > 0))] | length' "$RUNNER_TEMP/review-record.json"
+  assert_output 40
+  # Every finding kept, however many: the pull request's items come from all
+  # of them (2.28.3 re-check, M4).
+  record_inputs "s" "a title" "evidence" 61
+  run in_stage 'source "$HUB_DIR/lib/secret-scan.sh"; build_review_record "x"'
+  assert_success
+  run jq '.review.findings | length' "$RUNNER_TEMP/review-record.json"
+  assert_output 61
+  # One that can't fit even trimmed: no record, no hash.
+  rm -f "$RUNNER_TEMP/review-record.json"
+  run in_stage 'source "$HUB_DIR/lib/secret-scan.sh"; REVIEW_RECORD_MAX_BYTES=500 build_review_record "x"'
+  assert_failure
+  refute_output --regexp '^[0-9a-f]{64}$'
+  [ ! -e "$RUNNER_TEMP/review-record.json" ] || fail "a record was written"
+}

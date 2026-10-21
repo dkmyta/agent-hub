@@ -137,7 +137,7 @@ _ci_failed() {
   if jq -e --arg head "$head" '.ci_fix.last.head == $head and .ci_fix.last.status == "started"' "$RECONCILE_STATE" > /dev/null; then
     jq -c '.ci_fix.last.status = "stopped"' "$RECONCILE_STATE" > "$RECONCILE_STATE.new" && mv "$RECONCILE_STATE.new" "$RECONCILE_STATE"
     _ci_person failed "required checks failed on $(_short "$head"): $names, and the CI fix started for them didn't finish (its run stopped)" \
-      "fix the failures on the branch (the hub re-checks what's pushed), or re-run the build to try again" force
+      "fix the failures on the branch and push (the hub re-checks the new commit; on this one, a CI fix isn't tried again)" force
   fi
   if jq -e --arg head "$head" '.ci_fix.last.head == $head' "$RECONCILE_STATE" > /dev/null; then
     _ci_done "a CI fix was already tried on $(_short "$head")"
@@ -149,7 +149,9 @@ _ci_failed() {
 # run's later steps — the same path as the review's fix pass (fix.sh), with
 # the failed checks as its findings. The attempt is recorded first, before
 # any Claude, so a run that stops part-way isn't repeated by the sweep. Then
-# the head is checked out and the build context says what the run is for.
+# the head is checked out and the build context says what the run is for —
+# with the target where the pull request last met it (<base>), so a target
+# that moved since is never merged by a CI fix (_reconcile_sync).
 _ci_fix_start() {
   local number=$1 head=$2 base=$3 attempt=$4
   ci_failure_details "$(cat "$RUNNER_TEMP/ci.json")" > "$RUNNER_TEMP/ci-failures.json" \
@@ -162,9 +164,12 @@ _ci_fix_start() {
     || stage_fail "Pull request #$number's description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error")), so no CI fix was started."
   cp "$RUNNER_TEMP/state.json" "$RECONCILE_STATE"
   git checkout -q --detach "$head" || stage_fail "Couldn't check out pull request #$number's head, so nothing was changed."
+  [ "$base" = "$(context .base)" ] \
+    || echo "::notice::$(context .target) moved since pull request #$number last met it; a CI fix doesn't merge it — a run a person starts does, with its review."
+
   jq --argjson number "$number" --arg head "$head" --arg base "$base" --argjson attempt "$attempt" \
       --slurpfile failures "$RUNNER_TEMP/ci-failures.json" \
-    '. + {mode: "reconcile", pr: $number, start_head: $head, previous_head: $head, base: $base, target_head: .base,
+    '. + {mode: "reconcile", pr: $number, start_head: $head, previous_head: $head, base: $base, target_head: $base,
           people_commits: 0, sync: null, ci_fix: {head: $head, attempt: $attempt, checks: [$failures[0][].name]}}' \
     "$BUILD_CONTEXT" > "$BUILD_CONTEXT.new" && mv "$BUILD_CONTEXT.new" "$BUILD_CONTEXT"
   echo "Pull request #$number: required checks failed on $(_short "$head") ($(_ci_names "$(cat "$RUNNER_TEMP/ci.json")" failed)); CI fix $attempt of $BUILD_CI_FIX_ATTEMPTS."

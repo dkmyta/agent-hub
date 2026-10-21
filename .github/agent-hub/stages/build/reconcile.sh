@@ -137,6 +137,12 @@ _reconcile_sync() {
   local from target target_head branch commits changed theirs overlap sensitive drift conflicts
   from=$(context .base) target=$(context .target) target_head=$(context .target_head) branch=$(context .branch)
   [ "$from" != "$target_head" ] || return 0
+  # An /apply or a CI fix works on the pull request as it is: a merge of
+  # the target here would be pushed with its fix, recorded and reviewed as
+  # neither (their contexts never ask for one; this keeps it so).
+  if applying || ci_fixing; then
+    return 0
+  fi
   # shellcheck source=stages/build/gates.sh
   source "$STAGE_DIR/gates.sh"
   commits=$(git rev-list --count "$from..$target_head")
@@ -251,7 +257,7 @@ reconcile_verify() {
   build_git
   [ "$(git rev-parse HEAD)" = "$(context '.sync.head // .start_head')" ] \
     || stage_fail "The checkout isn't pull request #$(context .pr)'s head, so nothing was changed."
-  _check_commit "$(context .base)" || stage_fail "$(cat "$RUNNER_TEMP/check-commit-error")"
+  _check_commit "$(context .base)" || stage_fail "$(cat "$RUNNER_TEMP/check-commit-error")" "$(cat "$RUNNER_TEMP/check-commit-detail" 2> /dev/null || true)"
   cp "$RUNNER_TEMP/check-commit.json" "$RUNNER_TEMP/verify.json"
   # A CI fix starts from a head CI failed on: the hub's own checks may fail
   # here too, which is what the fix pass works on (and Verify fix requires
@@ -305,6 +311,33 @@ reconcile_apply() {
   jq '.decisions += [.refused[] | {path, reason: "changed by a person in a path the hub never pushes (\(.reason))"}]' \
     "$RUNNER_TEMP/gates.json" > "$RUNNER_TEMP/gates.json.new" && mv "$RUNNER_TEMP/gates.json.new" "$RUNNER_TEMP/gates.json"
 
+  # A new review's record for /skip and /apply, and its hash for the state
+  # (build_review_record) — made before anything is pushed or published: one
+  # that can't be kept on the ticket stops the run here. A carried review
+  # keeps the earlier one.
+  local record=""
+  [ -s "$DECIDED" ] || echo '[]' > "$DECIDED"
+  if [ "$(jq -r '.status' "$CODE_REVIEW")" != carried ]; then
+    record=$(build_review_record "the pull request's current head (after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT"))") \
+      || stage_fail "The review's findings couldn't be kept within $TRACKER_NAME's size limit for the hub's record on the ticket, even trimmed, so nothing was changed. Retry; if it happens again, a person reviews pull request #$number instead."
+  fi
+
+  # Handed off before these commits: the hand-off was for an earlier head, so
+  # it no longer holds. The pull request goes back to draft first — before
+  # anything is pushed or recorded, so it never looks ready with a commit
+  # the hand-off didn't cover; if it can't, nothing is changed (as for an
+  # /apply). The CI gate hands it off again once the new head is eligible
+  # (the ticket stays where it is).
+  local redrafted="" pr_now
+  if jq -e --arg head "$(git rev-parse HEAD)" '.handoff != null and .handoff.head != $head' "$RECONCILE_STATE" > /dev/null; then
+    pr_now=$(gh_pr_find "$branch") || stage_fail "Couldn't read pull request #$number from GitHub, so nothing was changed."
+    if [ "$(jq -r '.draft' <<< "$pr_now")" = false ]; then
+      gh_pr_draft "$(jq -r '.node_id' <<< "$pr_now")" \
+        || stage_fail "Pull request #$number was handed off before these commits and couldn't be turned back into a draft, so nothing was changed (it would look ready for review with commits the hand-off didn't cover). Re-run the build."
+      redrafted=1
+    fi
+  fi
+
   # The sync's merge and the fix commit, if any: scanned and pushed, never
   # forced.
   [ "$(git rev-parse HEAD)" = "$start" ] || _reconcile_push "$branch" "$target" "$number"
@@ -315,13 +348,8 @@ reconcile_apply() {
   # full review that hand-off accepts only for mechanical drift — and as
   # verified: reconcile_verify ran the checks on exactly it (and a fix on
   # top was made on that verified commit). A kept fix is verified by Verify
-  # fix: it's the commit the checks passed on (above).
-  # A new review's record for /skip and /apply, and its hash for the state
-  # (build_review_record); a carried review keeps the earlier one.
-  local record=""
-  [ -s "$DECIDED" ] || echo '[]' > "$DECIDED"
-  [ "$(jq -r '.status' "$CODE_REVIEW")" = carried ] \
-    || record=$(build_review_record "the pull request's current head (after $(jq -r -L "$HUB_DIR/lib" -L "$STAGE_DIR" 'include "wording"; reconcile_after(.)' "$BUILD_CONTEXT"))")
+  # fix: it's the commit the checks passed on (above). The review's record
+  # was made before the push (above).
   jq -n -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile prev "$RECONCILE_STATE" --slurpfile gates "$RUNNER_TEMP/gates.json" \
       --slurpfile review "$CODE_REVIEW" --slurpfile fix "$FIX_RESULT" --arg version "$(cat "$HUB_DIR/VERSION")" --arg record "$record" \
       --slurpfile ctx "$BUILD_CONTEXT" --arg head "$(git rev-parse HEAD)" --slurpfile decided "$DECIDED" 'include "wording";
@@ -343,13 +371,9 @@ reconcile_apply() {
         items: (if $review[0].status == "carried" then $p.items
                 else reconcile_items($p.items; review_items($gates[0]; $review[0]; $fix[0])) | like_decided($review[0].findings; $decided[0]) end),
         totals: $gates[0].totals}' > "$RUNNER_TEMP/state.json"
-  # Handed off before these commits: the hand-off was for an earlier head, so
-  # it no longer holds — the record drops it and the pull request goes back
-  # to draft, as after an /apply; the CI gate hands it off again once the new
-  # head is eligible (the ticket stays where it is).
-  local undo_handoff=""
+  # The hand-off no longer holds (the pull request went back to draft
+  # above): the record drops it.
   if jq -e '.handoff != null and .handoff.head != .heads[-1].head' "$RUNNER_TEMP/state.json" > /dev/null; then
-    undo_handoff=1
     jq -c 'del(.handoff)' "$RUNNER_TEMP/state.json" > "$RUNNER_TEMP/state.json.new" && mv "$RUNNER_TEMP/state.json.new" "$RUNNER_TEMP/state.json"
   fi
   # The description's status section: rewritten for a new review; a carried
@@ -364,13 +388,9 @@ reconcile_apply() {
   gh_state_write "$number" "$(cat "$RUNNER_TEMP/state.json")" ${status_file:+"$status_file"} 2> "$RUNNER_TEMP/state-error" \
     || stage_fail "Pull request #$number's description couldn't be updated ($(head -n 1 "$RUNNER_TEMP/state-error"))$( [ "$(git rev-parse HEAD)" = "$start" ] || echo ", though its commits were pushed"). A person checks it."
   _reconcile_comment "$number"
-  if [ -n "$undo_handoff" ] && jq -e '.draft == false' "$RUNNER_TEMP/reconcile-pr.json" > /dev/null 2>&1; then
-    if gh_pr_draft "$(jq -r '.node_id' "$RUNNER_TEMP/reconcile-pr.json")"; then
-      echo "↩️ Back to draft: these commits came after the hand-off, so it no longer holds. The hub hands the pull request off again once every required check passes on its new head and no decision item is open." \
-        | gh_pr_comment "$number" || echo "::warning::Couldn't comment on pull request #$number."
-    else
-      echo "::warning::Couldn't turn pull request #$number back into a draft."
-    fi
+  if [ -n "$redrafted" ]; then
+    echo "↩️ Back to draft: these commits came after the hand-off, so it no longer holds. The hub hands the pull request off again once every required check passes on its new head and no decision item is open." \
+      | gh_pr_comment "$number" || echo "::warning::Couldn't comment on pull request #$number."
   fi
   _reconcile_report "$number"
   # The testing steps no longer describe the code — unless only a merge the
@@ -443,8 +463,26 @@ _reconcile_report() {
 # branch is still at the head this run started from (rejected if anyone
 # pushed to it, or wound it back, meanwhile).
 _reconcile_push() {
-  local findings rc=0
+  local findings rc=0 outcome=uncertain remote=""
   findings=$(gh_push "$1" "$2" --expect "$(context .start_head)" 2> "$RUNNER_TEMP/push-error") || rc=$?
+  # Blocked by the secret scan: never sent. Otherwise a failed push may still
+  # have landed (the remote took it, and the reply was lost): the branch is
+  # read back. At this commit, it was pushed — the run goes on as if the
+  # reply had come; still where the run started, it wasn't; anything else
+  # (or no answer) stays uncertain (an /apply's answer then says so:
+  # _commands_after_failure).
+  case "$rc" in
+    1 | 2) rm -f "$RUNNER_TEMP/apply-pushing" ;;
+    3) if remote=$(gh_branch_head "$1" 2> /dev/null) && [ -n "$remote" ]; then
+         if [ "$remote" = "$(git rev-parse HEAD)" ]; then
+           echo "::notice::The push to $1 reported a failure, but the branch is at the commit it pushed: it landed."
+           rc=0
+         elif [ "$remote" = "$(context .start_head)" ]; then
+           outcome="not pushed"
+           rm -f "$RUNNER_TEMP/apply-pushing"
+         fi
+       fi ;;
+  esac
   case "$rc" in
     0) ;;
     1) stage_fail "The secret scan found what look like secrets in the commits to push, so nothing was pushed." "Found: $(paste -sd ',' - <<< "$findings" | sed 's/,/, /g')." ;;
@@ -453,8 +491,18 @@ _reconcile_push() {
          stage_retry "a person merges $2 into $1, then re-runs the build."
          stage_fail "GitHub rejected the push to $1: the merge of $2 brings in changes to its workflows, which the build token can't push (it has no Workflows permission, by design). Nothing was pushed."
        fi
-       stage_retry "re-run the build: it starts from the new commits."
-       stage_fail "GitHub rejected the push to $1 — someone pushed to it, or moved it back, during this run — so nothing was pushed." ;;
+       if [ "$outcome" = "not pushed" ]; then
+         stage_retry "re-run the build: it starts from where the branch is."
+         stage_fail "GitHub didn't take the push to $1 (a rule refused it, or the connection failed before it arrived): the branch is still where this run started, so nothing was pushed."
+       fi
+       # The read-back couldn't establish it: the branch couldn't be read, or
+       # it's neither where the run started nor the commit it pushed (someone
+       # pushed meanwhile, or the push landed and the branch moved since).
+       stage_retry "a person checks $1 on pull request #$3 — whether this run's commit $(git rev-parse --short HEAD) is on it — then re-runs the build."
+       if [ -z "$remote" ]; then
+         stage_fail "The push to $1 failed and the branch couldn't be read back, so whether this run's commits landed is uncertain. Nothing more was changed."
+       fi
+       stage_fail "The push to $1 failed, and the branch is now at neither the commit this run started from nor the one it pushed (someone pushed to it during the run, or the push landed and the branch moved since), so whether this run's commits landed is uncertain. Nothing more was changed." ;;
   esac
 }
 

@@ -394,6 +394,8 @@ is missing.
    - the default branch requires checks, each bound to the app that posts it;
    - workflow permissions are read-only by default;
    - the pull request labels (`agent-hub`, `agent-hub-paused`) exist;
+   - the `agent-hub-evals` environment, if there is one, is limited to the
+     default branch or needs a reviewer's approval;
    - a runner with the labels is online, and Claude Code on the machine it
      runs on matches the pin;
    - on a public repository with a self-hosted runner, fork pull requests'
@@ -412,8 +414,9 @@ is missing.
 3. Create a ticket through the tracker and confirm its rule triggers a run.
 4. Optionally, **Actions → Agent hub: Evals → Run workflow** to check the agent's
    decisions in this repository (uses Claude; type `use-claude` to confirm).
-   Recommended: add required reviewers to the `agent-hub-evals` environment so
-   every eval run needs approval ([evals.md](evals.md#how-to-run-them)).
+   First limit the `agent-hub-evals` environment to the default branch (as
+   for `agent-hub`), and preferably add required reviewers, so a run from
+   another branch never gets its API key ([evals.md](evals.md#how-to-run-them)).
 
 ## 9. Local development (contributors)
 

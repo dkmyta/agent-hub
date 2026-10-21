@@ -267,7 +267,7 @@ agent_settings() {
 
 # _claude <model> <fallback> <budget> <system prompt file> <schema> <prompt> > output
 _claude() {
-  local tools allowed denied domain session temp output mode=dontAsk env=()
+  local tools allowed denied domain session temp output input mode=dontAsk env=()
   session=$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid) | tr 'A-Z' 'a-z')
   [[ "$session" =~ $SESSION_ID_PATTERN ]] || { echo "::error::Could not create a session id." >&2; exit 1; }
   echo "$session" >> "$AGENT_SESSIONS"
@@ -317,7 +317,13 @@ _claude() {
   # a pass cut off by a time limit still counts — at its whole budget.
   printf '%s\n' "$3" > "$RUNNER_TEMP/claude-pass-pending"
   output=$(mktemp "$RUNNER_TEMP/claude-output.XXXXXX")
-  env "${env[@]}" claude -p "$6" \
+  # The prompt goes on standard input, from a file only this user can read —
+  # never as an argument: Linux limits one argument to 128 KB (a review's
+  # diff can be larger), and other users of the runner can read a process's
+  # arguments, which would hold ticket text.
+  input=$(umask 077 && mktemp "$RUNNER_TEMP/claude-input.XXXXXX")
+  printf '%s' "$6" > "$input"
+  env "${env[@]}" claude -p \
     --session-id "$session" \
     --no-session-persistence \
     --restricted \
@@ -335,7 +341,8 @@ _claude() {
     --permission-mode "$mode" \
     --allowedTools "$allowed" \
     "${PLUGIN_ARGS[@]}" \
-    < /dev/null > "$output" || true
+    < "$input" > "$output" || true
+  rm -f "$input"
   jq -c --arg budget "$3" --arg pass "${CLAUDE_PASS:-pass}" '{pass: $pass, cost: (.total_cost_usd // null), budget: ($budget | tonumber)}' "$output" 2> /dev/null \
     | tail -n 1 | grep . >> "$RUNNER_TEMP/claude-passes.jsonl" \
     || jq -nc --arg budget "$3" --arg pass "${CLAUDE_PASS:-pass}" '{pass: $pass, cost: null, budget: ($budget | tonumber)}' >> "$RUNNER_TEMP/claude-passes.jsonl"

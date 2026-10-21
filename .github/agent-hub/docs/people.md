@@ -39,7 +39,10 @@ id that's never reused:
 - **D — a decision.** Something the hub won't decide for you: a change
   outside the approved plan, a removed test, the review not finishing.
   **An open D item blocks the hand-off.** Fix it (`/apply D1`) or accept it
-  as it is (`/skip D1`).
+  as it is (`/skip D1`). One on a file the hub flagged for a person — outside
+  the plan, a must-not-touch area, over a limit — is yours to change: the hub
+  never changes such a file, so `/apply` refuses it (before using Claude).
+  Change it on the branch, or `/skip` it.
 - **R — a review finding.** Advisory: it doesn't block. Fix it
   (`/apply R2`, or `/apply all` for every open R item) or `/skip R2`.
 - **C — a manual change** the plan says a person makes (a setting, a
@@ -101,7 +104,9 @@ nothing ran": remove the `agent-hub-over-cap` label, then post it again.
 ## What do I do when…
 
 - **A D item blocks the hand-off** — read it under *Items for a person*,
-  then `/apply D1` to fix it or `/skip D1` to accept it.
+  then `/apply D1` to fix it or `/skip D1` to accept it. If it's on a file
+  flagged for a person, change that file yourself (push to the branch, then
+  run the build) or `/skip` it.
 - **CI failed on the hub's commit** — the hub tries to fix it (up to two
   attempts by default) and says so. If it can't, a person fixes the cause:
   push a commit to the branch, then run the build (next item).

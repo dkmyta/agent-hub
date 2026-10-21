@@ -211,10 +211,37 @@ runs() { jq -nc --argjson r "$1" '{check_runs: $r}'; }
 }
 
 # SEC-6: a package's licence and version come from its author, through the
-# registry: one line, escaped, like every other text from outside the hub.
+# registry: one line, escaped, like every other text from outside the hub —
+# in each change's line and in the folder's summary (2.28.3, review L1),
+# checked on the whole description as the hub renders it.
 @test "the description's dependency lines: the licence and version go through the escaping, never raw" {
-  run grep -nE '\\\(\.(license|version)( //[^|)]*)?\)' "$HUB_DIR/stages/build/pr-body.jq"
-  assert_output ""
+  local d="$BATS_TEST_TMPDIR/body" hostile='Unrecognised\n![TRACK](https://example.invalid/pixel) @example <img src=x>'
+  mkdir -p "$d"
+  echo '{"structured_output": {"build": {"summary": "s", "verification": [], "tests_run": [], "review_steps": [], "decision_log": []}}}' > "$d/out.json"
+  echo '{"publish": false, "plan": {"attachment": "1", "sha256": "0123456789abcdef", "by_person": false}}' > "$d/context.json"
+  echo '{"files": [], "totals": {"files": 0, "lines": 0}, "decisions": [], "refused": []}' > "$d/gates.json"
+  echo '{"governance": {"risk": {"level": "low", "reason": "r"}, "includes": {}, "manual_changes": []}}' > "$d/contract.json"
+  echo '{"hub_version": "x", "items": [], "generation": 1}' > "$d/state.json"
+  echo '{"checks": []}' > "$d/verify.json"
+  jq -n --arg l "$(printf "$hostile")" '{min_release_age_days: 0, before: "",
+    changes: [{folder: ".", action: "add", package: "x", version_range: "1", kind: "runtime", version: "1.0.0", license: $l}],
+    folders: [{folder: ".", lockfile: {added: 1, changed: 0, removed: 0}, signatures: {verified: 1, with_provenance: 0},
+      advisories: {before: 0, after: 0, new: []}, licenses_outside: [{name: "x", version: "1.0.0", license: $l}]}]}' > "$d/deps.json"
+  echo '{}' > "$d/access.json"
+  echo '{"status": "reviewed", "head": "a", "findings": [], "summary": "ok"}' > "$d/review.json"
+  echo '{"status": "none"}' > "$d/fix.json"
+  run jq -nr -L "$HUB_DIR/lib" -L "$HUB_DIR/stages/build" -f "$HUB_DIR/stages/build/pr-body.jq" \
+    --slurpfile out "$d/out.json" --slurpfile context "$d/context.json" --slurpfile gates "$d/gates.json" \
+    --slurpfile contract "$d/contract.json" --slurpfile state "$d/state.json" --slurpfile verify "$d/verify.json" \
+    --slurpfile deps "$d/deps.json" --slurpfile access "$d/access.json" --slurpfile review "$d/review.json" \
+    --slurpfile fix "$d/fix.json" --arg ticket K-1 --arg url "" --arg run r
+  assert_success
+  # Both places it appears: escaped, on one line.
+  assert_equal "$(grep -c 'TRACK' <<< "$output")" 2
+  refute_output --partial "![TRACK]"
+  refute_output --partial " @example"
+  refute_output --partial "<img"
+  refute_line --regexp '^!\\\[TRACK'
 }
 
 @test "review policy: a security finding is a person's decision whatever its kind — never fixed automatically" {

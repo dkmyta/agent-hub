@@ -5,6 +5,70 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.28.3 — 2026-10-21
+
+Fixes from the final full review before the branch point (two independent
+reviews, combined; every finding checked against the code; each fix with a
+test).
+
+- **An /apply or a CI fix never merges a target branch that moved:** it
+  merged it and pushed the merge with its fix, recording only the fix — so a
+  merge that needs a full review (a drift-sensitive change) could be handed
+  off without one. Now it works on the pull request as it is and says the
+  target moved; a run a person starts merges it, with its review.
+- **Install scripts can't change what's checked or reviewed:** an install
+  runs the repository's code (lifecycle scripts) with write access to the
+  copy the checks, the review and the fix check use. After each install, the
+  copy is compared with its commit — every tracked file's content, type and
+  mode (whatever `core.filemode` says), none deleted, nothing new that isn't
+  ignored — through the hub's own git metadata and the index kept when the
+  copy was made, never the copy's `.git`. A copy that differs stops the run.
+- **A re-check of a handed-off pull request goes back to draft before it
+  pushes:** it pushed first and redrafted after, treating a failed redraft as
+  a warning. Now a pull request that can't go back to draft gets nothing
+  pushed or recorded (as an /apply already did).
+- **A command the run claimed is answered when the run fails:** an /apply
+  says applied (its fix was pushed before the failure), not applied, or that
+  the outcome is uncertain (the run stopped while pushing) — check the pull
+  request; a /skip whose record was being written says its outcome is
+  uncertain; never "not done" after a push. A push that reports a failure is
+  read back from the remote: one that landed (the reply was lost) carries
+  on as pushed; only one still where the run started counts as not pushed;
+  otherwise the run's failure notice, like the answer, says the outcome is
+  uncertain and to check the pull request.
+- **/apply refuses, before Claude, an item on a file flagged for a person**
+  (outside the plan, must-not-touch, over a limit) — the flag itself, a
+  finding in that file, or a review thread on it: no fix of it could be kept.
+  People change such a file themselves, or /skip it. (A closed flag — one
+  the gates no longer raise — doesn't count.)
+- **The prompt goes to Claude Code on standard input,** from a private file:
+  on Linux one argument can't pass 128 KB (a review's diff can be larger),
+  and a process's arguments are readable by the runner's other users.
+- **The CI sweep request's token is no longer on a command line** (2.28.2's
+  `request-ci` job): a private config file, as the closed-pull-request
+  handler does.
+- **A failed write never lifts the Claude cap:** the over-cap label is added
+  before the record says over the cap, so a missing label always means a
+  person removed it.
+- **The plan stage refuses an approval it can't check:** when the automation
+  account can't be identified (it accepted any approval then); and a title
+  changed after the work order's approval makes it stale, as for the build.
+- **The review's record always fits the ticket:** every text is trimmed and
+  the record measured in bytes against Jira's 32,768-byte limit for an issue
+  property, keeping every finding (no longer the first 60) with its
+  identity; one that still can't fit stops the run before anything is pushed
+  or its hash published.
+- **Smaller:** the dependency summary line in the pull request is escaped
+  like the rest (a licence string could render an image or a mention); after
+  a CI fix whose run stopped, the advice no longer suggests a re-run that does
+  nothing; package-manager configuration is matched in any letter case;
+  the setup checker checks the `agent-hub-evals` environment (limited to the
+  default branch, or reviewed) and the docs require it.
+
+**Updating:** If you use the evals workflow, limit the `agent-hub-evals`
+environment to the default branch (or add required reviewers) — the setup
+checker now reports it.
+
 ## 2.28.2 — 2026-10-21
 
 Fixes from the final live acceptance of 2.28.1 (Jira, every journey run on
