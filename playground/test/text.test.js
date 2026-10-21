@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { reverseWords, slugify, titleCase, truncate, wordCount } from "../src/text.js";
+import { reverseWords, slugify, snakeCase, titleCase, truncate, wordCount } from "../src/text.js";
 
 test("slugify lowercases and joins words with hyphens", () => {
   assert.equal(slugify("Hello, World!"), "hello-world");
@@ -68,4 +68,28 @@ test("reverseWords collapses whitespace and trims the ends", () => {
 test("reverseWords returns empty or whitespace-only text as an empty string", () => {
   assert.equal(reverseWords(""), "");
   assert.equal(reverseWords("   "), "");
+});
+
+test("snakeCase lowercases and joins words with underscores", () => {
+  assert.equal(snakeCase("Hello, World!"), "hello_world");
+  assert.equal(snakeCase("ABC def"), "abc_def");
+});
+
+test("snakeCase collapses each run of separators into one underscore", () => {
+  assert.equal(snakeCase("One  --  Two 3"), "one_two_3");
+});
+
+test("snakeCase treats accented and non-ASCII letters as separators", () => {
+  assert.equal(snakeCase("Café au lait"), "caf_au_lait");
+  assert.equal(snakeCase("Привет world"), "world");
+});
+
+test("snakeCase trims underscores from the ends", () => {
+  assert.equal(snakeCase("  __Hello__  "), "hello");
+});
+
+test("snakeCase returns an empty string for text with no letters or digits", () => {
+  assert.equal(snakeCase(""), "");
+  assert.equal(snakeCase("   "), "");
+  assert.equal(snakeCase("!?"), "");
 });

@@ -1,11 +1,12 @@
 // node src/cli.js <command> <text> | truncate <maxLength> <text>
-import { reverseWords, slugify, titleCase, truncate, wordCount } from "./text.js";
+import { reverseWords, slugify, snakeCase, titleCase, truncate, wordCount } from "./text.js";
 
 const commands = {
   slugify,
   "word-count": wordCount,
   "title-case": titleCase,
   "reverse-words": reverseWords,
+  "snake-case": snakeCase,
 };
 const [command, ...words] = process.argv.slice(2);
 

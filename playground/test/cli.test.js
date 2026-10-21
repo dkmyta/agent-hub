@@ -40,3 +40,13 @@ test("the CLI usage lists reverse-words", () => {
   assert.equal(run.status, 2);
   assert.match(run.stderr, /reverse-words/);
 });
+
+test("the CLI snake-cases text", () => {
+  assert.equal(execFileSync("node", [cli, "snake-case", "Hello, World!"], { encoding: "utf8" }), "hello_world\n");
+});
+
+test("the CLI usage lists snake-case", () => {
+  const run = spawnSync("node", [cli, "shout"], { encoding: "utf8" });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /snake-case/);
+});

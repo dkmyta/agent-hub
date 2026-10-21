@@ -39,3 +39,14 @@ export function reverseWords(text) {
   const trimmed = text.trim();
   return trimmed === "" ? "" : trimmed.split(/\s+/).reverse().join(" ");
 }
+
+/**
+ * "Hello, World!" → "hello_world"
+ * "Café au lait" → "caf_au_lait" (non-ASCII letters count as separators)
+ */
+export function snakeCase(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
