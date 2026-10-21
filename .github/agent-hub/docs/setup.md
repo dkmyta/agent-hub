@@ -95,7 +95,7 @@ use its default. (The defaults are in `lib/settings.sh` and each stage's
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `AGENT_HUB_ENABLED` | `true` | The kill switch: `false` stops every hub workflow (stages and evals) before it reaches a runner — e.g. while investigating a problem. A run already going finishes (cancel it in the Actions tab). Only admins can change repository variables |
+| `AGENT_HUB_ENABLED` | `true` | The kill switch: `false` skips every hub job (the stages, the CI sweep, the closed-pull-request handler, the evals and the sandbox check) before it reaches a runner — e.g. while investigating a problem, or to [pause the hub](runners.md#pausing-the-hub). A run already admitted finishes (cancel it in the Actions tab). Only admins can change repository variables |
 | `AGENT_HUB_TRACKER` | `jira` | Where tickets live (`trackers/<name>/`). Only `jira` exists so far |
 | `AGENT_HUB_RUNNER` | `claude-code` | What runs the agents (`lib/runners/<name>.sh`). Only `claude-code` exists so far |
 | `AGENT_HUB_RUNS_ON` | `["self-hosted", "claude"]` | Runner labels, as JSON. `["ubuntu-latest"]` for GitHub-hosted runners |

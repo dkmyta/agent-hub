@@ -514,3 +514,37 @@ STUB
   run ls -A "$BATS_TEST_TMPDIR/temp"
   assert_output ""
 }
+
+# 2.28.4: a self-hosted runner keeps its work folder between jobs, and one
+# job's leftovers — the CI sweep's sparse checkout settings — broke the next
+# (the evals' checkout lacked .github/workflows). Every job that can run on
+# the hub's runner and checks out code empties the folder first: exactly the
+# stage workflow's step, before its first checkout.
+@test "every self-hosted job that checks out code clears its work folder first — the stage workflow's step, before the checkout" {
+  run node --input-type=module -e '
+    import { readFileSync, readdirSync } from "node:fs";
+    import { parse } from "yaml";
+    const dir = process.argv[1];
+    const clean = (s) => JSON.stringify({ name: s.name, if: s.if, run: s.run });
+    const stage = parse(readFileSync(`${dir}/agent-hub-stage.yml`, "utf8"));
+    const reference = stage.jobs.stage.steps.find((s) => s.name === "Clear the work folder");
+    if (!reference) { console.log("no reference step"); process.exit(1); }
+    const checked = [];
+    for (const file of readdirSync(dir).filter((f) => /^agent-hub-.*\.yml$/.test(f)).sort()) {
+      const wf = parse(readFileSync(`${dir}/${file}`, "utf8"));
+      for (const [name, job] of Object.entries(wf.jobs)) {
+        if (!job.steps) continue;
+        const selfHosted = /AGENT_HUB_RUNS_ON|self-hosted/.test(JSON.stringify(job["runs-on"] ?? ""));
+        const first = job.steps.findIndex((s) => (s.uses ?? "").startsWith("actions/checkout@"));
+        if (!selfHosted || first < 0) continue;
+        const at = job.steps.findIndex((s) => s.name === "Clear the work folder");
+        if (at < 0) console.log(`${file} ${name}: no clean-up step`);
+        else if (at > first) console.log(`${file} ${name}: clean-up after the checkout`);
+        else if (clean(job.steps[at]) !== clean(reference)) console.log(`${file} ${name}: not the stage workflow step`);
+        checked.push(`${file}:${name}`);
+      }
+    }
+    console.log("checked " + checked.join(" "));' "$REPO_DIR/.github/workflows"
+  assert_success
+  assert_output "checked agent-hub-ci-sweep.yml:sweep agent-hub-evals.yml:evals agent-hub-sandbox-check.yml:check agent-hub-stage.yml:stage"
+}

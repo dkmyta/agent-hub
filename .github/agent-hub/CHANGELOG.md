@@ -5,6 +5,28 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.28.4 — 2026-10-21
+
+- **Every self-hosted job that checks out code empties the runner's work
+  folder first** — the evals, the sandbox check and the CI sweep, as the
+  stages already did (the same step, before the checkout). A runner keeps
+  its work folder between jobs, and the CI sweep's sparse checkout settings
+  carried into the next job there: the evals' checkout then lacked
+  `.github/workflows`, and they failed before running anything. A test checks
+  that each such job clears the folder before its first checkout.
+- **runners.md: Pausing the hub** — the kill switch (`AGENT_HUB_ENABLED`) for
+  runs that start from then on (it doesn't cancel runs already admitted:
+  let them finish or cancel them), stopping the runner, the tracker's rules
+  and the tokens; and resuming: cancel runs still queued first.
+- **Docs:** the repository's README says where v1 stands (complete for Jira,
+  maintained for fixes; the production checklist and a runner of its own
+  before real tickets); the CI sweep's trigger in the README's workflow table
+  includes a hub pull request's CI finishing (since 2.28.0).
+- **Repository:** a stray macOS `.DS_Store` removed, and ignored from now on
+  (`.gitignore`).
+
+**Updating:** Nothing.
+
 ## 2.28.3 — 2026-10-21
 
 Fixes from the final full review before the branch point (two independent

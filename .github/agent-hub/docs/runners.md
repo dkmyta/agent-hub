@@ -103,6 +103,42 @@ Things to know:
   to this repository's hub workflows on the default branch; otherwise the
   Claude API on GitHub-hosted runners (nothing kept on a machine).
 
+## Pausing the hub
+
+When you're not using the hub — between test sessions, or before handing the
+machine to other work — pause it, so nothing runs on the runner with its
+Claude login:
+
+1. **Set the repository variable `AGENT_HUB_ENABLED` to `false`.** Every hub
+   job checks it before it starts — the stages, the CI sweep, the
+   closed-pull-request handler, the evals and the sandbox check — and is
+   skipped, without needing a runner. It applies to runs that start from
+   then on: **it doesn't stop or cancel a run already admitted** (running,
+   or queued and already past that check).
+2. **Let the active runs finish, or cancel them** (Actions → the run →
+   Cancel workflow run). A cancelled stage run leaves the ticket as the
+   failure or cancellation report says.
+3. **Stop the runner**, and keep it from starting by itself (don't install
+   it as a service, or stop the service: `./svc.sh stop`).
+4. **Optionally turn off the tracker's automation rules** (Jira: the
+   project's rules), so tickets don't start runs that are only skipped — and
+   don't use the automation allowance.
+5. **Optionally shorten or revoke the build token** (and the Jira dispatch
+   token) while you're away; issue new ones when you resume
+   ([setup.md](setup.md#6-plan-for-credential-expiry)).
+
+The hub's own CI and the playground's tests run on GitHub-hosted runners and
+keep working.
+
+**To resume:** first cancel any runs still queued from before the pause
+(Actions → filter by *Queued* → Cancel workflow run, or
+`gh run list --status queued` then `gh run cancel <id>`), so nothing stale
+starts the moment the runner is back. Then start the runner from a shell
+where `claude --version` works, set `AGENT_HUB_ENABLED` back to `true` (and
+`AGENT_HUB_BUILD_ENABLED` as needed), and turn the tracker's rules back on.
+Before real tickets, run the runner as a dedicated user
+([Before running the build on real tickets](#before-running-the-build-on-real-tickets)).
+
 ## Using the Claude API
 
 1. **Create an API key** in the [Claude Console](https://console.anthropic.com)
