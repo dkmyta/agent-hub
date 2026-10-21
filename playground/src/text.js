@@ -40,7 +40,10 @@ export function reverseWords(text) {
   return trimmed === "" ? "" : trimmed.split(/\s+/).reverse().join(" ");
 }
 
-/** "Hello, World!" → "hello_world" */
+/**
+ * "Hello, World!" → "hello_world"
+ * "Café au lait" → "caf_au_lait" (non-ASCII letters count as separators)
+ */
 export function snakeCase(text) {
   return text
     .toLowerCase()
