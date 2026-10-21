@@ -17,6 +17,20 @@ setup() {
   run_scenario ready --full
 }
 
+@test "a written work order resolves this stage's earlier failure notice, never another stage's (2.28.2)" {
+  jq '.comments += [
+      {id: "305", body: {type: "doc", version: 1, content: [{type: "paragraph", content: [
+        {type: "text", text: "❌ Work order generation failed", marks: [{type: "strong"}]}, {type: "text", text: " — the ticket is in Work Order."}]}]}},
+      {id: "306", body: {type: "doc", version: 1, content: [{type: "paragraph", content: [
+        {type: "text", text: "❌ Build failed", marks: [{type: "strong"}]}, {type: "text", text: " — the ticket is in Implementation Plan Approved."}]}]}}]' \
+    "$TESTS_DIR/work-order/fixtures/comments-mixed.json" > "$BATS_TEST_TMPDIR/comments-failed.json"
+  run_scenario ready "COMMENTS_FIXTURE=$BATS_TEST_TMPDIR/comments-failed.json"
+  run jq -r 'select(.path == "/comment/305") | .body.body | [.. | .text? // empty] | join("")' "$CALLS"
+  assert_output "✅ Resolved — a later run of this stage succeeded.❌ Work order generation failed — the ticket is in Work Order."
+  run jq -r 'select(.path == "/comment/306") | .path' "$CALLS"
+  assert_output ""
+}
+
 @test "ready with no description: no Original Request comment" {
   run_scenario ready-empty-description
 }
@@ -320,12 +334,17 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
   assert_output "⛔ Claude usage cap reached — this ticket has used \$69.00 of its \$60.00 cap in 10 of its 10 runs, across every stage. A run of this stage can cost up to \$6.00, so it stopped before using Claude. To go on, a person removes the agent-hub-over-cap label — which allows another \$60.00 and 10 runs — then tries again. Run details"
 }
 
-@test "caps: still over while the label stays; removing it allows one more cap's worth" {
+@test "caps: still over while the label stays — no second ⛔ notice; removing it allows one more cap's worth" {
   run_scenario ready 'MOCK_LEDGER={"runs":10,"cost_usd":5,"over_cap":true}' 'MOCK_LABELS=["agent-hub-over-cap"]'
   run cat "$RUNNER_TEMP/trace.txt"
   assert_line "Agent: skipped"
   refute_line --partial "PUT /properties"
-  assert_line --partial "⛔ Claude usage cap reached"
+  # The notice went up when the cap was reached; it isn't posted again on
+  # each run while the label stays (2.28.2). The log still says why.
+  refute_line --partial "⛔ Claude usage cap reached"
+  run cat "$RUNNER_TEMP/log.txt"
+  assert_output --partial "PROJ-99 is at its Claude usage cap, so Claude wasn't used"
+  assert_equal "$(cat "$RUNNER_TEMP/outcome")" blocked
   run_scenario ready 'MOCK_LEDGER={"runs":10,"cost_usd":5,"over_cap":true}' 'MOCK_LABELS=["needs-human"]'
   run cat "$RUNNER_TEMP/trace.txt"
   assert_line "Agent: success"
@@ -333,6 +352,15 @@ ledger() { cat "$RUNNER_TEMP/mock-ledger.json"; }
   assert_output '{"runs":11,"over_cap":false,"lifted_runs":10,"lifted_cost_usd":5}'
   run cat "$RUNNER_TEMP/log.txt"
   assert_output --partial "label was removed from PROJ-99, so its caps allow another 10 run(s) and \$60.00."
+}
+
+@test "caps: lifted, then reached again — a fresh ⛔ notice (2.28.2)" {
+  # The label was removed (the cap lifted at 10 runs), and 10 more runs since.
+  run_scenario ready 'MOCK_LEDGER={"runs":20,"cost_usd":8,"over_cap":false,"lifted_runs":10,"lifted_cost_usd":5}' 'MOCK_LABELS=["needs-human"]'
+  run cat "$RUNNER_TEMP/trace.txt"
+  assert_line "Agent: skipped"
+  assert_line --partial "POST /comment — comment: ⛔ Claude usage cap reached"
+  assert_equal "$(jq -c '.over_cap' <<< "$(ledger)")" true
 }
 
 @test "caps: the label can't be read, or the ledger can't be: Claude isn't used, and the cap is never lifted by mistake" {

@@ -1,7 +1,7 @@
 # Target moves: a conflict
 
 Replaces the README's whole `src/text.js` list item (three lines), which
-the reverse-words build also changes, so merging the target into the pull
+the ticket's build also changes, so merging the target into the pull
 request conflicts.
 
 ```sh

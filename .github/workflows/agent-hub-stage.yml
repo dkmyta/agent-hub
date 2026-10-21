@@ -58,6 +58,10 @@ on:
         required: false
         type: string
         default: ""
+    outputs:
+      request-ci:
+        description: The build's items changed on a command, so the caller asks for the CI sweep (true), which wakes the CI gate
+        value: ${{ jobs.stage.outputs.request-ci }}
 
 # The workflow's own token reads only: the repository, and (for the build's
 # CI gate and CI fixes) check runs, commit statuses and CI jobs' logs, which
@@ -88,6 +92,8 @@ jobs:
     # slow step fails (and is reported on the ticket) instead of the whole job
     # being cancelled.
     timeout-minutes: ${{ inputs.job-minutes }}
+    outputs:
+      request-ci: ${{ steps.start.outputs.request-ci }}
     env:
       # Claude Code doesn't update itself during a run: the version is the
       # runner's (and, for the build, the pinned one; docs/runners.md).

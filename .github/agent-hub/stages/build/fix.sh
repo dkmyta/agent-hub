@@ -35,6 +35,15 @@ _fix_record() {
   echo "**Fix pass:** $1 — $2." >> "$GITHUB_STEP_SUMMARY"
 }
 
+# _fix_said <findings with the fix pass's words>: what the fix pass said
+# about each finding — what it tried, or why it left it — kept on a fix that
+# wasn't kept, for the answer to an /apply. None counts as fixed, whatever it
+# said: nothing of it was kept.
+_fix_said() {
+  jq --argjson f "$1" '.fixes = [$f[] | {finding: .n, fixed: false, what}]' "$FIX_RESULT" > "$FIX_RESULT.new" \
+    && mv "$FIX_RESULT.new" "$FIX_RESULT"
+}
+
 # _numbered_findings <findings JSON>: the findings, for a prompt.
 _numbered_findings() {
   jq -r '.[] | "\(.n). [\(.severity) \(.kind)] \(.title)\(if .file != "" then " — \(.file)\(if .line then ":\(.line)" else "" end)" else "" end)\n   Evidence: \(.evidence)\n   Suggested fix: \(.suggestion)"
@@ -96,6 +105,7 @@ step_fix() {
   _fix_diff "$head" > "$RUNNER_TEMP/fix.diff" || { _fix_record failed "the fix pass's changes couldn't be listed" "$head"; return 0; }
   if [ ! -s "$RUNNER_TEMP/fix.diff" ]; then
     _fix_record failed "the fix pass changed nothing" "$head"
+    _fix_said "$findings"
     return 0
   fi
 
@@ -106,6 +116,7 @@ step_fix() {
   if [ "$rc" != 0 ]; then
     [ "$rc" != 2 ] || _discard_fix_artifacts
     _fix_record "$([ "$rc" = 2 ] && echo dropped || echo failed)" "$(head -n 1 "$RUNNER_TEMP/fix-commit-error")" "$head"
+    _fix_said "$findings"
     return 0
   fi
   # Recorded at once: if this step stops before the check finishes, Apply
@@ -119,7 +130,8 @@ step_fix() {
     "$(cat "$RUNNER_TEMP/ticket.md")" "$(_numbered_findings "$findings")" "$diff")
   if ! build_clean_copy "$after" "$RUNNER_TEMP/fix-check-copy" 2> "$RUNNER_TEMP/fix-copy-error"; then
     _drop_candidate "$head"
-    _fix_record failed "a clean copy of the fix couldn't be made for its check ($(head -n 1 "$RUNNER_TEMP/fix-copy-error"))" "$head"
+    _fix_record dropped "a clean copy of the fix couldn't be made for its check ($(head -n 1 "$RUNNER_TEMP/fix-copy-error"))" "$head"
+    _fix_said "$findings"
     return 0
   fi
   (cd "$RUNNER_TEMP/fix-check-copy" && agent_pass review "$BUILD_FIX_MODEL" "$BUILD_FIX_FALLBACK_MODEL" "$BUILD_FIX_CHECK_MAX_BUDGET_USD" \
@@ -131,7 +143,8 @@ step_fix() {
        and ([.structured_output.new_concerns[].file | select(. != "" and (startswith("/") or test("(^|/)\\.\\.(/|$)")))] == [])' \
        "$check" > /dev/null 2>&1; then
     _drop_candidate "$head"
-    _fix_record failed "the fix check returned no usable result, so the fixes weren't kept" "$head"
+    _fix_record dropped "the fix check returned no usable result, so the fixes weren't kept" "$head"
+    _fix_said "$findings"
     jq -c '{is_error, subtype, errors}' "$check" 2> /dev/null || true
     return 0
   fi

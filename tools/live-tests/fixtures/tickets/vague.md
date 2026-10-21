@@ -12,4 +12,4 @@ A request the work-order stage should send back for details.
 | Source / Email Thread | |
 
 **Details to add later** (journey 1, as a `/revise` comment): the request in
-[reverse-words.md](reverse-words.md).
+[camel-case.md](camel-case.md).

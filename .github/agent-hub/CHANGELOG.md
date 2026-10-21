@@ -5,6 +5,57 @@ what a repository has to do when updating to it, under **Updating**
 ("Nothing" when it's just a file update). How to update:
 [docs/updating.md](docs/updating.md).
 
+## 2.28.2 — 2026-10-21
+
+Fixes from the final live acceptance of 2.28.1 (Jira, every journey run on
+one ticket): what people are told, and two setup steps.
+
+- **An `/apply` stopped by the Claude cap isn't lost:** it was claimed when
+  read and then never answered or run. It's now answered "not done —
+  nothing ran: … over its Claude usage cap … Remove the
+  `agent-hub-over-cap` label, then post the command again".
+- **`/apply` answers say what happened to each item, first:** *applied*,
+  *unresolved* (a fix kept, but its check found the item unresolved),
+  *dropped* (a fix made but not kept — the reason follows, and what it had
+  tried is marked as not applied) or *unchanged* (no fix made — the fix
+  pass's own reason, e.g. that the code is outside the plan). A dropped fix
+  never reads as done. A fix whose check or clean copy failed is now
+  recorded as dropped (it was made, then discarded), not failed. The
+  ticket's record of each `/apply` keeps every item's outcome.
+- **A hand-off right after a `/skip`:** when a command changes the items,
+  the build workflow asks for the CI sweep (a job of its own, the only one
+  there that can start a workflow), so a pull request the items were
+  holding back is handed off without waiting for the next scheduled sweep.
+  The CI gate makes all its usual checks; the command bypasses none.
+- **One ⛔ cap notice:** posted when the ticket reaches its cap, not again
+  on each run while the `agent-hub-over-cap` label stays; reaching the cap
+  again after the label was removed posts a fresh one.
+- **A stage's earlier ❌ failure notice is resolved** once a later run of
+  the same stage succeeds (the work order and the plan; the build's stays
+  as it is).
+- **Wording:** "Claude Code wasn't found on the runner, or didn't answer"
+  when `claude` isn't on the runner's `PATH` (it said the version had no
+  restricted mode); a send-back says "flagged by Claude (work order)" or
+  "(implementation plan)" — no review had run; a re-review is told which
+  commits people pushed (their ids only), so it doesn't credit the build
+  with them.
+- **Setup:** create the `agent-hub` and `agent-hub-paused` labels (GitHub
+  adds a label only once it exists — without the pause label nobody can
+  pause a pull request); `check-setup.sh` checks both. runners.md: start
+  the runner from a shell where `claude --version` works (nvm).
+- **Live-test runbook** (`tools/live-tests`): a `camel-case` ticket fixture
+  replaces reverse-words (on main now), with a check-main-first note;
+  journey 1's plan change request is one that's true of the code; journey 3
+  expects D items for the person's out-of-plan commit, an `/apply` of one
+  answered unchanged or dropped, and its `/apply comments` on an in-plan
+  line; measured costs and the run that verified them.
+
+**Updating:** Create the two pull request labels if they're missing
+(`gh label create agent-hub && gh label create agent-hub-paused`; the setup
+checker says). The build workflow has a new job, `request-ci`, which asks
+for the CI sweep with `actions: write` — the same permission the sweep
+itself has.
+
 ## 2.28.1 — 2026-10-18
 
 Fixes from the full review before the branch point (two reviews, combined;

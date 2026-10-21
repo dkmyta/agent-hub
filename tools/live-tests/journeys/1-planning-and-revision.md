@@ -8,8 +8,8 @@ and revisions. It ends **before** the build, at a plan ready to approve;
 |---|---|
 | Covers | Routing; work order: needs details, details in a comment, a change request; plan: written, a change request, a research question |
 | Mocks already cover | Every branch of both stages (`tests/work-order/`, `tests/implementation-plan/`); live adds the tracker's rules and permissions, real model output |
-| Estimated cost | About $1–2.50 of Claude: one unreviewed needs-details draft, a work order, a work-order revision, a plan, a plan revision. 8–12 tracker automation runs |
-| Trackers verified | — (written 2026-10-15, hub 2.24.0) |
+| Estimated cost | About $1–2.50 of Claude (measured: $2.67, with a run sent back for clarification): one unreviewed needs-details draft, a work order, a work-order revision, a plan, a plan revision. 8–12 tracker automation runs |
+| Trackers verified | Jira, 2026-10-18 to 10-21 (hub 2.28.1, AGENTHUB-62) — written 2026-10-15, hub 2.24.0 |
 
 ## Before you start
 
@@ -39,7 +39,7 @@ and revisions. It ends **before** the build, at a plan ready to approve;
 - `run` conclusion success; its summary shows the Claude cost.
 
 **3. Details in a comment.** `comment` `/revise` followed by the request text
-from [reverse-words](../fixtures/tickets/reverse-words.md).
+from [camel-case](../fixtures/tickets/camel-case.md).
 
 - `status` Work Order; a work order in the description, topped by
   "Expert review: …".
@@ -47,7 +47,7 @@ from [reverse-words](../fixtures/tickets/reverse-words.md).
 - `labels` `needs-human`, not `needs-details`.
 
 **4. A work-order change request.** `comment` `/revise Add an acceptance
-criterion: reversing an empty text returns an empty text.`
+criterion: a text of only spaces returns an empty text.`
 
 - While it runs: `comment "⏳ Revising work order"`, no `needs-human`.
 - Then: `section` Acceptance Criteria has the new criterion; the other
@@ -61,7 +61,10 @@ criterion: reversing an empty text returns an empty text.`
   under Delivery → Implementation Plan; `needs-human`.
 
 **6. A plan change request.** `comment` `/revise Add a manual check that
-"node src/cli.js reverse-words" with no text prints the usage.`
+"node src/cli.js camel-case "hello big world"" prints helloBigWorld.` (A
+request must be true of the code: one that isn't — e.g. that the command
+with no text prints the usage, when every command prints an empty line —
+is rightly asked about instead of planned.)
 
 - `status` still Implementation Plan; a new `plan file` with that change and
   the rest unchanged (the hub's previous file replaced); a 🔁 comment; your

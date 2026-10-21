@@ -47,7 +47,9 @@ id that's never reused:
 
 Statuses: **open**, **fixed** ("fixed in `<commit>`, checked" — by the hub's
 fix pass or an `/apply`), **skipped** or **accepted** (by an approver, who
-and when kept on the ticket), **closed** (a later change resolved it).
+and when kept on the ticket), **closed** (a later change resolved it, or a
+later review replaced the one that raised it — who accepted or skipped it
+stays on the ticket).
 
 **After new commits, the hub reviews the code again.** Since 2.28.0 the
 review is told what approvers already skipped or accepted, so it doesn't
@@ -72,6 +74,15 @@ reason can go in a following paragraph, for people.
 Every command is answered once, on the ticket: the comment is marked ✅
 *Resolved* with what was done (or why not), struck through so it isn't read
 again. Combine them: `/apply R2 comments`.
+
+An `/apply` answer names each item's outcome first: **applied** (fixed and
+checked), **unresolved** (a fix was kept, but its check didn't find this
+item resolved), **dropped** (a fix was made but not kept — the reason
+follows; nothing changed) or **unchanged** (no fix was made — the fix pass's
+own reason follows). After a `/skip`, the hub asks for its CI check at once,
+so a pull request the items were holding back is handed off without waiting.
+A command the ticket's Claude usage cap stopped is answered "not done —
+nothing ran": remove the `agent-hub-over-cap` label, then post it again.
 
 ## What the hub's comments mean
 

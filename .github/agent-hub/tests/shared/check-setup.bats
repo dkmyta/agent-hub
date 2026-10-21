@@ -53,6 +53,8 @@ good_setup() {
   gh_answer "$r/rules/branches/main" '[]'
   gh_answer "$r/actions/permissions/workflow" '{"default_workflow_permissions": "read", "can_approve_pull_request_reviews": false}'
   gh_answer "$r/actions/runners?per_page=100" '{"runners": [{"name": "mac", "status": "online", "labels": [{"name": "self-hosted"}, {"name": "claude"}]}]}'
+  gh_answer "$r/labels/agent-hub" '{"name": "agent-hub"}'
+  gh_answer "$r/labels/agent-hub-paused" '{"name": "agent-hub-paused"}'
   jira_answer myself '{"displayName": "Agent Hub Bot"}'
   jira_answer project/PROJ/statuses '[{"name": "Task", "statuses": [{"name": "Intake"}, {"name": "Work Order"}, {"name": "Work Order Approved"}, {"name": "Implementation Plan"}, {"name": "Implementation Plan Approved"}, {"name": "Ready for Review"}, {"name": "Approved"}, {"name": "Done"}]}]'
   jira_answer "group/member?groupname=agent-hub-approvers&maxResults=1" '{"total": 2}'
@@ -67,6 +69,7 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
   assert_line "verified    secrets — 4 required, in the environment"
   assert_line "verified    required checks — Agent hub: Test"
   assert_line "verified    runner — online: mac"
+  assert_line "verified    pull request labels — agent-hub, agent-hub-paused"
   assert_line "verified    fork pull requests — every outside contributor's workflow runs wait for approval"
   assert_line "verified    Jira credentials — they sign in as Agent Hub Bot — the service account, not you?"
   assert_line "verified    Jira statuses — PROJ's Task has all 8 of the hub's statuses"
@@ -75,7 +78,7 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
   # no install record, and the automation rules aren't read.
   assert_line --partial "unverified  hub files — no install record"
   assert_line --partial "unverified  Jira automation rules — not checked here"
-  assert_line "14 verified, 2 unverified, 0 blocked."
+  assert_line "15 verified, 2 unverified, 0 blocked."
   # Reads only, and the token goes to curl in a file, not its arguments.
   run grep -vE '^(gh api -X GET |curl -sS -K )' "$CALLS_LOG"
   assert_output ""
@@ -283,4 +286,19 @@ check() { run "$CHECK" --repo o/r --jira-project PROJ "$@" < /dev/null; }
   run .github/agent-hub/scripts/check-setup.sh --repo o/r --no-jira < /dev/null
   assert_failure
   assert_line --partial "blocked     hub files — changed since installation:"
+}
+
+@test "check-setup: the pull request labels — the pause label missing; the names set in variables; not readable (2.28.2)" {
+  rm "$GH_FIX/repos_o_r_labels_agent_hub_paused.json"
+  check
+  assert_failure
+  assert_line "blocked     pull request labels — agent-hub-paused: not in the repository — create them (gh label create <name>; docs/setup.md)"
+  gh_answer "repos/o/r/actions/variables?per_page=100" '{"variables": [{"name": "AGENT_HUB_BUILD_LABEL", "value": "hub"}, {"name": "AGENT_HUB_BUILD_PAUSED_LABEL", "value": "hub paused"}]}'
+  gh_answer repos/o/r/labels/hub '{"name": "hub"}'
+  gh_answer repos/o/r/labels/hub%20paused '{"name": "hub paused"}'
+  check
+  assert_line "verified    pull request labels — hub, hub paused"
+  gh_fails repos/o/r/labels/hub 403
+  check
+  assert_line "unverified  pull request labels — couldn't be read (HTTP 403)"
 }

@@ -189,6 +189,20 @@ else
   result unverified "workflow permissions" "couldn't be read (HTTP $code; needs admin access)"
 fi
 
+## The pull request labels: GitHub adds a label only once it exists, so
+## without the pause label nobody can pause one of the hub's pull requests.
+missing="" labels_read=true
+build_label=$(var AGENT_HUB_BUILD_LABEL) paused_label=$(var AGENT_HUB_BUILD_PAUSED_LABEL)
+build_label=${build_label:-agent-hub} paused_label=${paused_label:-agent-hub-paused}
+for label in "$build_label" "$paused_label"; do
+  if ! get "repos/$repo/labels/$(jq -rn --arg l "$label" '$l | @uri')"; then
+    if [ "$code" = 404 ]; then missing+="${missing:+, }$label"; else labels_read=false; fi
+  fi
+done
+if [ -n "$missing" ]; then result blocked "pull request labels" "$missing: not in the repository — create them (gh label create <name>; docs/setup.md)"
+elif [ "$labels_read" = true ]; then result verified "pull request labels" "$build_label, $paused_label"
+else result unverified "pull request labels" "couldn't be read (HTTP $code)"; fi
+
 ## The runner.
 labels=$(jq -r 'join(", ")' <<< "$runs_on")
 if ! jq -e 'index("self-hosted")' <<< "$runs_on" > /dev/null; then

@@ -12,8 +12,8 @@ hand-off (step 4) and before the merge (step 5)**, then finish journey 2.
 |---|---|
 | Covers | A person's commit undoing the hand-off and being reviewed; `/skip`; two queued `/apply`; `/apply comments`; a paused pull request; mechanical drift, semantic drift, a conflict; hand-off again |
 | Mocks already cover | Every path (`tests/build/`); live adds who the tracker says commented, the tracker's comment edits, GitHub's review threads and permissions, real merges |
-| Estimated cost | About $2–5 of Claude: three or four reviews of new commits, two or three `/apply` fixes. 10–15 tracker automation runs |
-| Trackers verified | — (written 2026-10-15, hub 2.24.0) |
+| Estimated cost | About $1–3 of Claude (measured: $1.06): three or four reviews of new commits, two or three `/apply` fixes. 10–15 tracker automation runs |
+| Trackers verified | Jira, 2026-10-18 to 10-21 (hub 2.28.1, AGENTHUB-62) — written 2026-10-15, hub 2.24.0 |
 
 ## Before you start
 
@@ -33,8 +33,9 @@ on the pull request's branch, then `start build`.
   `status` stays Ready for Review.
 - The record lists your commit as a person's, checked on exactly that
   commit, and a new review of it.
-- Items for the planted bug and the docs slip (record their ids and
-  wording).
+- D items for the out-of-plan file, the planted bug and the docs slip
+  (record their ids and wording): out-of-plan code is a person's decision,
+  so none is an R item.
 
 **2. A paused pull request.** Add the `agent-hub-paused` label to the pull
 request, then `comment` `/skip <the docs slip's id>`.
@@ -46,17 +47,22 @@ request, then `comment` `/skip <the docs slip's id>`.
 `comment` `/apply <the bug's id>`, then `comment` `/apply <the docs slip's id>`.
 
 - Two build runs, one after the other (never in parallel).
-- The first applies the bug's fix: a `kind: fix` head verified on its own
-  commit; the item closed as fixed; that command answered on the ticket
-  with the commit.
+- The first handles only its own command. The bug is in a file outside the
+  plan, so nothing is applied: the answer leads with **unchanged** (the fix
+  pass's reason) or **dropped** (a fix made but not kept, and why) — never
+  as if done; the item stays open.
 - The second command isn't touched by the first run (not claimed, not
   answered) and is handled by the second run the same way.
 - Each command answered exactly once; the `hub records` list both as
-  handled.
+  handled, with each item's outcome.
+- (If the ticket is at its Claude cap, each is answered "not done — nothing
+  ran": remove `agent-hub-over-cap`, then post them again.)
 
 **4. A reviewer's comment.** On the pull request, a person with write
-access adds a review comment on a line of `initials.js` (e.g. "use `const`").
-Then `comment` `/apply comments`.
+access adds a review comment on a line **the build changed, inside the
+plan** — e.g. on the new helper's comment in `playground/src/text.js`: "add
+a second example". (Not on `initials.js`: that's outside the plan, so it
+wouldn't be applied.) Then `comment` `/apply comments`.
 
 - The fix lands; the thread gets a reply with the commit and is resolved;
   the command is answered on the ticket.
@@ -68,6 +74,9 @@ Then `comment` `/apply comments`.
 
 - No Claude; the items closed as skipped (a decision as accepted), on the
   pull request and in the `hub records` with who and when.
+- With nothing else open, the build asks for the CI sweep (2.28.2): the CI
+  gate runs and hands the pull request off, without waiting for the
+  schedule.
 
 **5b. The build turned off (2.28.1).** Set the repository variable
 `AGENT_HUB_BUILD_ENABLED` to `false`, `comment` `/skip <an open id>` (or, if
@@ -94,7 +103,9 @@ on main the same way, then `start build`.
   commit.
 - The items skipped in step 5 aren't raised again as new items (2.28.0);
   any new one on the same file and kind says "like <id>, skipped by an
-  approver". The ticket's Testing Instructions start with a note that the
+  approver". The earlier review's items now show as **closed** (the new
+  review replaced the one that raised them); who accepted or skipped them
+  stays in the `hub records`. The ticket's Testing Instructions start with a note that the
   code changed after they were written.
 
 **8. A conflict.** Put [conflict](../fixtures/target-moves/conflict.md)

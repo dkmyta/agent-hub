@@ -117,6 +117,16 @@ arg() { # value passed to the stub after flag $1
   assert_output --partial "has no restricted mode, which keeps the agents inside the repository"
 }
 
+@test "a runner where claude isn't found (or prints nothing) says so, not that it lacks restricted mode (2.28.2)" {
+  export CLAUDE_NO_HELP=1
+  claude_step ready.json
+  assert_failure
+  [ ! -e "$RUNNER_TEMP/claude-args.txt" ]
+  run cat "$RUNNER_TEMP/failure-reason"
+  assert_output --partial "Claude Code wasn't found on the runner, or didn't answer"
+  refute_output --partial "restricted mode"
+}
+
 # Security: Claude Code's session files on the runner (its temp folder, which
 # agents can read, and session records) must not outlive the job, or a later
 # run could read this ticket's content.

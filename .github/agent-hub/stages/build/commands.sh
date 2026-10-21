@@ -124,6 +124,11 @@ build_command() {
   tracker_set_property agent-hub-items < <(tracker_property agent-hub-items | jq -c --slurpfile log "$RUNNER_TEMP/command-log.jsonl" '.log = (((.log // []) + $log)[-100:])') \
     || echo "::warning::Couldn't keep who changed which items on $TICKET_KEY."
   [ ! -s "$RUNNER_TEMP/apply-request.json" ] || return 0
+  # The CI gate isn't run from here: the workflow asks for the CI sweep
+  # (agent-hub-build.yml, request-ci), which wakes it for this head with every
+  # check it always makes — so a hand-off the items were holding back
+  # doesn't wait for the next scheduled sweep.
+  echo "request-ci=true" >> "$GITHUB_OUTPUT"
   _command_end revised "items changed on pull request #$number: $(jq -r -s '[.[] | "\(.id) \(.status)"] | join(", ")' "$RUNNER_TEMP/command-log.jsonl")"
 }
 
@@ -256,6 +261,16 @@ _command_refuse_all() {
     _command_reply "$(jq -r '.id' <<< "$cmd")" "not done: $2"
   done <<< "$1"
   _command_end "no change needed" "$2"
+}
+
+# _apply_capped: an accepted /apply whose run stopped at the ticket's Claude
+# cap (stage_check_caps, before Claude). It was claimed when it was read, so
+# it's answered now — saying nothing ran — or it would never run, and no one
+# would know to post it again.
+_apply_capped() {
+  # Answered only as the hub read it (_command_reply).
+  cp "$RUNNER_TEMP/command-comments.json" "$RUNNER_TEMP/comments-seen.json"
+  _command_reply "$(context .apply.comment)" "not done — nothing ran: $TICKET_KEY is over its Claude usage cap, so the run stopped before Claude. Remove the $OVER_CAP_LABEL label, then post the command again"
 }
 
 # _command_end <outcome> <why>: the run ends here.
@@ -409,12 +424,18 @@ apply_fix_apply() {
     _reconcile_push "$branch" "$target" "$number"
     kept=true
   fi
-  # Each source's result: applied (kept, and the fix check found it
-  # resolved) or not, with what the fix pass said.
+  # Each source's result, with what the fix pass said about it: applied
+  # (kept, and the fix check found it resolved); unresolved (kept, but not
+  # found resolved); dropped (a fix was made but not kept — never to read as
+  # done); unchanged (no fix was made).
   jq -n --slurpfile fix "$FIX_RESULT" --argjson kept "$kept" --argjson req "$(context '.apply')" '
     [$req.sources[] | .n as $n
-     | . + {applied: ($kept and any($fix[0].checks[]?; .finding == $n and .verdict == "resolved")),
-            what: ((first($fix[0].fixes[]? | select(.finding == $n)) | .what) // ($fix[0].reason // "not attempted"))}]' \
+     | ($kept and any($fix[0].checks[]?; .finding == $n and .verdict == "resolved")) as $applied
+     | . + {applied: $applied,
+            outcome: (if $applied then "applied" elif $kept then "unresolved"
+                      elif $fix[0].status == "dropped" then "dropped" else "unchanged" end),
+            reason: ($fix[0].reason // ""),
+            what: ((first($fix[0].fixes[]? | select(.finding == $n)) | .what) // "")}]' \
     > "$RUNNER_TEMP/apply-results.json"
   jq -c -L "$HUB_DIR/lib" -L "$STAGE_DIR" --slurpfile results "$RUNNER_TEMP/apply-results.json" --arg version "$(cat "$HUB_DIR/VERSION")" \
       --arg after "$after" --argjson kept "$kept" --argjson req "$(context '.apply')" --slurpfile fix "$FIX_RESULT" 'include "wording";
@@ -476,13 +497,19 @@ apply_fix_apply() {
         "; the fix check raised " + ([$new | to_entries[] | "\(.value.id) (\(.value.severity) \(.value.kind | gsub("-"; " ")): \($c[.key].title // "see the run"))"] | join(", "))
       end' "$RUNNER_TEMP/state.json")
   _command_reply "$(context .apply.comment)" "$(jq -r --argjson kept "$kept" --arg after "${after:0:7}" --argjson req "$(context '.apply')" '
+    def said: if . == "" then "" else " The fix pass said: \(.)" end;
     (if $kept then "applied in \($after): " else "nothing applied: " end)
-    + ([.[] | "\(.item // "a review thread") \(if .applied then "fixed" else "not fixed" end) — \(.what)"] | join("; "))
+    + ([.[] | "\(.item // "a review thread") \(.outcome) — " + (
+        if .outcome == "applied" then (if .what == "" then "fixed, and the fix check found it resolved" else .what end)
+        elif .outcome == "unresolved" then "the fix was kept, but the fix check found this unresolved." + (.what | said)
+        elif .outcome == "dropped" then "a fix was made but not kept, so nothing changed: \(.reason)." + (.what | if . == "" then "" else " What it had tried (not applied): \(.)" end)
+        else (if .what != "" then .what else (if .reason == "" then "not attempted" else .reason end) end) end)]
+       | join("; "))
     + (if $req.refused != "" then "; not applied: \($req.refused)" else "" end)' "$RUNNER_TEMP/apply-results.json")$raised"
   tracker_set_property agent-hub-items < <(tracker_property agent-hub-items | jq -c --argjson req "$(context '.apply')" \
       --slurpfile results "$RUNNER_TEMP/apply-results.json" --arg after "$after" --argjson kept "$kept" \
       '.log = ((.log // []) + [{apply: $req.comment, by: $req.by, by_name: $req.by_name, head: $req.head,
-         after: (if $kept then $after else null end), results: [$results[0][] | {item, thread, applied}], at: (now | todate)}])[-100:]') \
+         after: (if $kept then $after else null end), results: [$results[0][] | {item, thread, applied, outcome}], at: (now | todate)}])[-100:]') \
     || echo "::warning::Couldn't keep who applied what on $TICKET_KEY."
   echo "[$TICKET_KEY]($TICKET_URL): /apply on pull request #$number — $(jq '[.[] | select(.applied)] | length' "$RUNNER_TEMP/apply-results.json") of $(jq length "$RUNNER_TEMP/apply-results.json") applied." >> "$GITHUB_STEP_SUMMARY"
   if [ "$kept" = true ]; then stage_outcome revised; else stage_outcome "no change needed"; fi

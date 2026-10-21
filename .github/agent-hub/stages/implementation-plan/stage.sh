@@ -403,6 +403,7 @@ step_apply() {
   RESOLVED=$(stage_resolve_comments "$RUNNER_TEMP/comments.json" \
     "the questions were answered and the implementation plan was written." "$NEEDS_CLARIFICATION_TITLE")
   REVISIONS=$(stage_resolve_revisions "$RUNNER_TEMP/comments.json")
+  stage_resolve_failures "$RUNNER_TEMP/comments.json"
 
   echo "Implementation plan $([ "$MODE" = revision ] && echo revised || echo written) on [$TICKET_KEY]($TICKET_URL), in $PLAN_STATUS; resolved $RESOLVED clarification comment(s) and $REVISIONS change request(s)." >> "$GITHUB_STEP_SUMMARY"
   stage_outcome "$(stage_written_outcome "$MODE")"
@@ -414,7 +415,7 @@ step_return() {
   TRANSITION_ID=$(stage_transition_id "$WORK_ORDER_STATUS")
 
   jq -L "$HUB_DIR/lib" --arg title "$NEEDS_CLARIFICATION_TITLE" --arg message "$NEEDS_CLARIFICATION_MESSAGE" 'include "adf";
-    doc([para([strong($title), text(" — flagged by Claude (implementation plan review).")]),
+    doc([para([strong($title), text(" — flagged by Claude (implementation plan).")]),
          para($message),
          bullets([.structured_output.questions[]
            | [strong(.question), text(" Why it matters: \(.why) Best answered by: \(.who).")]])])' \

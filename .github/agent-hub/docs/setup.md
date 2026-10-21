@@ -13,7 +13,7 @@ the hub needs editing: each repository supplies its own **runner**,
 | [1. Add the files](#1-add-the-files) | the hub's files are unchanged since installation |
 | [2. Set up a runner](#2-set-up-a-runner) | a runner with the labels is online; Claude Code matches the pin (on the runner's machine); fork pull requests wait for approval (public repository) |
 | [3. Add secrets](#3-add-secrets) | the `agent-hub` environment, limited to the default branch, holds the required secrets; none at the repository level |
-| [4. Set variables](#4-set-variables-only-what-differs-from-the-defaults), and the repository settings there | the variable names; required checks bound to their apps; read-only workflow permissions |
+| [4. Set variables](#4-set-variables-only-what-differs-from-the-defaults), and the repository settings there | the variable names; required checks bound to their apps; read-only workflow permissions; the pull request labels |
 | [5. Set up your tracker](#5-set-up-your-tracker) | the service account's credentials, the status names and the approvers group (the rules aren't checked: compare them with [jira.md](jira.md)) |
 | [6. Plan for credential expiry](#6-plan-for-credential-expiry) | — (dates in a calendar) |
 | [7. Extend the stages](#7-optionally-extend-the-stages-for-your-codebase) (optional) | — |
@@ -237,6 +237,13 @@ saying which:
   `latest`), matching the runner's Claude Code on a self-hosted runner;
 - the build token (`AGENT_HUB_GITHUB_TOKEN`), below.
 
+**The pull request labels**: create `agent-hub` and `agent-hub-paused` (or
+the names set in `AGENT_HUB_BUILD_LABEL` and `AGENT_HUB_BUILD_PAUSED_LABEL`)
+under Issues → Labels, or with
+`gh label create agent-hub && gh label create agent-hub-paused`. GitHub adds
+a label to a pull request only once it exists in the repository: without
+`agent-hub-paused`, nobody can pause one of the hub's pull requests.
+
 ### The build token and branch protection
 
 The build pushes, opens pull
@@ -386,6 +393,7 @@ is missing.
      Claude Code pin is exact once the build is on;
    - the default branch requires checks, each bound to the app that posts it;
    - workflow permissions are read-only by default;
+   - the pull request labels (`agent-hub`, `agent-hub-paused`) exist;
    - a runner with the labels is online, and Claude Code on the machine it
      runs on matches the pin;
    - on a public repository with a self-hosted runner, fork pull requests'

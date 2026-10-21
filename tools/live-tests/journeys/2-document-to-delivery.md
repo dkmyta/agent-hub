@@ -7,15 +7,15 @@ build, its review, the CI gate, the hand-off, the merge.
 |---|---|
 | Covers | Plan approval checked; build, verify, review, fix pass; the draft pull request and its record; the CI gate; hand-off; merge → Done; the branch deleted |
 | Mocks already cover | Every path (`tests/build/`); live adds the runner's sandbox, real Claude Code, GitHub's branch protection and checks, the CI sweep's schedule, the tracker's transitions and permissions |
-| Estimated cost | About $0.50–2 of Claude: the build, its review and fix pass. 3–5 tracker automation runs |
-| Trackers verified | — (written 2026-10-15, hub 2.24.0) |
+| Estimated cost | About $0.50–2 of Claude (measured: $0.62): the build, its review and fix pass. 3–5 tracker automation runs |
+| Trackers verified | Jira, 2026-10-18 to 10-21 (hub 2.28.1, AGENTHUB-62) — written 2026-10-15, hub 2.24.0 |
 
 ## Before you start
 
 - **The setup checker passes in the repository** (`.github/agent-hub/scripts/check-setup.sh --jira-project <KEY>`): nothing blocked; anything unverified checked by hand. Keep its output with the evidence.
 - [Journey 1](1-planning-and-revision.md) finished on this ticket, or any
   ticket in Implementation Plan with a plan for
-  [reverse-words](../fixtures/tickets/reverse-words.md).
+  [camel-case](../fixtures/tickets/camel-case.md).
 - The repository: `AGENT_HUB_BUILD_ENABLED=true`; the build token your own
   fine-grained one (Contents and Pull requests read/write, no Workflows —
   setup.md, "The build token and branch protection"); main protected with

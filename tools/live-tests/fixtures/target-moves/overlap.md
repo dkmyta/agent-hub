@@ -1,6 +1,6 @@
 # Target moves: overlap without a conflict
 
-Changes `playground/src/text.js`, which the reverse-words build also
+Changes `playground/src/text.js`, which the ticket's build also
 changes, but only `slugify`'s comment, far from the new function.
 
 ```sh

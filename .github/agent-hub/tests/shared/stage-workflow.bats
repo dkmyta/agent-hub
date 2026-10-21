@@ -300,6 +300,37 @@ build: checks.json isn't {\"checks\": [{\"name\": …, \"command\": …}]}"
   assert_output 'pull_request_target {"actions":"write"}'
 }
 
+# After a /skip changed the items, the build asks for the CI sweep (2.28.2):
+# a job of its own, after the stage, only when the stage says so — the only
+# one in the build workflow that can start a workflow, and all it does is
+# start the sweep. The stage job keeps its read-only token.
+@test "the build's CI sweep request: its own job after the stage, on the stage's output only, starting the sweep and nothing else" {
+  run node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { parse } from "yaml";
+    const [buildFile, stageFile] = process.argv.slice(1);
+    const wf = parse(readFileSync(buildFile, "utf8"));
+    const stage = parse(readFileSync(stageFile, "utf8"));
+    console.log("workflow", JSON.stringify(wf.permissions));
+    console.log("jobs", Object.keys(wf.jobs).join(","));
+    const job = wf.jobs["request-ci"];
+    console.log("needs", job.needs, "if", job.if, "permissions", JSON.stringify(job.permissions));
+    console.log("stage output", stage.on.workflow_call.outputs["request-ci"].value, stage.jobs.stage.outputs["request-ci"]);
+    for (const step of job.steps) {
+      if (step.uses) console.log("uses", step.uses);
+      if (/\$\{\{/.test(step.run ?? "")) console.log("expression in run");
+      if (/source |\.github\/agent-hub/.test(step.run ?? "")) console.log("repository script");
+      const starts = (step.run ?? "").match(/actions\/workflows\/([^/]+)\/dispatches/g) ?? [];
+      console.log("starts", starts.join(","));
+    }' "$REPO_DIR/.github/workflows/agent-hub-build.yml" "$REPO_DIR/.github/workflows/agent-hub-stage.yml"
+  assert_success
+  assert_output 'workflow {"contents":"read","checks":"read","statuses":"read","actions":"read"}
+jobs build,request-ci
+needs build if needs.build.outputs.request-ci == '"'"'true'"'"' permissions {"actions":"write"}
+stage output ${{ jobs.stage.outputs.request-ci }} ${{ steps.start.outputs.request-ci }}
+starts actions/workflows/agent-hub-ci-sweep.yml/dispatches'
+}
+
 # The CI sweep wakes as soon as CI finishes (2.28.0): any completed workflow,
 # but the job runs only for a pull request from one of the hub's branches in
 # this repository — so it never wakes itself — and the schedule stays as the

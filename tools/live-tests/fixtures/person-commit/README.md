@@ -9,12 +9,17 @@ What the review should find, and what each is for:
 
 | Planted | Where | Expected review item |
 |---|---|---|
-| A bug: a double space or empty text throws (`word[0]` of an empty word) | `initials.js` | An R item, to `/apply` |
-| A docs slip: the README says the helper is in `src/text.js` | `playground/README.md` | An R item, to `/apply` or `/skip` |
-| A style nit: `var` | `initials.js` | Fixed by the fix pass, or an R item to `/skip` |
+| A new file outside the approved plan | `initials.js` | A D item (the gate: outside the plan's scope), and one from the review (beyond the plan) |
+| A bug: a double space or empty text throws (`word[0]` of an empty word) | `initials.js` | A D item |
+| A docs slip: the README says the helper is in `src/text.js` | `playground/README.md` | A D item |
+| A style nit: `var` | `initials.js` | Part of the bug's item, or one of its own |
 
-The review's exact wording and ids vary; record what it found. A review that
-misses the bug is a finding about the review, not a failed journey step.
+Every finding is a **D item**, a person's decision, not an R item: the
+commit adds a file outside the approved plan, and the hub doesn't change
+out-of-plan code on its own (an `/apply` of one is answered *unchanged* or
+*dropped*, with the reason). The review's exact wording and ids vary;
+record what it found. A review that misses the bug is a finding about the
+review, not a failed journey step.
 
 To plant it, from a clone of the repository:
 
