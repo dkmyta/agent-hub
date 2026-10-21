@@ -19,3 +19,5 @@ Start with the **[agent hub README](.github/agent-hub/README.md)**.
 The repository is public so it can use GitHub's features; that doesn't make
 it open source — no licence is granted ([LICENSE](LICENSE)). To report a
 security problem, see [SECURITY.md](SECURITY.md).
+
+Live test note: this line is from a live test.
