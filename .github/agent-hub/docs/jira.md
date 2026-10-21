@@ -460,7 +460,9 @@ automation run and a short GitHub run to be refused.
 
 How to use them: `/skip D1 R2` closes those items — a decision (`D`) is
 **accepted** — with no Claude, and the build's CI gate runs again (so a pull
-request whose only blocker was a decision item can be handed off). The line
+request whose only blocker was a decision item can be handed off): the build
+asks for the CI sweep as soon as the items change (since 2.28.2), and the
+gate makes all its usual checks. The line
 holds only the command and item ids; anything else and the whole command is
 refused (a reason can go in a following paragraph, for people). Who accepted
 or skipped what is kept on the ticket, not on the pull request.

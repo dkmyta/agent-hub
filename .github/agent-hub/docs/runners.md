@@ -47,6 +47,13 @@ pull request and ticket say which).
    - the evals: Node 22.
 
    macOS and Ubuntu have all of these but Claude Code, `jq` and Node.
+
+   The runner gets the `PATH` of the shell it's started from. If Claude Code
+   and Node come from nvm (or another version manager that sets `PATH` in
+   your shell profile), start the runner — or install the service — from a
+   shell where `claude --version` works, e.g.
+   `source ~/.nvm/nvm.sh && nvm use 22 && ./run.sh`. Otherwise every run
+   stops with "Claude Code wasn't found on the runner".
 4. **Log in**: run `claude` once as the user the runner service runs as, and
    log in with the Claude account the automation should use. Make that a user
    of its own, not yours: Claude Code shares its temp folder between

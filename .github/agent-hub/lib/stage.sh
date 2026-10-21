@@ -273,7 +273,10 @@ stage_check_caps() {
   fi
   tracker_labels "+$OVER_CAP_LABEL" "+$NEEDS_HUMAN_LABEL" > /dev/null \
     || stage_fail "$TICKET_KEY is over its Claude usage cap, but its labels couldn't be changed. Claude wasn't used."
-  jq -n -L "$HUB_DIR/lib" --argjson ledger "$ledger" --argjson max_runs "$TICKET_MAX_RUNS" --argjson max_cost "$(jq -n --arg c "$TICKET_MAX_COST_USD" '$c | tonumber')" \
+  # The ⛔ notice once per time over the cap: when it's reached ("now"), not
+  # again on each run while the label stays ("still"). Removing the label
+  # lifts the cap (above), so reaching it again posts a fresh one.
+  [ "$over" != now ] || jq -n -L "$HUB_DIR/lib" --argjson ledger "$ledger" --argjson max_runs "$TICKET_MAX_RUNS" --argjson max_cost "$(jq -n --arg c "$TICKET_MAX_COST_USD" '$c | tonumber')" \
       --argjson run_max "$run_max" --arg label "$OVER_CAP_LABEL" --arg run "$RUN_URL" 'include "adf";
     (($ledger.runs // 0) - ($ledger.lifted_runs // 0)) as $runs
     | (($ledger.cost_usd // 0) - ($ledger.lifted_cost_usd // 0)) as $cost
@@ -291,6 +294,9 @@ stage_check_caps() {
       + (if $runs >= $max_runs then "\($runs) of its \($max_runs) runs are used."
          else "a run of this stage can cost up to \($run_max | usd), and \([$cap - $spent, 0] | max | usd) is left of its \($cap | usd) cap (\($spent | usd) used)." end)
       + (if $ledger.over_cap == true then " A person lifts the cap by removing the over-cap label." else "" end)'
+  # What the stage must still say about a run that stopped here (the build:
+  # the /apply it was given, so it isn't left claimed and unanswered).
+  [ -z "${STAGE_ON_CAP:-}" ] || "$STAGE_ON_CAP"
   stage_outcome blocked
   exit 0
 }
@@ -456,6 +462,16 @@ stage_resolve_comments() {
   local comments=$1 resolution=$2
   shift 2
   _resolve_matching "$comments" "$resolution" '.body | first_text | IN($args[])' "$@"
+}
+
+# stage_resolve_failures <comments.json>: once the stage has done its work,
+# its own earlier failure notices (FAILURE_TITLE, "❌ …") are marked resolved,
+# so one doesn't read as current after a later run of the same stage
+# succeeded. Only those the run read at its start (_resolve_matching); a
+# failure that can't be marked stays, with a warning.
+stage_resolve_failures() {
+  stage_resolve_comments "$1" "a later run of this stage succeeded." "$FAILURE_TITLE" > /dev/null \
+    || echo "::warning::Couldn't mark an earlier failure notice on $TICKET_KEY as resolved."
 }
 
 # stage_resolve_revisions <comments.json>: mark the change requests the run

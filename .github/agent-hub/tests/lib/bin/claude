@@ -31,8 +31,14 @@ if [ "$1" = auth ] && [ "$2" = status ]; then
   printf '{"loggedIn": %s, "authMethod": "claude.ai", "apiProvider": "%s", "subscriptionType": "pro", "apiKeySource": %s, "email": "private-person@example.com", "orgName": "Private Org"}\n' "$login" "$provider" "$key"
   exit 0
 fi
-# `--help` lists restricted mode unless CLAUDE_NO_RESTRICTED=1 (an older version).
-if [ "$1" = --help ]; then [ "${CLAUDE_NO_RESTRICTED:-}" = 1 ] || echo "  --restricted  Restricted mode"; exit 0; fi
+# `--help` lists restricted mode unless CLAUDE_NO_RESTRICTED=1 (an older
+# version: its help, without it); CLAUDE_NO_HELP=1 prints nothing (not found).
+if [ "$1" = --help ]; then
+  [ "${CLAUDE_NO_HELP:-}" != 1 ] || exit 127
+  echo "Usage: claude [options] [command] [prompt]"
+  [ "${CLAUDE_NO_RESTRICTED:-}" = 1 ] || echo "  --restricted  Restricted mode"
+  exit 0
+fi
 
 case " $* " in
   *fix-check-pass-prompt.md*) pass=fix-check ;;

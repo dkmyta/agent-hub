@@ -154,6 +154,7 @@ step_apply() {
   RESOLVED=$(stage_resolve_comments "$RUNNER_TEMP/comments.json" \
     "details were added and the work order was generated." "$NEEDS_DETAILS_TITLE")
   REVISIONS=$(stage_resolve_revisions "$RUNNER_TEMP/comments.json")
+  stage_resolve_failures "$RUNNER_TEMP/comments.json"
   if [ "$SETTLED" = true ]; then
     stage_resolve_comments "$RUNNER_TEMP/comments.json" \
       "settled in the work order; approve it to write the plan." "$NEEDS_CLARIFICATION_TITLE" > /dev/null
@@ -174,7 +175,7 @@ step_return() {
   # the source and Claude's specifics. (Curly apostrophes intended.)
   # shellcheck disable=SC1112
   jq -L "$HUB_DIR/lib" --arg title "$NEEDS_DETAILS_TITLE" --arg message "$NEEDS_DETAILS_MESSAGE" 'include "adf";
-    doc([para([strong($title), text(" — flagged by Claude (work order review).")]),
+    doc([para([strong($title), text(" — flagged by Claude (work order).")]),
          para($message),
          para([strong("What’s missing: "), text(.structured_output.missing)])])' \
     "$RUNNER_TEMP/agent-output.json" | tracker_comment > /dev/null

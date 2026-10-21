@@ -179,6 +179,9 @@ _extension_text() {
 _require_restricted() {
   local help
   help=$(claude --help 2>/dev/null) || true
+  # No answer at all: not on the runner's PATH (e.g. the runner was started
+  # from a shell without nvm), not an old version.
+  [ -n "$help" ] || stage_fail "Claude Code wasn't found on the runner, or didn't answer (\`claude --help\` printed nothing), so nothing was changed. Start the runner from a shell where \`claude --version\` works (docs/runners.md), then try again."
   [[ "$help" == *--restricted* ]] || stage_fail "Claude Code ${CLAUDE_VERSION:-(unknown version)} has no restricted mode, which keeps the agents inside the repository whatever its settings say, so nothing was changed. Update Claude Code on the runner (docs/runners.md), then try again."
 }
 

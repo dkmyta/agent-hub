@@ -990,6 +990,8 @@ stops() {
   assert_output --partial "<ticket>"
   assert_output --partial "<checks>"
   assert_output --partial "<diff>"
+  # The build's own review: no people's commits to name.
+  refute_output --partial "<people>"
   assert_output --partial "+++ b/src/greet.js"
   # Its commands don't inherit the hub's git metadata.
   refute_output --partial "GIT_DIR"
@@ -1137,7 +1139,7 @@ pushed_head_subject() { local remote; remote=$(git -C "$STEP_CWD" remote get-url
 @test "fix: an unusable fix check, a fix pass that changes nothing or one that can't start keeps nothing, and costs nothing of the build" {
   fix_run CLAUDE_FIX_EDITS=edits/fix-trim.sh CLAUDE_FIX_CHECK_FIXTURE=none
   run jq -c '{status, reason}' "$RUNNER_TEMP/fix.json"
-  assert_output '{"status":"failed","reason":"the fix check returned no usable result, so the fixes weren'"'"'t kept"}'
+  assert_output '{"status":"dropped","reason":"the fix check returned no usable result, so the fixes weren'"'"'t kept"}'
   run pushed_head_subject
   refute_output "Fix the automated review's findings"
   fresh_repo
@@ -1371,13 +1373,17 @@ pass_row() { # <pass name>: that row's cells, one per line
 # is private, gets them (so they really were there to leak).
 @test "public repository: no Claude-written review or fix text on the pull request or in a commit, whatever the fix's outcome" {
   local outcome remote
-  for outcome in "fix-trim.sh|claude/fix-check-canaries.json|kept" "fix-breaks-test.sh|claude/fix-check-canaries.json|dropped" "fix-trim.sh|none|failed"; do
+  # Dropped twice: by Verify fix, and when its check gives nothing usable
+  # (2.28.2: what the fix pass said is kept then too); failed when it
+  # changes nothing (what it said is kept as well).
+  for outcome in "fix-trim.sh|claude/fix-check-canaries.json|kept" "fix-breaks-test.sh|claude/fix-check-canaries.json|dropped" \
+      "fix-trim.sh|none|dropped" "|claude/fix-check-canaries.json|failed"; do
     IFS='|' read -r edits check expected <<< "$outcome"
     fresh_repo
     run_scenario ready CLAUDE_EDITS=edits/greet.sh MOCK_GH_VISIBILITY=public \
       'CLAUDE_FIXTURE_EDIT=.structured_output.build.summary += " CANARY-BUILD-SUMMARY"' \
       CLAUDE_PASS_FIXTURE=claude/review-canaries.json CLAUDE_FIX_FIXTURE=claude/fix-canaries.json \
-      "CLAUDE_FIX_CHECK_FIXTURE=$check" "CLAUDE_FIX_EDITS=edits/$edits"
+      "CLAUDE_FIX_CHECK_FIXTURE=$check" "CLAUDE_FIX_EDITS=${edits:+edits/$edits}"
     assert_equal "$(jq -r '.status' "$RUNNER_TEMP/fix.json")" "$expected"
     run jq -r 'select(.path | endswith("/pulls")) | .body.title, .body.body' "$GH_CALLS"
     refute_output --partial CANARY
@@ -1508,6 +1514,12 @@ testing_note() {
   # The record: the next generation, the people's head, the review on it.
   local head
   head=$(git --git-dir="$REMOTE" rev-parse refs/heads/agent-hub/PROJ-99)
+  # The review is told which commits are people's (2.28.2) — their ids, never
+  # their messages — so it doesn't credit the build with them.
+  assert_output --partial "<people>
+- ${head:0:7}"
+  assert_output --partial "These commits were pushed by people, not the build"
+  refute_output --partial "A person's change"
   run jq -c '{generation, people: [.heads[] | select(.by == "people") | .head], review: .review.head}' <<< "$(pr_state)"
   assert_output "{\"generation\":2,\"people\":[\"$head\"],\"review\":\"$head\"}"
   # The status section rewritten in place, the rest of the description kept.
@@ -2224,6 +2236,9 @@ resolutions() { jq -r 'select(.method == "PUT" and (.path | startswith("/comment
   assert_line "Agent: skipped"
   run jq -c '[.items[] | select(.id == "D1") | .status][0], (.ci == null)' <<< "$(pr_state)"
   assert_output $'"accepted"\ntrue'
+  # The workflow asks for the CI sweep (2.28.2): the gate runs again with all
+  # its checks, without waiting for the schedule.
+  assert_equal "$(step_output start request-ci)" true
   run pr_body
   assert_output --partial "**D1** \`README.md\` — decision: in an area the plan says must not be touched — **accepted** by an approver"
   run pr_comments
@@ -2407,6 +2422,8 @@ skipped_then_pushed() {
   assert_equal "$(jq -r '[.items[] | select(.id == "D1") | .status][0]' <<< "$(pr_state)")" open
   run resolutions
   assert_output --partial "not done: pull request #101 is paused (agent-hub-paused) — remove the label, then post the command again"
+  # Nothing changed: no CI sweep asked for.
+  assert_equal "$(step_output start request-ci)" ""
 }
 
 @test "/skip: only approvers, only item ids, only open items — anything else is answered, and nothing changes" {
@@ -2494,7 +2511,7 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
   assert_output --partial "the fix check raised R3 (low style: "
   run resolutions
   assert_output --partial "/comment/700 ✅ Resolved — applied in"
-  assert_output --partial "R1 fixed — src/greet.js trims the name"
+  assert_output --partial "R1 applied — src/greet.js trims the name"
   run pr_comments
   assert_output --partial "🔁 Applied by the agent hub (an /apply by an approver on the ticket): R1, in"
   refute_output --partial "trims the name"
@@ -2551,6 +2568,48 @@ apply_run() { # <command> [VAR=value...]: an /apply whose fix (finding 1) is kep
   assert_equal "$(jq -c '.handled' "$RUNNER_TEMP/mock-property-agent-hub-items.json")" '["700","701"]'
   run resolutions
   assert_output --partial "/comment/701 ✅ Resolved"
+}
+
+# 2.28.2: an /apply's answer leads with what happened to each item —
+# applied, unresolved, dropped or unchanged — then why. A dropped fix never
+# reads as done.
+@test "/apply answers: a fix made but dropped says so, never as done; a fix pass that changed nothing gives its own reason" {
+  findings_pr
+  # Dropped: a fix was made, but its check gave no usable result.
+  apply_run '/apply r1' CLAUDE_FIX_CHECK_FIXTURE=none
+  run trace
+  assert_line "--- Outcome: no change needed"
+  run resolutions
+  assert_output --partial "✅ Resolved — nothing applied: R1 dropped — a fix was made but not kept, so nothing changed: the fix check returned no usable result, so the fixes weren't kept. What it had tried (not applied): src/greet.js trims the name"
+  refute_output --partial "R1 applied"
+  refute_output --partial "applied in"
+  assert_equal "$(jq -r '.log[-1].results[0].outcome' "$RUNNER_TEMP/mock-property-agent-hub-items.json")" dropped
+  assert_equal "$(jq -r '[.items[] | select(.id == "R1")][0].status' <<< "$(pr_state)")" open
+  # Unchanged: the fix pass edited nothing; its own words say why.
+  keep_properties
+  carry_prs
+  jq '.structured_output.fixes[0] |= (.fixed = false | .what = "Left it: the check is in a file outside the approved plan.")' \
+    "$FIXTURES/claude/fix.json" > "$BATS_TEST_TMPDIR/fix-declined.json"
+  command_run "$(command_comments '/apply r1')" "CLAUDE_FIX_FIXTURE=$BATS_TEST_TMPDIR/fix-declined.json" \
+    CLAUDE_FIX_CHECK_FIXTURE=claude/fix-check.json CLAUDE_FIX_EDITS=""
+  run resolutions
+  assert_output --partial "/comment/701 ✅ Resolved — nothing applied: R1 unchanged — Left it: the check is in a file outside the approved plan."
+  refute_output --partial "/comment/701 ✅ Resolved — nothing applied: R1 unchanged — the fix pass changed nothing"
+  assert_equal "$(jq -r '.log[-1].results[0].outcome' "$RUNNER_TEMP/mock-property-agent-hub-items.json")" unchanged
+}
+
+@test "/apply at the Claude cap: nothing runs, and the command is answered — post it again once the label is removed (2.28.2)" {
+  findings_pr
+  apply_run '/apply r1' 'MOCK_LEDGER={"runs":10,"cost_usd":5}'
+  run trace
+  assert_line "Agent: skipped"
+  assert_line "--- Outcome: blocked"
+  [ ! -e "$RUNNER_TEMP/claude-fix-prompt.txt" ] || fail "the fix pass ran"
+  # Claimed when it was read, and answered: never left claimed and silent.
+  assert_equal "$(jq -c '.handled' "$RUNNER_TEMP/mock-property-agent-hub-items.json")" '["700"]'
+  run resolutions
+  assert_output --partial "/comment/700 ✅ Resolved — not done — nothing ran: PROJ-99 is over its Claude usage cap, so the run stopped before Claude. Remove the agent-hub-over-cap label, then post the command again"
+  assert_equal "$(jq -r '[.items[] | select(.id == "R1")][0].status' <<< "$(pr_state)")" open
 }
 
 @test "/apply all: every open R item, never a decision" {

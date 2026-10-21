@@ -139,6 +139,14 @@ step_review() {
     "$(cat "$RUNNER_TEMP/ticket.md")" \
     "$(jq -r 'if (.checks | length) == 0 then "The repository declares no checks." else .checks[] | "\(.name) (\(.command)): \(.result)" end' "$RUNNER_TEMP/verify.json")" \
     "$(cat "$diff")")
+  # A re-review after people pushed: which commits are theirs (hub facts —
+  # ids only, never their messages), so the review doesn't credit the build
+  # with a person's work.
+  if reconciling && [ "$(context '.people_commits // 0')" -gt 0 ]; then
+    input+=$(printf '\n\n<people>\n%s\n</people>\n' \
+      "$(build_git && git rev-list --first-parent --reverse --abbrev-commit "$(context .previous_head)..$(context .start_head)" \
+        | sed 's/^/- /'; echo "These commits were pushed by people, not the build (a merge among them brings in the target branch's changes).")")
+  fi
   # A re-review: what approvers already decided, for it not to raise again.
   if [ "$(jq 'length' "$DECIDED")" -gt 0 ]; then
     input+=$(printf '\n\n<decided>\n%s\n</decided>\n' "$(jq -r '.[] | "- \(.id), \(.status) by an approver: \(.title) (\(.kind)\(if .file != "" then ", \(.file)\(if .line then ":\(.line)" else "" end)" else "" end)). \(.evidence)"' "$DECIDED")")

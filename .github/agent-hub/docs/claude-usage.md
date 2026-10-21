@@ -140,7 +140,10 @@ run — retries, revisions and resubmissions included:
   third limit. A run that can't be admitted stops
   before its progress comment: the ticket gets the `agent-hub-over-cap` label
   (`AGENT_HUB_OVER_CAP_LABEL`) and `needs-human`, and a ⛔ comment with the
-  totals and how to go on. Nothing else changes.
+  totals and how to go on — once: later runs while the label stays don't
+  post it again (since 2.28.2). Nothing else changes, except that an
+  `/apply` the run was given is answered "not done — nothing ran", to be
+  posted again once the cap is lifted.
 - **Any ticket editor can lift it, or reset the count:** removing the
   label isn't limited to approvers, and the usage record is an issue
   property anyone who can edit the ticket can change. The caps stop runaway

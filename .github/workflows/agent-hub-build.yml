@@ -55,3 +55,27 @@ jobs:
       fix-minutes: 40
       job-minutes: 270
     secrets: inherit
+
+  # After a /skip changed the items (the stage's request-ci output), the CI
+  # sweep is asked to run — the same reconciliation every CI completion
+  # starts. It wakes the CI gate for the pull request's head with all its
+  # usual checks, so a hand-off the items were holding back doesn't wait
+  # for the next scheduled sweep. Its own job: the only one here that can
+  # start a workflow (actions: write); it runs nothing from the repository.
+  request-ci:
+    needs: build
+    if: needs.build.outputs.request-ci == 'true'
+    permissions:
+      actions: write
+    runs-on: ${{ fromJSON(vars.AGENT_HUB_RUNS_ON || '["self-hosted", "claude"]') }}
+    timeout-minutes: 2
+    steps:
+      - name: Ask for the CI sweep
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.event.repository.default_branch }}
+        run: |
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/agent-hub-ci-sweep.yml/dispatches" \
+            -d "{\"ref\": \"$REF\"}"
+          echo "CI sweep requested." >> "$GITHUB_STEP_SUMMARY"

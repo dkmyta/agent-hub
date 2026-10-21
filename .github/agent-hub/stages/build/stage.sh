@@ -158,6 +158,9 @@ step_fetch() {
   } >> "$RUNNER_TEMP/ticket.md"
   if reconciling; then
     if applying; then
+      # Stopped at the Claude cap: the /apply is answered, not left claimed.
+      # shellcheck disable=SC2034 # read by stage_check_caps (lib/stage.sh)
+      STAGE_ON_CAP=_apply_capped
       stage_progress_comment "⏳ Applying to pull request #$(context .pr)" \
         " — what an approver asked for with /apply ($(context '.apply.sources | length') item(s) or review thread(s)), through the fix pass, verified before it's pushed. Refresh the page to see the result. "
       return
